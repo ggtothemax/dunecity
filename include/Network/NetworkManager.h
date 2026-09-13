@@ -92,8 +92,9 @@ public:
     bool isRoomSession() const {
         return transport == Transport::RoomRelay || transport == Transport::DirectP2P;
     }
-    /// Kept for call sites that mean "a room session rather than the ENet mesh".
-    bool isRelaySession() const { return isRoomSession(); }
+    /// Only the legacy relay needs a wall-clock batch cadence. Direct transports send each step.
+    static constexpr bool usesBatchedCommands(Transport kind) { return kind == Transport::RoomRelay; }
+    bool usesBatchedCommands() const { return usesBatchedCommands(transport); }
     /// True only when gameplay travels straight between the players.
     bool isDirectSession() const { return transport == Transport::DirectP2P; }
 

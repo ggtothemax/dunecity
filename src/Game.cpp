@@ -3523,8 +3523,8 @@ void Game::initializeNetwork() {
 void Game::resumeGame()
 {
     bMenu = false;
-    // Relay menus never stop lockstep, so closing one must not enqueue a resume command.
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    // Online room menus never stop lockstep, so closing one must not enqueue a resume command.
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         return;
     }
     bPause = false;
@@ -3543,8 +3543,8 @@ void Game::resumeGame()
 
 void Game::pauseGame() {
     // A local pause freezes the cycle that would transmit the pause command itself.
-    // Until a synchronized pause protocol exists, relay games continue behind menus.
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    // Until a synchronized pause protocol exists, online room games continue behind menus.
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         return;
     }
     bPause = true;
@@ -5215,7 +5215,7 @@ void Game::handleKeyInput(SDL_KeyboardEvent& keyboardEvent) {
         } break;
 
         case SDLK_SPACE: {
-            if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+            if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
                 pInterface->getChatManager().addInfoMessage(_("Online games cannot be paused."));
                 break;
             }
@@ -5987,7 +5987,7 @@ bool Game::handleNetworkUpdates() {
             // but "waiting for other players". Ending it visibly is the honest outcome; a
             // player's commands are never skipped to keep the match moving, because that is a
             // silent desynchronisation.
-            if(pNetworkManager->isRelaySession()
+            if(pNetworkManager->isRoomSession()
                && waitedMs > LOCKSTEP_STALL_TIMEOUT_MS && !lockstepStallReported) {
                 lockstepStallReported = true;
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
@@ -6061,7 +6061,7 @@ GameStateDigest::Digest Game::computeStateDigest() const {
 }
 
 void Game::updateStateDigests() {
-    if(pNetworkManager == nullptr || !pNetworkManager->isRelaySession()) {
+    if(pNetworkManager == nullptr || !pNetworkManager->isRoomSession()) {
         return;
     }
     if(gameCycleCount == 0 || (gameCycleCount % GameStateDigest::kDigestIntervalCycles) != 0) {

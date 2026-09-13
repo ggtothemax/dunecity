@@ -1,3 +1,30 @@
+## Direct command pacing correction — 13 September 2026
+
+Local branch `fix/direct-p2p-command-pacing`, based on published 1.0.665 (`b7db719`).
+Version 1.0.667 reserved here because the separate campaign-AI branch already uses 1.0.666.
+This change is not deployed. User asked to remove relay behaviour from P2P gameplay after
+reporting generally sluggish Brave multiplayer with VR48.
+
+`CommandManager::update()` was incorrectly applying the legacy 100ms relay emission cadence
+because `isRelaySession()` aliased all room sessions, including DirectP2P. Direct P2P now
+sends the rolling command window on every simulation iteration, the same as ENet. The
+ambiguous alias is removed; room lifecycle, validation, state digests and pause guards use
+`isRoomSession()`, while only the actual legacy relay uses `usesBatchedCommands()`.
+No gameplay fallback, protocol changes, command skipping, catch-up changes or server changes.
+
+Regression coverage includes two simulated peers on an ordered lossless 286ms RTT path,
+22-cycle lead and 10ms ticks. The old cadence loses over 5 seconds of simulated progress in
+120 seconds; DirectP2P and ENet preserve >=99% of intended pace. This is a controlled timing
+model, not a reproduction of all conditions in the reported WAN match. Full native build,
+six CTest suites and Emscripten syntax checks of all changed translation units pass.
+No fresh browser multiplayer playthrough yet; published 1.0.665 is unchanged.
+
+The user's diagnostic text concatenated the usual desktop-equivalent general/performance
+logs. There is also per-mission `ai-decisions/<session>/events.jsonl` in the browser virtual
+filesystem: its `performance_window` events contain wall-clock intervals and `frame.tick_ms`.
+Use that to measure actual simulation pace; legacy reported FPS excludes browser yield time
+and NetworkWait excludes time between frames. No complete cause claim from those fields.
+
 ## Campaign controls release integration — 13 September 2026
 
 Version 1.0.665 combines campaign controls, map-selection repair, AI partner choices

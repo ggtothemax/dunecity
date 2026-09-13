@@ -612,7 +612,7 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
             }
         }
 
-        if(pNetworkManager->isRelaySession() && !bServer) {
+        if(pNetworkManager->isRoomSession() && !bServer) {
             // Send our content fingerprint now, while the room is certainly still a lobby. On
             // the relay the host may declare the match started in the same breath as it sends
             // its own hashes, so answering that message later would be too late.

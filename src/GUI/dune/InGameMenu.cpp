@@ -48,7 +48,7 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     mainHBox.addWidget(HSpacer::create(22));
 
 
-    const bool onlineContinues = pNetworkManager && pNetworkManager->isRelaySession();
+    const bool onlineContinues = pNetworkManager && pNetworkManager->isRoomSession();
     if(onlineContinues) {
         onlineNotice.setText(_("Online game continues"));
         onlineNotice.setTextColor(color);

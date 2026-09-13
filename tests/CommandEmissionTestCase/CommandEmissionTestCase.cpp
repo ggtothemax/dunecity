@@ -28,6 +28,10 @@
 #include <catch2/catch_all.hpp>
 
 #include <CommandEmissionSchedule.h>
+#include <Network/NetworkManager.h>
+
+#include <array>
+#include <algorithm>
 #include <CommandValidation.h>
 #include <Definitions.h>
 
@@ -497,4 +501,74 @@ TEST_CASE("Emission: input after a sent frontier arrives once in the next schedu
     CHECK_FALSE(receiver.sawGap());
     REQUIRE(receiver.appliedCommandCycles().size() == 1);
     CHECK(*receiver.appliedCommandCycles().begin() == buffer);
+}
+
+
+TEST_CASE("Direct gameplay does not inherit the relay command cadence",
+          "[network][command-emission][p2p]") {
+    // Two peers advance in lockstep over an ordered, lossless simulated path.
+    // 286ms RTT and a 22-cycle lead at 10ms/tick leave enough room for direct
+    // delivery, but not for an additional 100ms command batch. Neither the real
+    // RTC backend nor browser scheduling is modelled here.
+    struct Peer {
+        Uint32 cycle = 0;
+        Uint32 watermark = 0;
+        Uint32 accumulatedMs = 0;
+        Uint32 discardedMs = 0;
+        CommandEmissionSchedule schedule;
+    };
+    struct Delivery { Uint32 due; Uint32 recipient; Uint32 end; };
+    const auto run = [](NetworkManager::Transport transport) {
+        std::array<Peer, 2> peers;
+        std::deque<Delivery> deliveries;
+        constexpr Uint32 durationMs = 120000;
+        constexpr Uint32 frameMs = 14;
+        constexpr Uint32 tickMs = 10;
+        constexpr Uint32 buffer = 22;
+        constexpr Uint32 oneWayMs = 143;
+        for (Uint32 now = 0; now < durationMs; now += frameMs) {
+            while (!deliveries.empty() && deliveries.front().due <= now) {
+                const auto delivery = deliveries.front();
+                deliveries.pop_front();
+                peers[delivery.recipient].watermark = std::max(
+                    peers[delivery.recipient].watermark, delivery.end);
+            }
+            for (Uint32 id = 0; id < peers.size(); ++id) {
+                auto& peer = peers[id];
+                peer.accumulatedMs += frameMs;
+                const Uint32 ceiling = std::max(tickMs * 3, 24u);
+                if (peer.accumulatedMs > ceiling) {
+                    peer.discardedMs += peer.accumulatedMs - ceiling;
+                    peer.accumulatedMs = ceiling;
+                }
+                for (unsigned steps = 0; peer.accumulatedMs > tickMs && steps < 10; ++steps) {
+                    const bool waiting = peer.watermark <= peer.cycle;
+                    if (!NetworkManager::usesBatchedCommands(transport)
+                        || peer.schedule.shouldEmit(now, peer.cycle)) {
+                        deliveries.push_back({now + oneWayMs, 1u - id, peer.cycle + buffer});
+                        peer.schedule.noteEmission(now, peer.cycle + buffer);
+                    }
+                    if (waiting) break;
+                    ++peer.cycle;
+                    peer.accumulatedMs -= tickMs;
+                }
+            }
+        }
+        return peers;
+    };
+
+    for (const auto transport : {NetworkManager::Transport::DirectP2P,
+                                 NetworkManager::Transport::EnetMesh}) {
+        const auto peers = run(transport);
+        for (const auto& peer : peers) {
+            // Allow initial connection warm-up, then require >=99% intended pace.
+            CHECK(peer.cycle >= 11880);
+            CHECK(peer.discardedMs < 250);
+        }
+    }
+    // The negative control must reproduce the inherited-pacing slowdown; this
+    // also preserves the batching policy for the legacy transport that needs it.
+    const auto relay = run(NetworkManager::Transport::RoomRelay);
+    CHECK(relay[0].cycle < 11400);
+    CHECK(relay[0].discardedMs > 5000);
 }

@@ -230,7 +230,7 @@ CrossplayMenu::~CrossplayMenu() {
     admission.cancel();
     visibilityUpdate.cancel();
     visibilityPending = false;
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         pNetworkManager->setOnReceiveGameInfo(
             std::function<void (const GameInitSettings&, const ChangeEventList&)>());
         pNetworkManager->setOnPeerDisconnected(
@@ -469,7 +469,7 @@ void CrossplayMenu::onHostCustomGame() {
         const int result = CustomGameMenu(true, false).showMenu();
         if(result != MENU_QUIT_DEFAULT) {
             quit(result);
-        } else if(pNetworkManager == nullptr || !pNetworkManager->isRelaySession()) {
+        } else if(pNetworkManager == nullptr || !pNetworkManager->isRoomSession()) {
             teardownSession(_("The online game ended."));
         }
         return;
@@ -482,7 +482,7 @@ void CrossplayMenu::onHostCustomGame() {
 void CrossplayMenu::onHostCampaignCoop() {
     if(stage == Stage::HostReady) {
         SinglePlayerSkirmishMenu(true).showMenu();
-        if(pNetworkManager == nullptr || !pNetworkManager->isRelaySession()) {
+        if(pNetworkManager == nullptr || !pNetworkManager->isRoomSession()) {
             teardownSession(_("The online game ended."));
         }
         return;
@@ -631,7 +631,7 @@ void CrossplayMenu::teardownSession(std::string reason) {
     admission.cancel();
     visibilityUpdate.cancel();
     visibilityPending = false;
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         pNetworkManager->setOnReceiveGameInfo(
             std::function<void (const GameInitSettings&, const ChangeEventList&)>());
         pNetworkManager->setOnPeerDisconnected(
@@ -736,7 +736,7 @@ void CrossplayMenu::update() {
         return;
     }
 
-    if(pNetworkManager == nullptr || !pNetworkManager->isRelaySession()) {
+    if(pNetworkManager == nullptr || !pNetworkManager->isRoomSession()) {
         return;
     }
 

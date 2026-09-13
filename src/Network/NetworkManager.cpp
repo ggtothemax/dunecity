@@ -248,7 +248,7 @@ void NetworkManager::startServer(bool bLANServer, const std::string& serverName,
     bGameInProgress = false;
     simulationSeed = 0;
 
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         // The room already exists and the relay already knows who the host is. There is nothing
         // to announce, no port to forward and no address to discover.
         bIsServer = true;
@@ -342,7 +342,7 @@ void NetworkManager::startServer(bool bLANServer, const std::string& serverName,
 }
 
 void NetworkManager::updateServer(int numPlayers) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         this->numPlayers = numPlayers;
         return;
     }
@@ -361,7 +361,7 @@ void NetworkManager::updateServer(int numPlayers) {
 }
 
 void NetworkManager::stopAnnouncing() {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         // Nothing is announced, but the phase flip still matters: it is what stops lobby-only
         // packets being accepted from this point on.
         bGameInProgress = true;
@@ -390,7 +390,7 @@ void NetworkManager::stopAnnouncing() {
 void NetworkManager::stopServer() {
     stopAnnouncing();
 
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         bIsServer = false;
         bLANServer = false;
         pGameInitSettings = nullptr;
@@ -513,7 +513,7 @@ void NetworkManager::connect(const std::string& hostname, int port, const std::s
 }
 
 void NetworkManager::connect(ENetAddress address, const std::string& playerName) {
-    if(isRelaySession() || host == nullptr) {
+    if(isRoomSession() || host == nullptr) {
         // A relay session reaches other players through the room, never through an address of
         // somebody else's choosing. There is no code path from here to a UDP connect.
         THROW(std::runtime_error,
@@ -542,7 +542,7 @@ void NetworkManager::connect(ENetAddress address, const std::string& playerName)
 }
 
 void NetworkManager::disconnect() {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         if(pRelayClient) {
             pRelayClient->stop(1 /* the player left */);
         }
@@ -559,7 +559,7 @@ void NetworkManager::disconnect() {
 
 void NetworkManager::update()
 {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         updateRelaySession();
         return;
     }
@@ -1991,7 +1991,7 @@ bool NetworkManager::routeSharedPayload(ENetPeer* peer, Uint32 packetType,
 
 
 void NetworkManager::sendPacketToHost(ENetPacketOStream& packetStream, int channel) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         sendPacketOverRelay(packetStream, channel, relayHostPeerId());
         return;
     }
@@ -2023,9 +2023,9 @@ void NetworkManager::sendPacketToPeer(ENetPeer* peer, ENetPacketOStream& packetS
 
 
 void NetworkManager::sendPacketToAllConnectedPeers(ENetPacketOStream& packetStream, int channel) {
-    if(isRelaySession()) {
-        // Recipient 0 means "every other peer in this room"; the relay fans it out, and a peer
-        // in another room can never be reached from here.
+    if(isRoomSession()) {
+        // Recipient 0 means every connected peer in this room. Direct P2P sends to each
+        // peer data channel; only the legacy relay asks a server to fan it out.
         sendPacketOverRelay(packetStream, channel, 0);
         return;
     }
@@ -2075,7 +2075,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
     SDL_Log("QuantBot: %s", quantBotHash.c_str());
     SDL_Log("ObjectData: %s", objectDataHash.c_str());
     
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
         packetStream.writeUint32(NETWORKPACKET_CONFIG_HASH);
         packetStream.writeUint32(NETWORK_PROTOCOL_VERSION);
@@ -2149,7 +2149,7 @@ void NetworkManager::beginSimulation(Uint32 seed) {
 }
 
 bool NetworkManager::sendStartGame(unsigned int timeLeft) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         if(!pRelayClient || !pRelayClient->isHost()) return false;
         // Use the worst connected-peer RTT to give every player time to receive the start.
         const unsigned int halfRoundTrip =
@@ -2214,8 +2214,8 @@ void NetworkManager::sendSelectedList(const std::set<Uint32>& selectedList, int 
 }
 
 int NetworkManager::getMaxPeerRoundTripTime() {
-    if(isRelaySession()) {
-        // This measures the local relay hop, not the peer path or polling delivery delay.
+    if(isRoomSession()) {
+        // The transport supplies peer-path RTT for direct P2P, or server-hop RTT for a legacy relay.
         return pRelayClient ? static_cast<int>(pRelayClient->roundTripTimeMs()) : 0;
     }
 
@@ -2284,7 +2284,7 @@ void NetworkManager::broadcastPathBudget(size_t newBudget, Uint32 applyCycle) {
 }
 
 void NetworkManager::sendModInfoToPeer(ENetPeer* peer, const std::string& modName, const std::string& modChecksum) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         // Relay v1 carries bundled, matching content only. Custom content transfer is refused
         // by the relay itself; there is no client-side path for it either.
         return;
@@ -2308,7 +2308,7 @@ void NetworkManager::sendModInfoToPeer(ENetPeer* peer, const std::string& modNam
 }
 
 void NetworkManager::sendModInfo(const std::string& modName, const std::string& modChecksum) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         return;     // see sendModInfoToPeer()
     }
 
@@ -2330,7 +2330,7 @@ void NetworkManager::sendModInfo(const std::string& modName, const std::string& 
 }
 
 void NetworkManager::requestModDownload(const std::string& modName) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         return;     // see sendModInfoToPeer()
     }
 
@@ -2555,7 +2555,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
 }
 
 void NetworkManager::sendModAck(bool success, const std::string& modChecksum) {
-    if(isRelaySession()) {
+    if(isRoomSession()) {
         return;     // see sendModInfoToPeer()
     }
 
