@@ -178,8 +178,24 @@ void drawRect(SDL_Surface *surface, int x1, int y1, int x2, int y2, Uint32 color
 
 sdl2::surface_ptr renderReadSurface(SDL_Renderer* renderer) {
     assert(renderer == ::renderer);
-    const SDL_Rect rendererSize = getRendererSize();
-    sdl2::surface_ptr pScreen{ SDL_CreateRGBSurface(0, rendererSize.w, rendererSize.h, SCREEN_BPP, RMASK, GMASK, BMASK, AMASK) };
+
+    // SDL_RenderReadPixels() with a null rect reads the renderer's whole output and does not
+    // apply logical scaling, so the destination must be sized in output pixels. Sizing it from
+    // the logical size overflows the buffer whenever the window is larger than that -- a
+    // 1280x720 logical size upscaled onto a 3840x2160 display makes SDL write nine times more
+    // pixels than the surface holds, which corrupts the heap and crashes the game.
+    // When a render target is bound, SDL_GetRendererOutputSize() reports that target's size,
+    // so map editor mapshots keep the dimensions they had before.
+    int outputWidth  = 0;
+    int outputHeight = 0;
+    if((SDL_GetRendererOutputSize(renderer, &outputWidth, &outputHeight) != 0) || (outputWidth <= 0) ||
+       (outputHeight <= 0)) {
+        const SDL_Rect rendererSize = getRendererSize();
+        outputWidth                 = rendererSize.w;
+        outputHeight                = rendererSize.h;
+    }
+
+    sdl2::surface_ptr pScreen{ SDL_CreateRGBSurface(0, outputWidth, outputHeight, SCREEN_BPP, RMASK, GMASK, BMASK, AMASK) };
     if((pScreen == nullptr) || (SDL_RenderReadPixels(renderer, nullptr, SCREEN_FORMAT, pScreen->pixels, pScreen->pitch) != 0)) {
         SDL_Log("Warning: renderReadSurface() failed: %s", SDL_GetError());
         return nullptr;
