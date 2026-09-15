@@ -47,6 +47,18 @@
 
 namespace {
 
+/// Peer endpoint label for log lines. Browser peers have no address; the transport id is
+/// the closest thing to an identity a log reader can act on.
+#ifdef __EMSCRIPTEN__
+std::string peerAddressLabel(const NetPeer* peer) {
+    return "webrtc:" + std::to_string(peer->webRtcPeerId);
+}
+#else
+std::string peerAddressLabel(const ENetPeer* peer) {
+    return Address2String(peer->address);
+}
+#endif
+
 /**
     Presents one peer of either transport to the shared payload handling.
 
@@ -149,6 +161,32 @@ void NetworkManager::installSessionBridges() {
     };
 }
 
+#ifdef __EMSCRIPTEN__
+
+NetworkManager::NetworkManager(int port, const std::string& metaserver) {
+    // Browser build: no ENet, no LAN discovery, no metaserver, no UPnP. All
+    // traffic flows through the WebRTC transport created here. Room sessions
+    // (relay/direct) still use the NetworkManager(Transport) constructor below.
+    (void) port;
+    (void) metaserver;
+
+    installSessionBridges();
+
+    pWebRtcTransport = std::make_unique<WebRtcTransport>();
+}
+
+NetworkManager::~NetworkManager() {
+    clearAllPeers();
+    pWebRtcTransport.reset();
+
+    if(pRelayClient) {
+        pRelayClient->stop(1);
+        pRelayClient.reset();
+    }
+}
+
+#else // native desktop
+
 NetworkManager::NetworkManager(int port, const std::string& metaserver) {
     installSessionBridges();
 
@@ -193,6 +231,8 @@ NetworkManager::NetworkManager(int port, const std::string& metaserver) {
 }
 
 
+#endif // __EMSCRIPTEN__
+
 NetworkManager::NetworkManager(Transport transportMode)
  : transport(transportMode) {
     installSessionBridges();
@@ -213,6 +253,7 @@ NetworkManager::NetworkManager(Transport transportMode)
     // relay session does not need them on any platform.
 }
 
+#ifndef __EMSCRIPTEN__
 NetworkManager::~NetworkManager() {
     if(pRelayClient) {
         pRelayClient->stop(1);
@@ -230,7 +271,7 @@ NetworkManager::~NetworkManager() {
         upnpPortMapped = false;
         upnpMappedPort = 0;
     }
-    
+
     pUPnPManager.reset();
     pMetaServerClient.reset();
     pLANGameFinderAndAnnouncer.reset();
@@ -240,6 +281,8 @@ NetworkManager::~NetworkManager() {
     }
     enet_deinitialize();
 }
+
+#endif // __EMSCRIPTEN__
 
 void NetworkManager::startServer(bool bLANServer, const std::string& serverName, const std::string& playerName, GameInitSettings* pGameInitSettings, int numPlayers, int maxPlayers) {
     // Reset game-in-progress flag for new game. The same NetworkManager instance is reused
@@ -262,7 +305,7 @@ void NetworkManager::startServer(bool bLANServer, const std::string& serverName,
         // Any peer that is already in the room needs the lobby state now.
         if(pRelayClient && pGameInitSettings != nullptr) {
             for(const RoomSessionTransport::Peer& peer : pRelayClient->peers()) {
-                ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                 packetStream.writeUint32(NETWORKPACKET_SENDGAMEINFO);
                 pGameInitSettings->save(packetStream);
                 ChangeEventList changeEventList = pGetChangeEventListForNewPlayerCallback
@@ -274,6 +317,13 @@ void NetworkManager::startServer(bool bLANServer, const std::string& serverName,
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    // Browser host: the matchmaking lobby already paired the transport (see
+    // connectWebRtc); hosting just means taking the server role for the
+    // post-connect handshake.
+    (void) bLANServer;
+    (void) serverName;
+#else
     if(bLANServer == true) {
         if(pLANGameFinderAndAnnouncer != nullptr) {
             pLANGameFinderAndAnnouncer->startAnnounce(serverName, host->address.port, pGameInitSettings->getFilename(), numPlayers, maxPlayers);
@@ -331,6 +381,7 @@ void NetworkManager::startServer(bool bLANServer, const std::string& serverName,
                                              activeModInfo.name, activeModInfo.version, stunPort);
         }
     }
+#endif // __EMSCRIPTEN__
 
     bIsServer = true;
     this->bLANServer = bLANServer;
@@ -347,6 +398,7 @@ void NetworkManager::updateServer(int numPlayers) {
         return;
     }
 
+#ifndef __EMSCRIPTEN__
     if(bLANServer == true) {
         if(pLANGameFinderAndAnnouncer != nullptr) {
             pLANGameFinderAndAnnouncer->updateAnnounce(numPlayers);
@@ -356,6 +408,7 @@ void NetworkManager::updateServer(int numPlayers) {
             pMetaServerClient->updateAnnounce(numPlayers);
         }
     }
+#endif
 
     this->numPlayers = numPlayers;
 }
@@ -370,6 +423,7 @@ void NetworkManager::stopAnnouncing() {
 
     // Stop announcing the game in the lobby/server list
     // This is called when the game starts, but the server should remain active
+#ifndef __EMSCRIPTEN__
     if(bLANServer == true) {
         if(pLANGameFinderAndAnnouncer != nullptr) {
             pLANGameFinderAndAnnouncer->stopAnnounce();
@@ -379,8 +433,9 @@ void NetworkManager::stopAnnouncing() {
             pMetaServerClient->stopAnnounce();
         }
     }
+#endif
     // NOTE: bIsServer remains TRUE so the host can continue managing the game
-    
+
     // Mark game as in progress - this disables lobby-only features like NAT hole punch polling
     // (which uses blocking HTTP calls that would cause major stutter during gameplay)
     bGameInProgress = true;
@@ -397,6 +452,7 @@ void NetworkManager::stopServer() {
         return;
     }
 
+#ifndef __EMSCRIPTEN__
     // Remove UPnP port mapping if active
     if (upnpPortMapped && pUPnPManager && upnpMappedPort != 0) {
         if (pUPnPManager->removePortMapping(upnpMappedPort, "UDP")) {
@@ -409,7 +465,8 @@ void NetworkManager::stopServer() {
             SDL_Log("NetworkManager: Warning - failed to remove UPnP port mapping, will retry on exit");
         }
     }
-    
+#endif // __EMSCRIPTEN__
+
     // Fully stop the server (called when leaving a game or menu)
     bIsServer = false;
     bLANServer = false;
@@ -417,6 +474,8 @@ void NetworkManager::stopServer() {
     // It will be reset when NetworkManager is destroyed or when a new server is started
     pGameInitSettings = nullptr;
 }
+
+#ifndef __EMSCRIPTEN__
 
 void NetworkManager::sendHolePunchPackets(const std::string& targetIP, uint16_t targetPort, int count, int intervalMs) {
     if (host == nullptr || host->socket == ENET_SOCKET_NULL) {
@@ -541,6 +600,86 @@ void NetworkManager::connect(ENetAddress address, const std::string& playerName)
     awaitingConnectionList.push_back(connectPeer);
 }
 
+#else // __EMSCRIPTEN__
+
+void NetworkManager::connectWebRtc(const std::string& playerName) {
+    if(pWebRtcTransport->findMatch() == false) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Could not enter the matchmaking lobby");
+        return;
+    }
+
+    this->playerName = playerName;
+
+    // The lobby reports the pairing as a Matched event (host/joiner role).
+    // The NetPeer for the opponent is created when the transport reports the
+    // Connect event (both DataChannels open).
+}
+
+void NetworkManager::cancelMatchmaking() {
+    pWebRtcTransport->cancelMatchmaking();
+}
+
+NetPeer* NetworkManager::findPeerByWebRtcId(uint32_t webRtcPeerId, bool bCreate) {
+    for(NetPeer* pCurrentPeer : peerList) {
+        if(pCurrentPeer->webRtcPeerId == webRtcPeerId) {
+            return pCurrentPeer;
+        }
+    }
+    for(NetPeer* pAwaitingPeer : awaitingConnectionList) {
+        if(pAwaitingPeer->webRtcPeerId == webRtcPeerId) {
+            return pAwaitingPeer;
+        }
+    }
+    if(connectPeer != nullptr && connectPeer->webRtcPeerId == webRtcPeerId) {
+        return connectPeer;
+    }
+
+    if(!bCreate) {
+        return nullptr;
+    }
+
+    // v1 browser model: exactly two players, so a new transport peer is the
+    // single remote player.
+    NetPeer* pNewPeer = new NetPeer();
+    pNewPeer->webRtcPeerId = webRtcPeerId;
+    return pNewPeer;
+}
+
+void NetworkManager::disconnectPeer(NetPeer* peer, int cause) {
+    (void) cause;   // the transport has a single disconnect reason per peer
+    if(peer == nullptr) {
+        return;
+    }
+
+    pWebRtcTransport->disconnect();
+    // The matching transport Disconnect event tears down the PeerData.
+}
+
+void NetworkManager::clearAllPeers() {
+    for(NetPeer* pCurrentPeer : peerList) {
+        delete static_cast<PeerData*>(pCurrentPeer->data);
+        delete pCurrentPeer;
+    }
+    peerList.clear();
+
+    for(NetPeer* pAwaitingPeer : awaitingConnectionList) {
+        delete static_cast<PeerData*>(pAwaitingPeer->data);
+        delete pAwaitingPeer;
+    }
+    awaitingConnectionList.clear();
+
+    if(connectPeer != nullptr) {
+        delete static_cast<PeerData*>(connectPeer->data);
+        delete connectPeer;
+        connectPeer = nullptr;
+    }
+
+    connectPeerWebRtcId = 0;
+    bWebRtcHost = false;
+}
+
+#endif // __EMSCRIPTEN__
+
 void NetworkManager::disconnect() {
     if(isRelaySession()) {
         if(pRelayClient) {
@@ -549,12 +688,17 @@ void NetworkManager::disconnect() {
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    clearAllPeers();
+    pWebRtcTransport->disconnect();
+#else
     for(ENetPeer* pAwaitingConnectionPeer : awaitingConnectionList) {
         enet_peer_disconnect_later(pAwaitingConnectionPeer, NETWORKDISCONNECT_QUIT);
     }
     for(ENetPeer* pCurrentPeer : peerList) {
         enet_peer_disconnect_later(pCurrentPeer, NETWORKDISCONNECT_QUIT);
     }
+#endif
 }
 
 void NetworkManager::update()
@@ -564,6 +708,7 @@ void NetworkManager::update()
         return;
     }
 
+#ifndef __EMSCRIPTEN__
     if(pLANGameFinderAndAnnouncer != nullptr) {
         pLANGameFinderAndAnnouncer->update();
     }
@@ -666,7 +811,8 @@ void NetworkManager::update()
             }
         }
     }
-    
+#endif // __EMSCRIPTEN__
+
     // NAT keep-alive: Send periodic reliable ping to prevent NAT mapping timeout
     // Many routers drop UDP NAT mappings after 30-60 seconds of "inactivity"
     // (unreliable packets don't count as activity since they have no ACKs)
@@ -675,7 +821,7 @@ void NetworkManager::update()
         if (now - lastKeepAliveTime >= KEEPALIVE_INTERVAL_MS) {
             lastKeepAliveTime = now;
             
-            ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+            NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
             packetStream.writeUint32(NETWORKPACKET_KEEPALIVE);
             packetStream.writeUint32(now);  // Timestamp for debugging
             
@@ -690,12 +836,12 @@ void NetworkManager::update()
     if(bIsServer) {
         // Check for timeout of one client
         if(awaitingConnectionList.empty() == false) {
-            ENetPeer* pCurrentPeer = awaitingConnectionList.front();
+            NetPeer* pCurrentPeer = awaitingConnectionList.front();
             PeerData* peerData = static_cast<PeerData*>(pCurrentPeer->data);
 
             if(peerData->peerState == PeerData::PeerState::ReadyForOtherPeersToConnect) {
                 if(numPlayers >= maxPlayers) {
-                    enet_peer_disconnect_later(pCurrentPeer, NETWORKDISCONNECT_GAME_FULL);
+                    disconnectPeer(pCurrentPeer, NETWORKDISCONNECT_GAME_FULL);
                 } else {
                     // only one peer should be in state 'PeerState::WaitingForOtherPeersToConnect'
                     peerData->peerState = PeerData::PeerState::WaitingForOtherPeersToConnect;
@@ -716,32 +862,38 @@ void NetworkManager::update()
                         awaitingConnectionList.remove(pCurrentPeer);
 
                         // send peer game settings
-                        ENetPacketOStream packetOStream2(ENET_PACKET_FLAG_RELIABLE);
+                        NetworkPacketOStream packetOStream2(NETWORK_PACKET_FLAG_RELIABLE);
                         packetOStream2.writeUint32(NETWORKPACKET_SENDGAMEINFO);
                         pGameInitSettings->save(packetOStream2);
 
                         changeEventList.save(packetOStream2);
 
                         sendPacketToPeer(pCurrentPeer, packetOStream2);
-                        
+
                         // Send mod info to newly connected peer for mod sync
                         if(ModManager::instance().isInitialized()) {
                             std::string modName = ModManager::instance().getActiveModName();
                             std::string modChecksum = ModManager::instance().getEffectiveChecksums().combined;
-                            SDL_Log("NetworkManager: Sending mod info to new peer - mod='%s', checksum=%s", 
+                            SDL_Log("NetworkManager: Sending mod info to new peer - mod='%s', checksum=%s",
                                     modName.c_str(), modChecksum.c_str());
                             sendModInfoToPeer(pCurrentPeer, modName, modChecksum);
                         }
                     } else {
+#ifdef __EMSCRIPTEN__
+                        // The browser build is exactly two players; the first
+                        // client always takes the branch above.
+                        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Unexpected additional peer in browser session");
+#else
                         // instruct all connected peers to connect
 
-                        ENetPacketOStream packetOStream(ENET_PACKET_FLAG_RELIABLE);
+                        NetworkPacketOStream packetOStream(NETWORK_PACKET_FLAG_RELIABLE);
                         packetOStream.writeUint32(NETWORKPACKET_CONNECT);
                         packetOStream.writeUint32(SDL_SwapBE32(pCurrentPeer->address.host));
                         packetOStream.writeUint16(pCurrentPeer->address.port);
                         packetOStream.writeString(peerData->name);
 
                         sendPacketToAllConnectedPeers(packetOStream);
+#endif
                     }
                 }
             }
@@ -754,8 +906,13 @@ void NetworkManager::update()
                     } break;
 
                     case PeerData::PeerState::WaitingForOtherPeersToConnect: {
+#ifdef __EMSCRIPTEN__
+                        // the client awaiting connection timed out
+                        disconnectPeer(pCurrentPeer, NETWORKDISCONNECT_TIMEOUT);
+                        awaitingConnectionList.pop_front();
+#else
                         // the client awaiting connection has timed out => send everyone a disconnect message
-                        ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                         packetStream.writeUint32(NETWORKPACKET_DISCONNECT);
                         packetStream.writeUint32(SDL_SwapBE32(pCurrentPeer->address.host));
                         packetStream.writeUint16(pCurrentPeer->address.port);
@@ -765,6 +922,7 @@ void NetworkManager::update()
                         enet_peer_disconnect(pCurrentPeer, NETWORKDISCONNECT_TIMEOUT);
 
                         awaitingConnectionList.pop_front();
+#endif
                     } break;
 
                     case PeerData::PeerState::Connected:
@@ -775,6 +933,145 @@ void NetworkManager::update()
             }
         }
     }
+
+#ifdef __EMSCRIPTEN__
+
+    // Browser: refresh RTT estimates from the transport
+    if(pWebRtcTransport->getState() == WebRtcTransport::State::Connected) {
+        for(NetPeer* pCurrentPeer : peerList) {
+            pCurrentPeer->roundTripTime = pWebRtcTransport->getRoundTripTimeMs(pCurrentPeer->webRtcPeerId);
+        }
+        if(connectPeer != nullptr) {
+            connectPeer->roundTripTime = pWebRtcTransport->getRoundTripTimeMs(connectPeer->webRtcPeerId);
+        }
+    }
+
+    WebRtcTransport::Event event;
+    while(pWebRtcTransport->pollEvent(event)) {
+        switch(event.type) {
+            case WebRtcTransport::EventType::Connect: {
+                NetPeer* peer = findPeerByWebRtcId(event.peerHandle, true);
+
+                // The lobby assigned the role when pairing. bIsServer is only
+                // set once the host reaches the game lobby (startServer),
+                // which can race with the data channels opening, so decide by
+                // the matched role here.
+                if(bIsServer || bWebRtcHost) {
+                    // Host: the joining player's data channels are now open
+                    debugNetwork("NetworkManager: peer %u connected.\n", (unsigned int) event.peerHandle);
+
+                    PeerData* newPeerData = new PeerData(peer, PeerData::PeerState::WaitingForName);
+                    newPeerData->timeout = SDL_GetTicks() + AWAITING_CONNECTION_TIMEOUT;
+                    peer->data = newPeerData;
+
+                    awaitingConnectionList.push_back(peer);
+
+                    // Send name
+                    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
+                    packetStream.writeUint32(NETWORKPACKET_SENDNAME);
+                    packetStream.writeString(playerName);
+
+                    sendPacketToPeer(peer, packetStream);
+                } else {
+                    // Client: connected to the host
+                    connectPeer = peer;
+                    connectPeerWebRtcId = event.peerHandle;
+
+                    PeerData* peerData = new PeerData(peer, PeerData::PeerState::WaitingForConnect);
+                    peer->data = peerData;
+
+                    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
+                    packetStream.writeUint32(NETWORKPACKET_SENDNAME);
+                    packetStream.writeString(playerName);
+
+                    sendPacketToHost(packetStream);
+
+                    peerData->peerState = PeerData::PeerState::WaitingForOtherPeersToConnect;
+                    peerData->timeout = 0;
+                }
+            } break;
+
+            case WebRtcTransport::EventType::Message: {
+                if(event.channel != 0 && event.channel != 1) {
+                    break;
+                }
+
+                NetPeer* peer = findPeerByWebRtcId(event.peerHandle, false);
+                if(peer == nullptr) {
+                    break;
+                }
+
+                NetworkPacketIStream packetStream(event.data.data(), event.data.size());
+
+                handlePacket(peer, packetStream);
+            } break;
+
+            case WebRtcTransport::EventType::Disconnect: {
+                NetPeer* peer = findPeerByWebRtcId(event.peerHandle, false);
+                if(peer == nullptr) {
+                    break;
+                }
+
+                PeerData* peerData = static_cast<PeerData*>(peer->data);
+
+                int disconnectCause = event.cause;
+
+                debugNetwork("NetworkManager: peer %u (%s) disconnected (%d).\n",
+                             (unsigned int) event.peerHandle,
+                             (peerData != nullptr) ? peerData->name.c_str() : "unknown", disconnectCause);
+
+                if(peerData != nullptr) {
+                    awaitingConnectionList.remove(peer);
+
+                    if(std::find(peerList.begin(), peerList.end(), peer) != peerList.end()) {
+                        debugNetwork("Removing '%s' from peer list\n", peerData->name.c_str());
+                        peerList.remove(peer);
+
+                        // two-player model: no other peers to notify
+
+                        if(pOnPeerDisconnected) {
+                            pOnPeerDisconnected(peerData->name, (peer == connectPeer), disconnectCause);
+                        }
+                    } else {
+                        if(peer == connectPeer) {
+                            // host disconnected while establishing connection
+                            if(pOnPeerDisconnected) {
+                                pOnPeerDisconnected(peerData->name, true, disconnectCause);
+                            }
+                        }
+                    }
+                }
+
+                // delete peer data
+                delete peerData;
+                peer->data = nullptr;
+
+                if(peer == connectPeer) {
+                    connectPeer = nullptr;
+                    connectPeerWebRtcId = 0;
+                }
+
+                delete peer;
+            } break;
+
+            case WebRtcTransport::EventType::Matched: {
+                // The lobby paired us; cause is the assigned role.
+                bWebRtcHost = (event.cause == static_cast<int>(WebRtcTransport::MatchRole::Host));
+                debugNetwork("NetworkManager: matched as %s.\n", bWebRtcHost ? "host" : "joiner");
+
+                if(pOnMatched) {
+                    pOnMatched(bWebRtcHost);
+                }
+            } break;
+
+            case WebRtcTransport::EventType::State:
+            default: {
+                // Transport-level state is polled by the UI (getWebRtcState()).
+            } break;
+        }
+    }
+
+#else // native desktop
 
     ENetEvent event;
     while(enet_host_service(host, &event, 0) > 0) {
@@ -814,7 +1111,7 @@ void NetworkManager::update()
                     awaitingConnectionList.push_back(peer);
 
                     // Send name
-                    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                     packetStream.writeUint32(NETWORKPACKET_SENDNAME);
                     packetStream.writeString(playerName);
 
@@ -833,7 +1130,7 @@ void NetworkManager::update()
                     }
 
                     if(peer == connectPeer) {
-                        ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                         packetStream.writeUint32(NETWORKPACKET_SENDNAME);
                         packetStream.writeString(playerName);
 
@@ -867,14 +1164,14 @@ void NetworkManager::update()
                                         Address2String(peer->address).c_str(), peer->address.port);
                             enet_peer_disconnect(peer, NETWORKDISCONNECT_TIMEOUT);
                         } else {
-                            ENetPacketOStream packetStream1(ENET_PACKET_FLAG_RELIABLE);
+                            NetworkPacketOStream packetStream1(NETWORK_PACKET_FLAG_RELIABLE);
                             packetStream1.writeUint32(NETWORKPACKET_PEER_CONNECTED);
                             packetStream1.writeUint32(SDL_SwapBE32(peer->address.host));
                             packetStream1.writeUint16(peer->address.port);
 
                             sendPacketToHost(packetStream1);
 
-                            ENetPacketOStream packetStream2(ENET_PACKET_FLAG_RELIABLE);
+                            NetworkPacketOStream packetStream2(NETWORK_PACKET_FLAG_RELIABLE);
                             packetStream2.writeUint32(NETWORKPACKET_SENDNAME);
                             packetStream2.writeString(playerName);
 
@@ -894,7 +1191,7 @@ void NetworkManager::update()
 
                 // The stream takes ownership of the packet, so build it first: the packet is
                 // released even when the byte budget refuses to parse it.
-                ENetPacketIStream packetStream(event.packet);
+                NetworkPacketIStream packetStream(event.packet);
 
                 if(acceptIncomingBytes(peer, receivedBytes)) {
                     handlePacket(peer, packetStream);
@@ -915,7 +1212,7 @@ void NetworkManager::update()
                         // disconnect event; a client-sent DISCONNECT is both redundant and
                         // refused by the receiving peers' host-only rule for this packet.
                         if(bIsServer && peerData->peerState == PeerData::PeerState::WaitingForOtherPeersToConnect) {
-                            ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                            NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                             packetStream.writeUint32(NETWORKPACKET_DISCONNECT);
                             packetStream.writeUint32(SDL_SwapBE32(peer->address.host));
                             packetStream.writeUint16(peer->address.port);
@@ -933,7 +1230,7 @@ void NetworkManager::update()
                         peerList.remove(peer);
 
                         if(bIsServer) {
-                            ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                            NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                             packetStream.writeUint32(NETWORKPACKET_DISCONNECT);
                             packetStream.writeUint32(SDL_SwapBE32(peer->address.host));
                             packetStream.writeUint16(peer->address.port);
@@ -969,6 +1266,7 @@ void NetworkManager::update()
             } break;
         }
     }
+#endif // __EMSCRIPTEN__
 }
 
 NetworkSessionCallbacks NetworkManager::sessionCallbacks() const {
@@ -1091,14 +1389,20 @@ std::uint32_t NetworkManager::relayHostPeerId() const {
     return 0;
 }
 
-bool NetworkManager::sendPacketOverRelay(ENetPacketOStream& packetStream, int channel,
+bool NetworkManager::sendPacketOverRelay(NetworkPacketOStream& packetStream, int channel,
                                          std::uint32_t recipient) {
+#ifdef __EMSCRIPTEN__
+    // Browser: the buffer already holds the serialized bytes; hand them over directly.
+    return pRelayClient && pRelayClient->sendGamePayload(
+        packetStream.getData(), packetStream.getDataLength(), channel, recipient);
+#else
     ENetPacket* packet = packetStream.getPacket();
     if(packet == nullptr) return false;
     const bool accepted = pRelayClient && pRelayClient->sendGamePayload(
         packet->data, packet->dataLength, channel, recipient);
     enet_packet_destroy(packet);
     return accepted;
+#endif
 }
 
 bool NetworkManager::sendRelayDiagnostic(RoomRelay::DiagnosticKind kind,
@@ -1127,7 +1431,7 @@ void NetworkManager::updateRelaySession() {
                 if(bIsServer && pGameInitSettings != nullptr) {
                     // The lobby state is what a joining player needs first, exactly as on the
                     // mesh transport - only addressed to a relay peer id instead of an address.
-                    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+                    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
                     packetStream.writeUint32(NETWORKPACKET_SENDGAMEINFO);
                     pGameInitSettings->save(packetStream);
                     ChangeEventList changeEventList = pGetChangeEventListForNewPlayerCallback
@@ -1237,11 +1541,16 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
 
     // The payload is the same serialized packet the mesh transport carries, so it is read with
     // the same hardened reader rather than a second, parallel parser.
+#ifdef __EMSCRIPTEN__
+    // Browser: no ENet packet wrapper is needed; the view reads the payload in place.
+    NetworkPacketIStream packetStream(payload, length);
+#else
     ENetPacket* packet = enet_packet_create(payload, length, 0);
     if(packet == nullptr) {
         return;
     }
     ENetPacketIStream packetStream(packet);
+#endif
 
     try {
         const Uint32 packetType = packetStream.readUint32();
@@ -1369,7 +1678,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
     }
 }
 
-NetworkManager::PeerData* NetworkManager::createPeerData(ENetPeer* peer, PeerData::PeerState peerState) {
+NetworkManager::PeerData* NetworkManager::createPeerData(NetPeer* peer, PeerData::PeerState peerState) {
     PeerData* peerData = new PeerData(peer, peerState);
     peerData->clientId = nextClientId++;
     if(nextClientId == 0) {
@@ -1378,7 +1687,7 @@ NetworkManager::PeerData* NetworkManager::createPeerData(ENetPeer* peer, PeerDat
     return peerData;
 }
 
-void NetworkManager::beginPeerDisconnect(ENetPeer* peer, const char* reason) {
+void NetworkManager::beginPeerDisconnect(NetPeer* peer, const char* reason) {
     if(peer == nullptr) {
         return;
     }
@@ -1391,10 +1700,10 @@ void NetworkManager::beginPeerDisconnect(ENetPeer* peer, const char* reason) {
         if(lastUnidentifiedLogTime == 0 || (now - lastUnidentifiedLogTime) >= REJECT_LOG_INTERVAL_MS) {
             lastUnidentifiedLogTime = now;
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                        "NetworkManager: dropping traffic from unidentified peer %s:%u (%s)",
-                        Address2String(peer->address).c_str(), peer->address.port, reason);
+                        "NetworkManager: dropping traffic from unidentified peer %s (%s)",
+                        peerAddressLabel(peer).c_str(), reason);
         }
-        enet_peer_disconnect_later(peer, NETWORKDISCONNECT_TIMEOUT);
+        disconnectPeer(peer, NETWORKDISCONNECT_TIMEOUT);
         return;
     }
 
@@ -1404,13 +1713,12 @@ void NetworkManager::beginPeerDisconnect(ENetPeer* peer, const char* reason) {
     }
 
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                 "NetworkManager: disconnecting '%s' (%s:%u): %s",
-                 peerData->name.c_str(), Address2String(peer->address).c_str(),
-                 peer->address.port, reason);
-    enet_peer_disconnect_later(peer, NETWORKDISCONNECT_TIMEOUT);
+                 "NetworkManager: disconnecting '%s' (%s): %s",
+                 peerData->name.c_str(), peerAddressLabel(peer).c_str(), reason);
+    disconnectPeer(peer, NETWORKDISCONNECT_TIMEOUT);
 }
 
-void NetworkManager::noteRejectedPacket(ENetPeer* peer, const char* reason) {
+void NetworkManager::noteRejectedPacket(NetPeer* peer, const char* reason) {
     if(peer == nullptr) {
         return;
     }
@@ -1438,8 +1746,8 @@ void NetworkManager::noteRejectedPacket(ENetPeer* peer, const char* reason) {
         peerData->lastRejectLogTime = now;
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "NetworkManager: rejected packet from '%s' (%s:%u): %s (%u refused so far)",
-                    peerData->name.c_str(), Address2String(peer->address).c_str(),
-                    peer->address.port, reason, peerData->refusals.refusals);
+                    peerData->name.c_str(), peerAddressLabel(peer).c_str(),
+                    reason, peerData->refusals.refusals);
     }
 
     if(bTooMany) {
@@ -1448,7 +1756,7 @@ void NetworkManager::noteRejectedPacket(ENetPeer* peer, const char* reason) {
     }
 }
 
-bool NetworkManager::acceptIncomingBytes(ENetPeer* peer, std::size_t byteCount) {
+bool NetworkManager::acceptIncomingBytes(NetPeer* peer, std::size_t byteCount) {
     if(peer == nullptr) {
         return false;
     }
@@ -1480,7 +1788,7 @@ bool NetworkManager::acceptIncomingBytes(ENetPeer* peer, std::size_t byteCount) 
     return true;
 }
 
-bool NetworkManager::admitPacket(ENetPeer* peer, Uint32 packetType) {
+bool NetworkManager::admitPacket(NetPeer* peer, Uint32 packetType) {
     if(peer == nullptr) {
         return false;
     }
@@ -1527,8 +1835,8 @@ bool NetworkManager::admitPacket(ENetPeer* peer, Uint32 packetType) {
         // Peers change phase at slightly different times - clients start their countdown half
         // a round trip before the host, and campaign co-op moves between missions - so packets
         // that are valid but stale are dropped quietly rather than held against the sender.
-        debugNetwork("NetworkManager: dropping out-of-phase packet %u from %s:%u\n",
-                     packetType, Address2String(peer->address).c_str(), peer->address.port);
+        debugNetwork("NetworkManager: dropping out-of-phase packet %u from %s\n",
+                     packetType, peerAddressLabel(peer).c_str());
         return false;
     }
 
@@ -1550,7 +1858,7 @@ void NetworkManager::abortModTransfer(const char* reason) {
     }
 }
 
-void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStream)
+void NetworkManager::handlePacket(NetPeer* peer, NetworkPacketIStream& packetStream)
 {
     try {
         Uint32 packetType = packetStream.readUint32();
@@ -1577,6 +1885,8 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
                     break;
                 }
 
+#ifndef __EMSCRIPTEN__
+
                 if(awaitingConnectionList.size() + peerList.size() >= MAX_MESH_PEERS) {
                     noteRejectedPacket(peer, "mesh peer limit reached");
                     break;
@@ -1600,9 +1910,19 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
                     debugNetwork("Adding '%s' to awaiting connection list\n", peerData->name.c_str());
                     awaitingConnectionList.push_back(newPeer);
                 }
+#else
+                // Mesh connect-by-address has no browser equivalent: the v1
+                // browser session is exactly two players connected by the
+                // signaling room, so there is never a third peer to dial.
+#endif
             } break;
 
             case NETWORKPACKET_DISCONNECT: {
+#ifdef __EMSCRIPTEN__
+                // Address-keyed disconnects only matter for 3+ player meshes;
+                // in the two-player browser model the transport-level
+                // Disconnect event already tears the peer down.
+#else
                 ENetAddress address;
 
                 address.host = SDL_SwapBE32(packetStream.readUint32());
@@ -1621,11 +1941,15 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
                         break;
                     }
                 }
+#endif // __EMSCRIPTEN__
 
             } break;
 
             case NETWORKPACKET_PEER_CONNECTED: {
-
+#ifdef __EMSCRIPTEN__
+                // Same rationale as NETWORKPACKET_CONNECT/PEER_CONNECTED mesh
+                // bookkeeping: two-player sessions never exchange these.
+#else
                 ENetAddress address;
 
                 address.host = SDL_SwapBE32(packetStream.readUint32());
@@ -1646,7 +1970,7 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
 
                             if(peerData->notYetConnectedPeers.empty()) {
                                 // send connected to all peers (excluding the new one)
-                                ENetPacketOStream packetOStream(ENET_PACKET_FLAG_RELIABLE);
+                                NetworkPacketOStream packetOStream(NETWORK_PACKET_FLAG_RELIABLE);
                                 packetOStream.writeUint32(NETWORKPACKET_PEER_CONNECTED);
                                 packetOStream.writeUint32(SDL_SwapBE32(pCurrentPeer->address.host));
                                 packetOStream.writeUint16(pCurrentPeer->address.port);
@@ -1664,7 +1988,7 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
                                 awaitingConnectionList.remove(pCurrentPeer);
 
                                 // send peer game settings
-                                ENetPacketOStream packetOStream2(ENET_PACKET_FLAG_RELIABLE);
+                                NetworkPacketOStream packetOStream2(NETWORK_PACKET_FLAG_RELIABLE);
                                 packetOStream2.writeUint32(NETWORKPACKET_SENDGAMEINFO);
                                 pGameInitSettings->save(packetOStream2);
 
@@ -1701,6 +2025,7 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
                         }
                     }
                 }
+#endif // __EMSCRIPTEN__
 
             } break;
 
@@ -1909,8 +2234,8 @@ void NetworkManager::handlePacket(ENetPeer* peer, ENetPacketIStream& packetStrea
     }
 }
 
-bool NetworkManager::routeSharedPayload(ENetPeer* peer, Uint32 packetType,
-                                        ENetPacketIStream& packetStream) {
+bool NetworkManager::routeSharedPayload(NetPeer* peer, Uint32 packetType,
+                                        NetworkPacketIStream& packetStream) {
     if(!GamePayloadRouter::handles(packetType)) {
         return false;
     }
@@ -1941,14 +2266,14 @@ bool NetworkManager::routeSharedPayload(ENetPeer* peer, Uint32 packetType,
             // Bind names uniquely on every receiver, including clients in the mesh join window.
             bool nameTaken = (playerName == newName);
             for(const auto& peers : {peerList, awaitingConnectionList}) {
-                for(ENetPeer* otherPeer : peers) {
+                for(NetPeer* otherPeer : peers) {
                     if(otherPeer == peer) continue;
                     auto* other = static_cast<PeerData*>(otherPeer->data);
                     if(other && other->bNameAssigned && other->name == newName) nameTaken = true;
                 }
             }
             if(nameTaken) {
-                enet_peer_disconnect_later(peer, NETWORKDISCONNECT_PLAYER_EXISTS);
+                disconnectPeer(peer, NETWORKDISCONNECT_PLAYER_EXISTS);
                 return false;
             }
 
@@ -1963,8 +2288,8 @@ bool NetworkManager::routeSharedPayload(ENetPeer* peer, Uint32 packetType,
             sendConfigHash(getQuantBotConfig().getConfigHash(), getObjectDataHash(),
                            VERSIONSTRING);
         },
-        [peer](int cause) {
-            enet_peer_disconnect_later(peer, static_cast<enet_uint32>(cause));
+        [peer, this](int cause) {
+            disconnectPeer(peer, static_cast<enet_uint32>(cause));
         });
 
     GamePayloadContext context;
@@ -1990,11 +2315,12 @@ bool NetworkManager::routeSharedPayload(ENetPeer* peer, Uint32 packetType,
 }
 
 
-void NetworkManager::sendPacketToHost(ENetPacketOStream& packetStream, int channel) {
+void NetworkManager::sendPacketToHost(NetworkPacketOStream& packetStream, int channel) {
     if(isRelaySession()) {
         sendPacketOverRelay(packetStream, channel, relayHostPeerId());
         return;
     }
+
 
     if(connectPeer == nullptr) {
         // This can happen if host disconnected but game hasn't processed the quit yet
@@ -2002,14 +2328,29 @@ void NetworkManager::sendPacketToHost(ENetPacketOStream& packetStream, int chann
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    if(pWebRtcTransport->sendToPeer(connectPeerWebRtcId, channel, packetStream.getData(), packetStream.getDataLength()) == false) {
+        SDL_Log("NetworkManager: Cannot send packet!");
+    }
+#else
     ENetPacket* enetPacket = packetStream.getPacket();
 
     if(enet_peer_send(connectPeer, channel, enetPacket) < 0) {
         SDL_Log("NetworkManager: Cannot send packet!");
     }
+#endif
 }
 
-void NetworkManager::sendPacketToPeer(ENetPeer* peer, ENetPacketOStream& packetStream, int channel) {
+void NetworkManager::sendPacketToPeer(NetPeer* peer, NetworkPacketOStream& packetStream, int channel) {
+    if(peer == nullptr) {
+        return;
+    }
+
+#ifdef __EMSCRIPTEN__
+    if(pWebRtcTransport->sendToPeer(peer->webRtcPeerId, channel, packetStream.getData(), packetStream.getDataLength()) == false) {
+        SDL_Log("NetworkManager: Cannot send packet!");
+    }
+#else
     ENetPacket* enetPacket = packetStream.getPacket();
 
     if(enet_peer_send(peer, channel, enetPacket) < 0) {
@@ -2019,10 +2360,11 @@ void NetworkManager::sendPacketToPeer(ENetPeer* peer, ENetPacketOStream& packetS
     if(enetPacket->referenceCount == 0) {
         enet_packet_destroy(enetPacket);
     }
+#endif
 }
 
 
-void NetworkManager::sendPacketToAllConnectedPeers(ENetPacketOStream& packetStream, int channel) {
+void NetworkManager::sendPacketToAllConnectedPeers(NetworkPacketOStream& packetStream, int channel) {
     if(isRelaySession()) {
         // Recipient 0 means "every other peer in this room"; the relay fans it out, and a peer
         // in another room can never be reached from here.
@@ -2030,6 +2372,15 @@ void NetworkManager::sendPacketToAllConnectedPeers(ENetPacketOStream& packetStre
         return;
     }
 
+
+#ifdef __EMSCRIPTEN__
+    for(NetPeer* pCurrentPeer : peerList) {
+        if(pWebRtcTransport->sendToPeer(pCurrentPeer->webRtcPeerId, channel, packetStream.getData(), packetStream.getDataLength()) == false) {
+            SDL_Log("NetworkManager: Cannot send packet!");
+            continue;
+        }
+    }
+#else
     ENetPacket* enetPacket = packetStream.getPacket();
 
     for(ENetPeer* pCurrentPeer : peerList) {
@@ -2042,12 +2393,13 @@ void NetworkManager::sendPacketToAllConnectedPeers(ENetPacketOStream& packetStre
     if(enetPacket->referenceCount == 0) {
         enet_packet_destroy(enetPacket);
     }
+#endif
 }
 
 
 void NetworkManager::sendChatMessage(const std::string& message)
 {
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_CHATMESSAGE);
     packetStream.writeString(message);
 
@@ -2056,7 +2408,7 @@ void NetworkManager::sendChatMessage(const std::string& message)
 
 void NetworkManager::sendChangeEventList(const ChangeEventList& changeEventList)
 {
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_CHANGEEVENTLIST);
     changeEventList.save(packetStream);
 
@@ -2076,7 +2428,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
     SDL_Log("ObjectData: %s", objectDataHash.c_str());
     
     if(isRelaySession()) {
-        ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
         packetStream.writeUint32(NETWORKPACKET_CONFIG_HASH);
         packetStream.writeUint32(NETWORK_PROTOCOL_VERSION);
         packetStream.writeString(gameVersion);
@@ -2094,8 +2446,8 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
     if(bIsServer) {
         // Server sends to all clients
         SDL_Log("Sending to %d client(s)", (int)peerList.size());
-        for(ENetPeer* pCurrentPeer : peerList) {
-            ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+        for(NetPeer* pCurrentPeer : peerList) {
+            NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
             packetStream.writeUint32(NETWORKPACKET_CONFIG_HASH);
             packetStream.writeUint32(NETWORK_PROTOCOL_VERSION);
             packetStream.writeString(gameVersion);
@@ -2106,7 +2458,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
     } else {
         // Client sends to server
         SDL_Log("Sending to server");
-        ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
         packetStream.writeUint32(NETWORKPACKET_CONFIG_HASH);
         packetStream.writeUint32(NETWORK_PROTOCOL_VERSION);
         packetStream.writeString(gameVersion);
@@ -2121,7 +2473,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
 
 void NetworkManager::sendCoopMission(const GameInitSettings& settings) {
     if(!bIsServer) return;
-    ENetPacketOStream packet(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packet(NETWORK_PACKET_FLAG_RELIABLE);
     packet.writeUint32(NETWORKPACKET_COOP_MISSION);
     settings.save(packet);
     sendPacketToAllConnectedPeers(packet);
@@ -2157,15 +2509,19 @@ bool NetworkManager::sendStartGame(unsigned int timeLeft) {
         const unsigned int peerTimeLeft =
             (halfRoundTrip >= timeLeft) ? 0u : (timeLeft - halfRoundTrip);
 
-        ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
         packetStream.writeUint32(NETWORKPACKET_STARTGAME);
         packetStream.writeUint32(peerTimeLeft);
         if(auto* direct = getDirectTransport()) {
+#ifdef __EMSCRIPTEN__
+            return direct->sendMatchStart(packetStream.getData(), packetStream.getDataLength(), timeLeft);
+#else
             ENetPacket* packet = packetStream.getPacket();
             if(!packet) return false;
             const bool started = direct->sendMatchStart(packet->data, packet->dataLength, timeLeft);
             enet_packet_destroy(packet);
             return started;
+#endif
         }
         if(!sendPacketOverRelay(packetStream, 0, 0)) return false;
 
@@ -2179,8 +2535,8 @@ bool NetworkManager::sendStartGame(unsigned int timeLeft) {
         return true;
     }
 
-    for(ENetPeer* pCurrentPeer : peerList) {
-        ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    for(NetPeer* pCurrentPeer : peerList) {
+        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
         packetStream.writeUint32(NETWORKPACKET_STARTGAME);
 
         // Clients start half a round trip earlier, but a large RTT must not wrap the
@@ -2195,7 +2551,7 @@ bool NetworkManager::sendStartGame(unsigned int timeLeft) {
 }
 
 void NetworkManager::sendCommandList(const CommandList& commandList) {
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_UNSEQUENCED);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_UNSEQUENCED);
     packetStream.writeUint32(NETWORKPACKET_COMMANDLIST);
     packetStream.writeUint32(simulationSeed);
     commandList.save(packetStream);
@@ -2204,7 +2560,7 @@ void NetworkManager::sendCommandList(const CommandList& commandList) {
 }
 
 void NetworkManager::sendSelectedList(const std::set<Uint32>& selectedList, int groupListIndex) {
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_SELECTIONLIST);
     packetStream.writeUint32(simulationSeed);
     packetStream.writeSint32(groupListIndex);
@@ -2221,7 +2577,7 @@ int NetworkManager::getMaxPeerRoundTripTime() {
 
     int maxPeerRTT = 0;
 
-    for(ENetPeer* pCurrentPeer : peerList) {
+    for(NetPeer* pCurrentPeer : peerList) {
         maxPeerRTT = std::max(maxPeerRTT, (int) (pCurrentPeer->roundTripTime));
     }
 
@@ -2255,7 +2611,7 @@ void NetworkManager::sendClientStats(float avgFps, float simMsAvg, Uint32 queueD
         return;
     }
 
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_CLIENTSTATS);
     packetStream.writeUint32(simulationSeed);
     packetStream.writeUint32(gameCycle);
@@ -2274,7 +2630,7 @@ void NetworkManager::broadcastPathBudget(size_t newBudget, Uint32 applyCycle) {
         return;
     }
 
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_SETPATHBUDGET);
     packetStream.writeUint32(simulationSeed);
     packetStream.writeUint32(static_cast<Uint32>(newBudget));
@@ -2283,12 +2639,13 @@ void NetworkManager::broadcastPathBudget(size_t newBudget, Uint32 applyCycle) {
     sendPacketToAllConnectedPeers(packetStream);
 }
 
-void NetworkManager::sendModInfoToPeer(ENetPeer* peer, const std::string& modName, const std::string& modChecksum) {
+void NetworkManager::sendModInfoToPeer(NetPeer* peer, const std::string& modName, const std::string& modChecksum) {
     if(isRelaySession()) {
         // Relay v1 carries bundled, matching content only. Custom content transfer is refused
         // by the relay itself; there is no client-side path for it either.
         return;
     }
+
 
     // Host → Single Client: Send active mod info
     if(!bIsServer) {
@@ -2299,7 +2656,7 @@ void NetworkManager::sendModInfoToPeer(ENetPeer* peer, const std::string& modNam
     SDL_Log("NetworkManager: Sending mod info to peer - mod: '%s', checksum: %s", 
             modName.c_str(), modChecksum.c_str());
 
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_MOD_INFO);
     packetStream.writeString(modName);
     packetStream.writeString(modChecksum);
@@ -2321,7 +2678,7 @@ void NetworkManager::sendModInfo(const std::string& modName, const std::string& 
     SDL_Log("NetworkManager: Broadcasting mod info to all clients - mod: '%s', checksum: %s", 
             modName.c_str(), modChecksum.c_str());
 
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_MOD_INFO);
     packetStream.writeString(modName);
     packetStream.writeString(modChecksum);
@@ -2357,14 +2714,14 @@ void NetworkManager::requestModDownload(const std::string& modName) {
     modTransferState.totalSize = 0;
     modTransferState.receivedSize = 0;
 
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_MOD_REQUEST);
     packetStream.writeString(modName);
 
     sendPacketToHost(packetStream);
 }
 
-void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modName) {
+void NetworkManager::sendModFilesToPeer(NetPeer* peer, const std::string& modName) {
     // Host: Package and send mod files to requesting client
 
     if(!ModManager::instance().isValidModName(modName)
@@ -2372,7 +2729,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "NetworkManager: Rejected request for non-active or invalid mod '%s'",
                     modName.c_str());
-        ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
         completePacket.writeString("Invalid mod request");
@@ -2396,7 +2753,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
                     modName.c_str(), modPath.c_str());
         
         // Send failure notification
-        ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
         completePacket.writeString("Mod not found on server");
@@ -2466,7 +2823,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
     } catch(const std::exception& e) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Could not package mod '%s': %s",
                     modName.c_str(), e.what());
-        ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
         completePacket.writeString("Could not package mod files");
@@ -2483,7 +2840,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
     if(numFiles == 0) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: No files found in mod '%s'", modName.c_str());
         
-        ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
         completePacket.writeString("No mod files found");
@@ -2513,7 +2870,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Mod '%s' exceeds size limit (%zu > %d)", 
                     modName.c_str(), packagedData.size(), MAX_MOD_TRANSFER_SIZE);
         
-        ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
         completePacket.writeString("Mod exceeds size limit");
@@ -2532,7 +2889,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
         size_t chunkSize = std::min(static_cast<size_t>(MOD_CHUNK_SIZE), totalSize - offset);
         std::string chunk = packagedData.substr(offset, chunkSize);
         
-        ENetPacketOStream chunkPacket(ENET_PACKET_FLAG_RELIABLE);
+        NetworkPacketOStream chunkPacket(NETWORK_PACKET_FLAG_RELIABLE);
         chunkPacket.writeUint32(NETWORKPACKET_MOD_CHUNK);
         chunkPacket.writeString(modName);
         chunkPacket.writeUint32(static_cast<Uint32>(totalSize));
@@ -2545,7 +2902,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
     }
 
     // Send completion notification
-    ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
     completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
     completePacket.writeBool(true);
     completePacket.writeString("Transfer complete");
@@ -2568,7 +2925,7 @@ void NetworkManager::sendModAck(bool success, const std::string& modChecksum) {
     SDL_Log("NetworkManager: Sending mod ACK to host - success: %s, checksum: %s", 
             success ? "yes" : "no", modChecksum.c_str());
 
-    ENetPacketOStream packetStream(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
     packetStream.writeUint32(NETWORKPACKET_MOD_ACK);
     packetStream.writeBool(success);
     packetStream.writeString(modChecksum);

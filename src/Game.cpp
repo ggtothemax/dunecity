@@ -44,6 +44,7 @@ std::mutex Game::performanceLogMutex;
 #include <misc/OFileStream.h>
 #include <misc/IMemoryStream.h>
 #include <misc/FileSystem.h>
+#include <misc/FrameYield.h>
 #include <misc/fnkdat.h>
 #include <misc/WebRuntime.h>
 #include <misc/draw_util.h>
@@ -2960,7 +2961,7 @@ void Game::runMainLoop() {
                 // Break out of loop to avoid spinning - we'll try again next frame
                 // Also add a small delay to avoid burning CPU. Not in the browser: see
                 // handleNetworkUpdates(). This loop has just given up on the cycle, the frame
-                // ends in WebRuntime::yieldToBrowser(), and an ASYNCIFY sleep here would only
+                // ends in yieldFrameToBrowser(), and an ASYNCIFY sleep here would only
                 // add a second stack unwind to the same wait.
 #ifndef __EMSCRIPTEN__
                 SDL_Delay(1);
@@ -3142,7 +3143,10 @@ void Game::runMainLoop() {
             lastTimingLogMs = now;
         }
 
-        WebRuntime::yieldToBrowser();
+        // Browser build: hand control back to the event loop once per frame so
+        // lockstep commands and transport events keep arriving mid-game.
+        yieldFrameToBrowser();
+
     } while (!bQuitGame && !finishedLevel);
 }
 

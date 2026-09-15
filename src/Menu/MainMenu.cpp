@@ -273,6 +273,7 @@ int MainMenu::showMenu()
         if(!bVersionCheckStarted) {
             bVersionCheckStarted = true;
 
+#ifndef __EMSCRIPTEN__
             pVersionChecker = std::make_unique<VersionChecker>(settings.network.metaServer);
             pVersionChecker->setOnVersionCheckComplete([this](const VersionInfo& info) {
                 if(info.updateAvailable && !bUpdateDialogShown) {
@@ -282,6 +283,7 @@ int MainMenu::showMenu()
                 }
             });
             pVersionChecker->checkForUpdates();
+#endif
         }
 
         menuResult = MenuBase::showMenu();

@@ -25,7 +25,9 @@
 #include <GUI/Spacer.h>
 #include <GUI/PictureLabel.h>
 #include <GUI/Label.h>
+#ifndef __EMSCRIPTEN__
 #include <Network/VersionChecker.h>
+#endif
 
 #include <memory>
 
@@ -86,7 +88,9 @@ private:
     std::string     lastShownModName; ///< Tracks last mod name written to modVersionLabel; avoids redundant setText.
 
     // Version checking
+#ifndef __EMSCRIPTEN__
     std::unique_ptr<VersionChecker> pVersionChecker;
+#endif
     bool bVersionCheckStarted = false;
     bool bUpdateDialogShown = false;
     std::string latestVersion;

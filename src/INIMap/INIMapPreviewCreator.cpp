@@ -8,6 +8,7 @@
 #include <misc/draw_util.h>
 #include <misc/format.h>
 #include <misc/exceptions.h>
+#include <misc/FrameYield.h>
 
 #include <mmath.h>
 #include <sand.h>
@@ -140,6 +141,16 @@ sdl2::surface_ptr INIMapPreviewCreator::createMinimapImageOfMap(int borderWidth,
         }
 
         for(int y = 0; y < sizeY; y++) {
+#ifdef __EMSCRIPTEN__
+            // Browser build: this preview render runs inside a click handler
+            // (map row select / lobby entry) with no frame boundary until it
+            // finishes. Yield every few rows so input, signaling and the
+            // compositor keep flowing during the render. No surface lock is
+            // held across the yield (putPixel writes directly).
+            if((y & 7) == 7) {
+                yieldFrameToBrowser();
+            }
+#endif
             for(int x = 0; x < sizeX; x++) {
                 Uint32 color = COLOR_BLACK;
                 unsigned char seedmaptype = SeedMap[(y+logicalOffsetY)*64+x+logicalOffsetX] >> 4;
@@ -260,6 +271,15 @@ sdl2::surface_ptr INIMapPreviewCreator::createMinimapImageOfMap(int borderWidth,
         std::vector<Uint32> tileColors(sizeX * sizeY, MapRGBA(pMinimap->format, COLOR_BLACK));
 
         for(int y=0;y<sizeY;y++) {
+#ifdef __EMSCRIPTEN__
+            // Browser build: parsing a saved map row by row (up to 256 rows
+            // of per-tile characters) is a long synchronous block inside the
+            // map-selection / lobby-creation click handler. Yield every few
+            // rows so the page stays responsive while it grinds.
+            if((y & 15) == 15) {
+                yieldFrameToBrowser();
+            }
+#endif
             std::string rowKey = fmt::sprintf("%.3d", y);
 
             if(inifile->hasKey("MAP", rowKey) == false) {

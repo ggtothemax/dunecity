@@ -374,6 +374,7 @@ target_sources(dunecity
         misc/FileSystem.cpp
         misc/fnkdat.cpp
         misc/format.cpp
+        misc/FrameYield.cpp
         misc/IFileStream.cpp
         misc/md5.cpp
         misc/OFileStream.cpp
@@ -483,6 +484,10 @@ if(EMSCRIPTEN)
         Network/RelayWebSocketEmscripten.cpp
         Network/RelayHttpTransportEmscripten.cpp
         Network/DirectPeerConnectionEmscripten.cpp)
+
+    # WebRTC multiplayer transport (browser only): bridges NetworkManager to
+    # the JS glue in platform/web/webrtc_glue.js.
+    target_sources(dunecity PRIVATE Network/WebRtcTransport.cpp)
 else()
     target_sources(dunecity PRIVATE
         Network/RelayWebSocketCurl.cpp
@@ -572,6 +577,8 @@ if(EMSCRIPTEN)
         # separately, just as in the native packages.
         "SHELL:--exclude-file ${CMAKE_SOURCE_DIR}/mods/Dune2R/graphics_hd/units"
         "SHELL:--exclude-file ${CMAKE_SOURCE_DIR}/mods/Dune2R/graphics_compact/objpics"
+        # WebRTC multiplayer glue (browser only), consumed by src/Network/WebRtcTransport.cpp.
+        "SHELL:--js-library ${CMAKE_SOURCE_DIR}/platform/web/webrtc_glue.js"
     )
     file(GLOB_RECURSE WEB_MOD_FILES CONFIGURE_DEPENDS
         "${CMAKE_SOURCE_DIR}/mods/Tornie/*"

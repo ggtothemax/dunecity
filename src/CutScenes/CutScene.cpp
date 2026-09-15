@@ -21,6 +21,7 @@
 #include <FileClasses/FileManager.h>
 #include <FileClasses/music/MusicPlayer.h>
 #include <misc/SDL2pp.h>
+#include <misc/FrameYield.h>
 #include <CursorManager.h>
 
 #include <globals.h>
@@ -74,9 +75,24 @@ void CutScene::run()
         }
 
         const int frameTime = SDL_GetTicks() - frameStart;
+#ifdef __EMSCRIPTEN__
+        // Browser build: ALWAYS yield, even when this frame overran its
+        // budget. Yielding only when frameTime < nextFrameTime meant a
+        // renderer slower than the scene's frame time (SwiftShader) never
+        // slept at all: the cutscene loop spun with the JS thread wedged —
+        // no input, no signaling/WebRTC callbacks, black canvas. When the
+        // frame finished early, sleep the remaining budget so intro pacing
+        // still matches native. On overrun, pace proportionally (yield at
+        // least one frame-time): a 1ms yield let two contending clients
+        // redraw back-to-back and starve the whole browser pipeline —
+        // measured 2026-09-09: two-browser reachMainMenu took 335-354s
+        // while a single browser reached the menu in 24s.
+        yieldFrameToBrowser(frameTime < nextFrameTime ? nextFrameTime - frameTime : frameTime);
+#else
         if(frameTime < nextFrameTime) {
             SDL_Delay(nextFrameTime - frameTime);
         }
+#endif
     }
 }
 

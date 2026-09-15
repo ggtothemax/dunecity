@@ -28,6 +28,7 @@
 #include <misc/string_util.h>
 #include <misc/exceptions.h>
 #include <misc/format.h>
+#include <misc/FrameYield.h>
 
 #include <sand.h>
 
@@ -354,6 +355,12 @@ void MapChoice::createMapSurfaceWithPieces(unsigned int scenario) {
         return;
 
     for(unsigned int s = 1; s < scenario; s++) {
+#ifdef __EMSCRIPTEN__
+        // Browser build: assembling the planet from per-scenario pieces loads
+        // and blits a growing pile of sprites inside the menu transition;
+        // yield per scenario to keep the browser event loop alive.
+        yieldFrameToBrowser();
+#endif
         auto g = group[s];
         for(unsigned int h = 0; h < g.newRegion.size(); h++) {
             for (int pieceNum : g.newRegion[h]) {

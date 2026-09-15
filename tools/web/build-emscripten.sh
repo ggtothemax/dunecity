@@ -8,7 +8,7 @@
 #   dunecity.data   (preloaded game assets)
 #   shell.js / shell.css (production browser shell)
 #
-# Requires: git, cmake, python3.
+# Requires: git, cmake, python3, node (for webrtc glue unit tests only).
 #
 # Artifact sizes use tools/web/file-size-bytes.sh (portable wc -c) so the
 # script works on Linux CI and macOS dev machines.
@@ -80,6 +80,9 @@ if ! emcc --version 2>/dev/null | grep -q "${EMSDK_VERSION}"; then
 fi
 echo "==> Using ${EMCC_VERSION}"
 
+echo "==> WebRTC glue source checks"
+node "${ROOT}/tools/web/verify-dunecity-js.mjs" --source "${ROOT}/platform/web/dunecity_webrtc_config.js"
+
 echo "==> Prebuilding Emscripten SDL ports (serial cache warmup)"
 unset EM_CACHE_IS_LOCKED
 embuilder build sdl2 sdl2_mixer sdl2_ttf
@@ -110,6 +113,31 @@ if [[ -f "${OUT_DIR}/dunecity.worker.js" ]]; then
     echo "ERROR: pthread worker artifact present; browser build must be single-threaded" >&2
     exit 1
 fi
+
+# Prepend the committed p2pkit IIFE bundle (part of the vendored p2pkit-wasm
+# SDK, fetched from QuixThe2nd/p2pkit-wasm by tools/web/fetch-p2pkit-wasm.mjs)
+# so globalThis.P2PKIT_IIFE exists before dunecity.js runs; the SDK glue
+# resolves it lazily at runtime. The bundle is committed, so this normally
+# needs neither npm nor network. If it is missing, fetch it (the fetch script
+# needs gh + network). Set P2PKIT_SKIP_BUILD=1 to fail instead of fetching
+# (offline sandboxes).
+P2PKIT_IIFE="${ROOT}/platform/web/dist/p2pkit.iife.js"
+if [[ ! -s "${P2PKIT_IIFE}" ]]; then
+    if [[ -n "${P2PKIT_SKIP_BUILD:-}" ]]; then
+        echo "ERROR: p2pkit IIFE bundle missing: ${P2PKIT_IIFE}" >&2
+        echo "       fetch it with: node tools/web/fetch-p2pkit-wasm.mjs --only-bundle" >&2
+        exit 1
+    fi
+    echo "==> p2pkit IIFE bundle missing; fetching it" >&2
+    node "${ROOT}/tools/web/build-p2pkit-iife.mjs" || exit 1
+    if [[ ! -s "${P2PKIT_IIFE}" ]]; then
+        echo "ERROR: p2pkit IIFE bundle still missing after fetch: ${P2PKIT_IIFE}" >&2
+        exit 1
+    fi
+fi
+echo "==> prepending p2pkit IIFE to ${JS}"
+cat "${P2PKIT_IIFE}" "${JS}" > "${JS}.tmp"
+mv "${JS}.tmp" "${JS}"
 
 node "${ROOT}/tools/web/verify-dunecity-js.mjs" --built "${JS}"
 python3 "${ROOT}/scripts/check-web-mods.py" --build-root "${BUILD_DIR}"

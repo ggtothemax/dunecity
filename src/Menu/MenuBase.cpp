@@ -22,6 +22,7 @@
 #include <FileClasses/LoadSavePNG.h>
 #include <misc/string_util.h>
 #include <misc/FileSystem.h>
+#include <misc/FrameYield.h>
 #include <misc/draw_util.h>
 #include <misc/DiscordManager.h>
 #include <misc/TouchInput.h>
@@ -96,10 +97,29 @@ int MenuBase::showMenu() {
             }
         }
 
-        WebRuntime::yieldToBrowser();
-
         // VSync is controlled via SDL_HINT_RENDER_VSYNC in main.cpp
         // No software frame limiting needed in menus
+
+        // Browser build: hand control back to the event loop once per frame so
+        // WebRTC/signaling callbacks can run while this menu blocks. There is
+        // no blocking vsync on the web, so also pace to ~60 FPS — an unpaced
+        // menu redraws flat-out and starves the compositor (screenshots stall
+        // for tens of seconds) while burning a full core.
+#ifdef __EMSCRIPTEN__
+        constexpr int kWebMenuFrameBudgetMs = 16;
+        const int menuFrameMs = SDL_GetTicks() - frameStart;
+        // Pace even on overrun: a menu frame that costs more than the budget
+        // (full-screen artwork under SwiftShader) must still give the event
+        // loop a full budget slice. Yielding 1ms instead redraws nearly
+        // back-to-back — measured 2026-09-09: canvas screenshots degrade from
+        // ~100ms to 15-18s while the menu is up, because the unpaced redraw
+        // starves the compositor/input pipeline (evaluate stays 1-2ms). On
+        // overrun the yield is proportional (at least one frame-time), so a
+        // slow frame bounds the loop to ~50% duty — with two contending
+        // clients a flat 16ms floor still left ~90% duty and ~10s screenshots.
+        yieldFrameToBrowser(menuFrameMs < kWebMenuFrameBudgetMs ? kWebMenuFrameBudgetMs - menuFrameMs
+                                                                : menuFrameMs);
+#endif
     }
 
     return retVal;

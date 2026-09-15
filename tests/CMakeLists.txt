@@ -38,6 +38,8 @@ target_sources(dunelegacy_tests
         RelayProtocolTestCase/ContentCompatibilityTestCase.cpp
         CommandEmissionTestCase/CommandEmissionTestCase.cpp
         CommandBufferPolicyTestCase/CommandBufferPolicyTestCase.cpp
+        # WebRTC multiplayer transport framing (browser multiplayer foundation).
+        PacketStreamTestCase/PacketStreamTestCase.cpp
         GenericNinthHouseRegressionTestCase/GenericNinthHouseRegressionTestCase.cpp
         ZoneStructureTestCase/ZoneStructureTestCase.cpp
         RoadPlacementTestCase/RoadPlacementTestCase.cpp

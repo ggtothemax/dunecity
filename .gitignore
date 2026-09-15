@@ -87,6 +87,9 @@ documents/
 !.vscode/settings.json
 !.vscode/extensions.json
 dist/
+# Committed browser bundle built from the in-tree p2pkit sources
+# (tools/web/build-p2pkit-iife.mjs); all other dist/ output stays ignored.
+!platform/web/dist/
 build0/
 analysis/
 /_CPack_Packages/
