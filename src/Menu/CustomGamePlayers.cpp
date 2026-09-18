@@ -39,6 +39,7 @@
 #include <misc/FileSystem.h>
 #include <misc/WebRuntime.h>
 #include <misc/draw_util.h>
+#include <misc/FrameYield.h>
 #include <misc/string_util.h>
 #include <misc/IMemoryStream.h>
 
@@ -282,6 +283,14 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         extractMapInfo(&inimap);
     }
 
+#ifdef __EMSCRIPTEN__
+    // Browser build: extractMapInfo() above (full map INI parse + minimap
+    // render) ran as one synchronous block inside the Next click handler.
+    // Yield before building the lobby widgets so the page can service input
+    // and signaling between the two halves of the transition.
+    yieldFrameToBrowser();
+#endif
+
     rightVBox.addWidget(VSpacer::create(10));
     rightVBox.addWidget(&mapPropertiesHBox, 0.01);
     mapPropertiesHBox.addWidget(&mapPropertyNamesVBox, 75);
@@ -298,6 +307,12 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
     ModInfo activeModInfo = ModManager::instance().getModInfo(ModManager::instance().getActiveModName());
     mapPropertyMod.setText(activeModInfo.displayName);
     mapPropertyValuesVBox.addWidget(&mapPropertyMod);
+#ifdef __EMSCRIPTEN__
+    // Browser: the matchmaking lobby already paired us; show how the matched
+    // opponent's connection is doing.
+    mapPropertyNamesVBox.addWidget(Label::create(_("Opponent") + ":"));
+    mapPropertyValuesVBox.addWidget(&opponentLabel);
+#endif
     rightVBox.addWidget(Spacer::create());
 
     mainVBox.addWidget(Spacer::create(), 0.04);
@@ -578,6 +593,12 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         playerListVBox.addWidget(VSpacer::create(4), 0.0);
         playerListVBox.addWidget(Spacer::create(), 0.07);
 
+#ifdef __EMSCRIPTEN__
+        // Browser build: each house row builds several dropdowns with full
+        // entry lists; yield per row to keep the lobby transition paced.
+        yieldFrameToBrowser();
+#endif
+
         if(i >= numHouses) {
             curHouseInfo.houseInfoVBox.setEnabled(false);
             curHouseInfo.houseInfoVBox.setVisible(false);
@@ -678,7 +699,41 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
                                             getObjectDataHash(), VERSIONSTRING);
         }
     }
+
+#ifdef __EMSCRIPTEN__
+    // The opponent's connection state changes asynchronously; update()
+    // refreshes the label.
+    updateOpponentLabel();
+#endif
 }
+
+#ifdef __EMSCRIPTEN__
+void CustomGamePlayers::updateOpponentLabel() {
+    if(pNetworkManager == nullptr) {
+        opponentLabel.setText("-");
+        return;
+    }
+
+    switch(pNetworkManager->getWebRtcState()) {
+        case WebRtcTransport::State::Connecting: {
+            opponentLabel.setText(_("Connecting..."));
+        } break;
+
+        case WebRtcTransport::State::Connected: {
+            opponentLabel.setText(_("Connected"));
+        } break;
+
+        case WebRtcTransport::State::Failed: {
+            opponentLabel.setText(_("Connection failed"));
+        } break;
+
+        case WebRtcTransport::State::Idle:
+        default: {
+            opponentLabel.setText("-");
+        } break;
+    }
+}
+#endif
 
 void CustomGamePlayers::updateDiscordLobbyPresence() {
     if(pNetworkManager == nullptr) return;
@@ -742,6 +797,10 @@ void CustomGamePlayers::onChildWindowClose(Window* child) {
 }
 
 void CustomGamePlayers::update() {
+#ifdef __EMSCRIPTEN__
+    updateOpponentLabel();
+#endif
+
     if(isCoopGameType(gameInitSettings.getGameType()) && startGameTime == 0 && bServer && !bWaitingForModAcks) {
         const int partner = houseInfo[0].player2DropDown.getSelectedEntryIntData();
         const bool waiting = partner == PLAYER_OPEN || partner == PLAYER_CLOSED;

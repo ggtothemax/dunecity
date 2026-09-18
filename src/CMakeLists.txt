@@ -374,6 +374,7 @@ target_sources(dunecity
         misc/FileSystem.cpp
         misc/fnkdat.cpp
         misc/format.cpp
+        misc/FrameYield.cpp
         misc/IFileStream.cpp
         misc/md5.cpp
         misc/OFileStream.cpp
@@ -435,6 +436,13 @@ target_include_directories(dunecity PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
+# p2pkit SDK headers (path + install guard defined in the top-level
+# CMakeLists.txt): the packet streams and the WebRTC transport alias in
+# include/Network/ are thin adapters over them.
+target_include_directories(dunecity PRIVATE
+    "${DUNECITY_P2PKIT_DIR}/emscripten/include"
+)
+
 # Platform-specific include directories
 if(APPLE)
     target_include_directories(dunecity PRIVATE
@@ -483,6 +491,13 @@ if(EMSCRIPTEN)
         Network/RelayWebSocketEmscripten.cpp
         Network/RelayHttpTransportEmscripten.cpp
         Network/DirectPeerConnectionEmscripten.cpp)
+
+    # WebRTC multiplayer transport (browser only): NetworkManager reaches the
+    # browser bridge through include/Network/WebRtcTransport.h, an alias of the
+    # header-only p2pkit_wasm::WebRtcTransport from the installed p2pkit SDK
+    # (no WebRtcTransport.cpp of our own). The bridge itself is the SDK's
+    # --js-library glue plus DuneCity's adapter, linked in the target_link_options
+    # block below.
 else()
     target_sources(dunecity PRIVATE
         Network/RelayWebSocketCurl.cpp
@@ -572,6 +587,13 @@ if(EMSCRIPTEN)
         # separately, just as in the native packages.
         "SHELL:--exclude-file ${CMAKE_SOURCE_DIR}/mods/Dune2R/graphics_hd/units"
         "SHELL:--exclude-file ${CMAKE_SOURCE_DIR}/mods/Dune2R/graphics_compact/objpics"
+        # WebRTC multiplayer bridge (browser only), reached from C++ through
+        # include/Network/WebRtcTransport.h. The generic transport glue is the
+        # p2pkit SDK's own --js-library (installed dependency, not a copy);
+        # dunecity_webrtc_config.js is DuneCity's adapter on top of it (lobby
+        # wiring, Emscripten event pump, stats).
+        "SHELL:--js-library ${DUNECITY_P2PKIT_DIR}/emscripten/js/p2pkit_webrtc_glue.cjs"
+        "SHELL:--js-library ${CMAKE_SOURCE_DIR}/platform/web/dunecity_webrtc_config.js"
     )
     file(GLOB_RECURSE WEB_MOD_FILES CONFIGURE_DEPENDS
         "${CMAKE_SOURCE_DIR}/mods/Tornie/*"

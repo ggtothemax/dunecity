@@ -7,13 +7,18 @@
  * what crosses this boundary is the envelope text defined in include/Network/P2PWireFraming.h,
  * and it is passed through opaquely in both directions.
  *
- * The transport itself is P2PKit's hardened RTCTransport, used directly - not its mesh, broadcast
- * or RPC layers, and never a TURN server. Fragmentation belongs to RTCTransport's Chunker, which
- * is why this module hands it a whole value and never a fragment: the native side fragments
- * exactly once too, with the same rules, so the two interoperate.
+ * The transport itself is the installed p2pkit package's RTCTransport in direct mode
+ * (`direct: true`), used through its documented package exports - not its mesh, broadcast or
+ * RPC layers. The `p2pkit/iife` export is the SDK's browser-safe surface (the same module its
+ * own published IIFE bundle is built from): it carries the RTC transport and its direct-play
+ * helpers and none of the node-only transports. Direct mode owns the generic safety contract
+ * this bridge used to reimplement: STUN-only iceServers, hardened Chunker framing, and
+ * validation/fail-closed handling of every exchanged description and candidate. Synchronous
+ * acceptance for the C++ caller is the SDK's `trySend`, which never fragments partially: the
+ * native side fragments exactly once too, with the same rules, so the two interoperate.
  */
 
-import { RTCTransport } from "../p2pkit/src/transports/rtc.ts"
+import { RTCTransport } from "p2pkit/iife"
 
 type SignallingMessage =
   | { announce: true; from: string }
@@ -62,7 +67,7 @@ function decodeCandidate(payload: string): { candidate: string; sdpMid: string }
   if (split < 0) return null
   const sdpMid = payload.slice(0, split)
   const candidate = payload.slice(split + 1)
-  if (!candidate || candidate.length > MAX_SIGNAL_CHARS) return null
+  if (!candidate) return null
   return { candidate, sdpMid }
 }
 
@@ -99,9 +104,12 @@ function usable(connection: Connection | undefined): connection is Connection {
 /**
  * Reads the ICE configuration, or refuses it.
  *
- * Quietly dropping the entries it does not like would connect with a configuration nobody chose
- * and nobody could see - and "it worked, but without the STUN server you asked for" is the kind
- * of success that only shows up as a player who cannot connect across a NAT.
+ * Only the shape crosses this seam (a JSON array of URL strings from C++); whether the
+ * configuration is acceptable for direct play - STUN only, no credentials, bounded - is the
+ * installed SDK's decision: RTCTransport's direct mode normalizes the list through its own
+ * directIceServers and refuses the connection when it does not like what it sees. Quietly
+ * dropping the entries it does not like would connect with a configuration nobody chose
+ * and nobody could see.
  */
 function parseIceServers(iceServersJson: string): RTCIceServer[] | null {
   let parsed: unknown
@@ -110,10 +118,10 @@ function parseIceServers(iceServersJson: string): RTCIceServer[] | null {
   } catch {
     return null
   }
-  if (!Array.isArray(parsed) || parsed.length > 4) return null
+  if (!Array.isArray(parsed) || parsed.length > 8) return null
   const servers: RTCIceServer[] = []
   for (const url of parsed) {
-    if (typeof url !== "string" || !/^stuns?:[a-zA-Z0-9.\[\]:-]+$/.test(url)) return null
+    if (typeof url !== "string") return null
     servers.push({ urls: url })
   }
   return servers
@@ -171,18 +179,25 @@ function create(iceServersJson: string, initiator: boolean, label: string): numb
     },
   }
 
-  connection.transport = new RTCTransport<string>({
-    self: "local",
-    remote: "remote",
-    signalling,
-    backend: { RTCPeerConnection: globalThis.RTCPeerConnection },
-    // Exactly the servers the signaling service named, and no others. An empty list means host
-    // candidates only, which is the right answer on a LAN; falling back to P2PKit's public STUN
-    // defaults would contact a third party this game never told the player about.
-    iceServers,
-    initiator,
-    label,
-  })
+  try {
+    connection.transport = new RTCTransport<string>({
+      self: "local",
+      remote: "remote",
+      signalling,
+      backend: { RTCPeerConnection: globalThis.RTCPeerConnection },
+      // Exactly the servers the signaling service named, and no others. An empty list means host
+      // candidates only, which is the right answer on a LAN; falling back to P2PKit's public STUN
+      // defaults would contact a third party this game never told the player about. Direct mode
+      // has the SDK enforce that this list is STUN-only before it reaches the peer connection.
+      iceServers,
+      initiator,
+      label,
+      direct: true,
+    })
+  } catch {
+    // The SDK refused this configuration; report it the way an unparseable one is.
+    return 0
+  }
 
   connection.transport.on("connect", () => {
     if (connection.state !== State.Failed && connection.state !== State.Closed) {
@@ -227,7 +242,7 @@ const bridge = {
   /** Applies a remote offer or answer. The C++ side has already checked the fingerprint. */
   setRemoteDescription(handle: number, kind: string, sdp: string): boolean {
     const connection = connections.get(handle)
-    if (!usable(connection) || sdp.length > MAX_SIGNAL_CHARS) return false
+    if (!usable(connection)) return false
     connection.deliver!({
       description: { type: kind === "answer" ? "answer" : "offer", sdp },
       from: "remote",
@@ -257,7 +272,15 @@ const bridge = {
       return false
     }
     if (typeof value !== "string") return false
-    return connection.transport.trySend(value)
+    const accepted = connection.transport.trySend(value)
+    // Direct mode answers acceptance, not delivery: a value taken into the
+    // bounded queue can still kill the link in the same call, because the
+    // queue drains synchronously and a native channel failure fail-closes the
+    // transport through the error handler above before trySend returns. The
+    // C++ caller must learn that this send failed in this call, so a send the
+    // connection did not survive reports failure no matter what the queue
+    // accepted; later asynchronous failures keep fail-closing the same way.
+    return accepted && connection.state === State.Connected
   },
 
   /** Takes one received envelope as JSON text, or null. */

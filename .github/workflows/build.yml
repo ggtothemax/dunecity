@@ -85,6 +85,13 @@ jobs:
             libcurl4-openssl-dev \
             catch2
 
+      # The packet-stream tests drive the p2pkit SDK headers (a configure-time
+      # dependency of every build); they ship inside the git package, so the
+      # prepare/build scripts are not needed here.
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: npm ci --ignore-scripts
+
       - name: Configure CMake
         # The unit tests exercise the direct transport with fake data channels, so this job does
         # not need libdatachannel; the interoperability harness in tools/p2p-interop does, and is
@@ -124,7 +131,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: tools/p2pkit-build/package-lock.json
+          cache-dependency-path: |
+            platform/web/package-lock.json
+            tools/p2pkit-build/package-lock.json
 
       - name: Install build deps
         run: |
@@ -136,13 +145,20 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_web_build.py'
           python3 -m unittest discover -s scripts/tests -p 'test_check_web_mods.py'
 
+      # The p2pkit SDK (headers + --js-library glue) is a real dependency of the
+      # browser build; CMake configure refuses to proceed without it.
+      - name: Install the pinned p2pkit SDK
+        working-directory: platform/web
+        run: npm ci
+
       # The direct-play bridge bundle is committed so that a clean clone builds without npm.
-      # These three steps are what keeps that honest: install the pinned tool, prove the
-      # vendored transport and the bridge still behave, and prove the committed bundle is what
+      # These three steps are what keeps that honest: install the pinned tool (and the
+      # p2pkit package its tests exercise through genuine package exports), prove the
+      # SDK transport and the bridge still behave, and prove the committed bundle is what
       # this source actually produces.
       - name: Install the pinned bundler
         working-directory: tools/p2pkit-build
-        run: npm ci --ignore-scripts
+        run: npm ci
 
       - name: Test the vendored P2PKit transport and the bridge
         working-directory: tools/p2pkit-build
@@ -188,6 +204,19 @@ jobs:
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgJsonGlob: 'vcpkg.json'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+
+      # The p2pkit SDK headers are a configure-time dependency on every
+      # platform (the packet streams and WebRtcTransport alias include them);
+      # headers ship in the git package, so no prepare/build scripts are needed.
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: npm ci --ignore-scripts
 
       - name: Configure CMake
         # Quote the -D arg so PowerShell expands $env:VCPKG_ROOT instead
@@ -312,6 +341,16 @@ jobs:
           echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/vcpkg/archives,readwrite" >> "$GITHUB_ENV"
           echo "Cache holds $(find "$HOME/.cache/vcpkg/archives" -name '*.zip' | wc -l | tr -d ' ') prebuilt packages."
 
+      # The p2pkit SDK headers are a configure-time dependency on every
+      # platform. This is a persistent self-hosted runner, so fail legibly if
+      # node is missing rather than deep inside CMake's SDK guard.
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: |
+          set -euo pipefail
+          command -v node >/dev/null 2>&1 || { echo "::error title=Runner not provisioned::node is required to install the p2pkit SDK headers (brew install node)."; exit 1; }
+          npm ci --ignore-scripts
+
       - name: Configure CMake
         run: >-
           cmake -S . -B build -G Ninja
@@ -411,6 +450,18 @@ jobs:
       # caching backed by the actions/cache step above.
       - name: Fix vcpkg binary caching
         run: echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/vcpkg/archives,readwrite" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+
+      # The p2pkit SDK headers are a configure-time dependency on every
+      # platform (the packet streams and WebRtcTransport alias include them).
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: npm ci --ignore-scripts
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release

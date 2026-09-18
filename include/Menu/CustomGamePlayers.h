@@ -96,6 +96,10 @@ private:
     void checkAllClientsReady();
     void updateDiscordGameStarting();
     void updateDiscordLobbyPresence();
+#ifdef __EMSCRIPTEN__
+    /// Browser: refresh the matched opponent's connection state label.
+    void updateOpponentLabel();
+#endif
     void onPeerDisconnected(const std::string& playername, bool bHost, int cause);
 
     void extractMapInfo(INIFile* pMap);
@@ -156,6 +160,9 @@ private:
     Label           mapPropertyAuthors;
     Label           mapPropertyLicense;
     Label           mapPropertyMod;
+#ifdef __EMSCRIPTEN__
+    Label           opponentLabel;   ///< Browser: the matched opponent's connection state.
+#endif
 
     // bottom row of buttons
     HBox            buttonHBox;

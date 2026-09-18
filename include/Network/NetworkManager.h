@@ -18,8 +18,7 @@
 #ifndef NETWORKMANAGER_H
 #define NETWORKMANAGER_H
 
-#include <Network/ENetPacketIStream.h>
-#include <Network/ENetPacketOStream.h>
+#include <Network/NetworkTransportTypes.h>
 #include <Network/ChangeEventList.h>
 #include <Network/CommandList.h>
 #include <Network/NetworkPacketTypes.h>
@@ -28,17 +27,21 @@
 #include <Network/DirectRoomTransport.h>
 #include <Network/RoomRelayClient.h>
 #include <Network/RoomSessionTransport.h>
+#include <Network/WebRtcTransport.h>
 
+#ifndef __EMSCRIPTEN__
 #include <Network/LANGameFinderAndAnnouncer.h>
 #include <Network/MetaServerClient.h>
 #include <Network/UPnPManager.h>
+#include <enet/enet.h>
+#endif
 
 #include <misc/string_util.h>
 #include <misc/SDL2pp.h>
 
-#include <enet/enet.h>
 #include <string>
 #include <list>
+#include <map>
 #include <vector>
 #include <functional>
 #include <stdarg.h>
@@ -46,6 +49,22 @@
 // rejectIncompatibleNetworkProtocol() and rejectIncompatibleGameVersion() moved to
 // Network/NetworkPacketPolicy.h so both transports can use them; they are still reachable
 // through this header.
+
+#ifdef __EMSCRIPTEN__
+/**
+    ENetPeer stand-in for the browser transport. Owns nothing itself: NetworkManager
+    allocates one per connected remote peer and stores its PeerData* in `data`,
+    exactly like ENet does for native connections. `webRtcPeerId` is the opaque
+    signaling/transport handle — browser peer identity never fakes IP/port data.
+*/
+struct NetPeer {
+    void* data = nullptr;
+    Uint32 roundTripTime = 0;
+    uint32_t webRtcPeerId = 0;
+};
+#else
+using NetPeer = ENetPeer;
+#endif
 
 #define AWAITING_CONNECTION_TIMEOUT     5000
 
@@ -200,11 +219,37 @@ public:
     void stopServer();
 
     void connect(const std::string& hostname, int port, const std::string& playerName);
+#ifndef __EMSCRIPTEN__
     void connect(ENetAddress address, const std::string& playerName);
+#else
+    /**
+        Browser transport: enter the global matchmaking lobby. The lobby pairs
+        the next two finders and assigns the roles (host/joiner); pairing is
+        reported through the onMatched callback. No IP/port or room code
+        involved.
+    */
+    void connectWebRtc(const std::string& playerName);
+
+    /// Leave the matchmaking queue; only meaningful before pairing.
+    void cancelMatchmaking();
+#endif
 
     void disconnect();
 
     void update();
+
+#ifdef __EMSCRIPTEN__
+    /// Coarse transport state for UI (connecting/connected/error indicators).
+    WebRtcTransport::State getWebRtcState() const { return pWebRtcTransport->getState(); }
+
+    /**
+        Sets the function that should be called when the matchmaking lobby pairs us.
+        \param  pOnMatched  function to call; true when we take the host (offer) role
+    */
+    inline void setOnMatched(std::function<void (bool bHost)> pOnMatched) {
+        this->pOnMatched = pOnMatched;
+    }
+#endif
 
     void sendChatMessage(const std::string& message);
 
@@ -237,7 +282,7 @@ public:
             return peerNameList;
         }
 
-        for(const ENetPeer* pPeer : peerList) {
+        for(const NetPeer* pPeer : peerList) {
             PeerData* peerData = static_cast<PeerData*>(pPeer->data);
             if(peerData != nullptr) {
                 peerNameList.push_back(peerData->name);
@@ -255,6 +300,7 @@ public:
     Uint32 getRelayServerRoundTripTimeMs() const;
     bool isRelayHttpPollingSession() const;
 
+#ifndef __EMSCRIPTEN__
     LANGameFinderAndAnnouncer* getLANGameFinderAndAnnouncer() {
         return pLANGameFinderAndAnnouncer.get();
     };
@@ -262,6 +308,7 @@ public:
     MetaServerClient* getMetaServerClient() {
         return pMetaServerClient.get();
     };
+#endif
 
     /**
         Sets the function that should be called when a chat message is received
@@ -381,7 +428,7 @@ public:
         \param  modName         Name of the active mod
         \param  modChecksum     Combined mod checksum
     */
-    void sendModInfoToPeer(ENetPeer* peer, const std::string& modName, const std::string& modChecksum);
+    void sendModInfoToPeer(NetPeer* peer, const std::string& modName, const std::string& modChecksum);
 
     /**
         Send mod info to all connected clients (host only).
@@ -461,32 +508,45 @@ private:
         \param  channel         0 or 1
         \param  recipient       0 for every other peer in the room, or a relay peer id
     */
-    bool sendPacketOverRelay(ENetPacketOStream& packetStream, int channel,
+    bool sendPacketOverRelay(NetworkPacketOStream& packetStream, int channel,
                              std::uint32_t recipient);
 
     /// The relay peer id of the designated host, or 0 if this process is the host.
     std::uint32_t relayHostPeerId() const;
 
-    void sendPacketToHost(ENetPacketOStream& packetStream, int channel = 0);
+    void sendPacketToHost(NetworkPacketOStream& packetStream, int channel = 0);
 
-    void sendPacketToPeer(ENetPeer* peer, ENetPacketOStream& packetStream, int channel = 0);
-    
+    void sendPacketToPeer(NetPeer* peer, NetworkPacketOStream& packetStream, int channel = 0);
+
     /**
         Package and send mod files to a peer in chunks.
         \param  peer        The peer to send to
         \param  modName     Name of the mod to send
     */
-    void sendModFilesToPeer(ENetPeer* peer, const std::string& modName);
+    void sendModFilesToPeer(NetPeer* peer, const std::string& modName);
 
-    void sendPacketToAllConnectedPeers(ENetPacketOStream& packetStream, int channel = 0);
+    void sendPacketToAllConnectedPeers(NetworkPacketOStream& packetStream, int channel = 0);
 
-    void handlePacket(ENetPeer* peer, ENetPacketIStream& packetStream);
+    void handlePacket(NetPeer* peer, NetworkPacketIStream& packetStream);
+
+#ifdef __EMSCRIPTEN__
+    /// Look up (or create) the NetPeer for a transport peer handle.
+    NetPeer* findPeerByWebRtcId(uint32_t webRtcPeerId, bool bCreate);
+    /// Disconnect one remote peer (browser: tears down the single connection).
+    void disconnectPeer(NetPeer* peer, int cause);
+    /// Drop all peer bookkeeping after the transport went away.
+    void clearAllPeers();
+#else
+    void disconnectPeer(ENetPeer* peer, enet_uint32 cause) {
+        enet_peer_disconnect_later(peer, cause);
+    }
+#endif
 
     /**
         Hands a mesh packet to the payload handling that both transports share.
         \return true if this packet id belongs to the shared set
     */
-    bool routeSharedPayload(ENetPeer* peer, Uint32 packetType, ENetPacketIStream& packetStream);
+    bool routeSharedPayload(NetPeer* peer, Uint32 packetType, NetworkPacketIStream& packetStream);
 
     class PeerData;
 
@@ -496,7 +556,7 @@ private:
         \param  packetType  the packet id that was just read
         \return true if the packet may be interpreted
     */
-    bool admitPacket(ENetPeer* peer, Uint32 packetType);
+    bool admitPacket(NetPeer* peer, Uint32 packetType);
 
     /**
         Records a rejected or malformed packet for this peer, throttles the log line and
@@ -504,7 +564,7 @@ private:
         \param  peer    the offending connection
         \param  reason  short description for the log
     */
-    void noteRejectedPacket(ENetPeer* peer, const char* reason);
+    void noteRejectedPacket(NetPeer* peer, const char* reason);
 
     /**
         Requests a disconnect once and marks the connection, so further packets from it are
@@ -512,7 +572,7 @@ private:
         \param  peer    the connection to drop
         \param  reason  short description for the single log line
     */
-    void beginPeerDisconnect(ENetPeer* peer, const char* reason);
+    void beginPeerDisconnect(NetPeer* peer, const char* reason);
 
     /**
         Accounts the raw size of an inbound packet against this peer's byte budget.
@@ -520,7 +580,7 @@ private:
         \param  byteCount   size of the packet as delivered by ENet
         \return true if the packet may be parsed
     */
-    bool acceptIncomingBytes(ENetPeer* peer, std::size_t byteCount);
+    bool acceptIncomingBytes(NetPeer* peer, std::size_t byteCount);
 
     class PeerData {
     public:
@@ -533,12 +593,12 @@ private:
         };
 
 
-        PeerData(ENetPeer* pPeer, PeerState peerState)
+        PeerData(NetPeer* pPeer, PeerState peerState)
          : pPeer(pPeer), peerState(peerState), timeout(0)  {
         }
 
 
-        ENetPeer*               pPeer;
+        NetPeer*                pPeer;
 
         PeerState               peerState;
         Uint32                  timeout;
@@ -549,7 +609,7 @@ private:
         std::string             gameVersion;
         std::string             quantBotConfigHash;
         std::string             objectDataHash;
-        std::list<ENetPeer*>    notYetConnectedPeers;
+        std::list<NetPeer*>     notYetConnectedPeers;
 
         // Abuse accounting: a legitimate peer never trips these.
         NetworkPacketPolicy::RefusalCounter refusals;
@@ -564,7 +624,7 @@ private:
         \param  peerState   the initial handshake state
         \return the new peer state (ownership stays with peer->data)
     */
-    PeerData* createPeerData(ENetPeer* peer, PeerData::PeerState peerState);
+    PeerData* createPeerData(NetPeer* peer, PeerData::PeerState peerState);
 
     // The path budget, start-game countdown and chat length bounds moved to
     // src/Network/GamePayloadRouter.cpp with the payload handling they belong to. Two copies of
@@ -599,7 +659,9 @@ private:
     Uint32 nextClientId = 1;        ///< source of the stable per-connection client ids
     Uint32 lastUnidentifiedLogTime = 0;  ///< throttles logging for connections without peer state
     Uint32 simulationSeed = 0;
+#ifndef __EMSCRIPTEN__
     ENetHost* host = nullptr;
+#endif
     bool bIsServer = false;
     bool bLANServer = false;
     bool bGameInProgress = false;  // Set true when game starts - disables lobby-only features
@@ -609,11 +671,18 @@ private:
 
     std::string playerName;
 
-    ENetPeer*   connectPeer = nullptr;
+    NetPeer*   connectPeer = nullptr;
 
-    std::list<ENetPeer*> peerList;
+    std::list<NetPeer*> peerList;
 
-    std::list<ENetPeer*> awaitingConnectionList;
+    std::list<NetPeer*> awaitingConnectionList;
+
+#ifdef __EMSCRIPTEN__
+    std::unique_ptr<WebRtcTransport> pWebRtcTransport;
+    uint32_t connectPeerWebRtcId = 0;   // transport handle of the host we joined
+    bool bWebRtcHost = false;           // role assigned by the lobby (Matched event)
+    std::function<void (bool)> pOnMatched;
+#endif
 
     std::function<void (const std::string&, const std::string&)>            pOnReceiveChatMessage;
     std::function<void (const GameInitSettings&, const ChangeEventList&)>   pOnReceiveGameInfo;
@@ -653,6 +722,13 @@ private:
     /// Clears a mod download, optionally reporting the failure to the lobby.
     void abortModTransfer(const char* reason);
 
+    // Keep-alive: send a reliable ping every 10 seconds (ENet reliable packet
+    // natively, control DataChannel in the browser build) to keep the
+    // connection warm.
+    Uint32                                      lastKeepAliveTime = 0;
+    static constexpr int                        KEEPALIVE_INTERVAL_MS = 10000;   // 10 seconds
+
+#ifndef __EMSCRIPTEN__
     std::unique_ptr<LANGameFinderAndAnnouncer>  pLANGameFinderAndAnnouncer = nullptr;
     std::unique_ptr<MetaServerClient>           pMetaServerClient = nullptr;
     std::unique_ptr<UPnPManager>                pUPnPManager = nullptr;
@@ -661,11 +737,7 @@ private:
     Uint32                                      upnpLeaseStartTime = 0;
     static constexpr int                        UPNP_LEASE_DURATION = 3600;      // 1 hour lease
     static constexpr int                        UPNP_RENEWAL_MARGIN = 300;       // Renew 5 min before expiry
-    
-    // NAT keep-alive: send reliable ping every 10 seconds to prevent NAT timeout
-    Uint32                                      lastKeepAliveTime = 0;
-    static constexpr int                        KEEPALIVE_INTERVAL_MS = 10000;   // 10 seconds
-    
+
     // NAT Hole Punch: Non-blocking state machine for host-side punching
     struct PendingPunch {
         std::string clientId;
@@ -720,6 +792,7 @@ public:
      * Get the ENet host (for STUN queries)
      */
     ENetHost* getHost() const { return host; }
+#endif // __EMSCRIPTEN__
 };
 
 #endif // NETWORKMANAGER_H

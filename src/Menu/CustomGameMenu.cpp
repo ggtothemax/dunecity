@@ -32,6 +32,7 @@
 #include <misc/fnkdat.h>
 #include <misc/FileSystem.h>
 #include <misc/draw_util.h>
+#include <misc/FrameYield.h>
 #include <misc/string_util.h>
 
 #include <INIMap/INIMapPreviewCreator.h>
@@ -344,6 +345,13 @@ void CustomGameMenu::onNext()
         gameInitSettings = GameInitSettings(getBasename(mapFilename, true), readCompleteFile(mapFilename), multiplePlayersPerHouseCheckbox.isChecked(), currentGameOptions);
     }
 
+#ifdef __EMSCRIPTEN__
+    // Browser build: the lobby-creation constructor below is a long
+    // synchronous block (map parse + widget build + signaling room setup).
+    // Let queued input and signaling callbacks run before it starts.
+    yieldFrameToBrowser();
+#endif
+
     int ret = CustomGamePlayers(gameInitSettings, true, bLANServer).showMenu();
     if(ret != MENU_QUIT_DEFAULT) {
         quit(ret);
@@ -449,6 +457,14 @@ void CustomGameMenu::onMapTypeChange(int buttonID)
         for (const auto& [name, dir] : all) {
             mapList.addEntry(name);
             mapEntryDirectories_.push_back(dir);
+#ifdef __EMSCRIPTEN__
+            // Browser build: "All Maps" fills the list from every map
+            // directory inside one input handler; yield periodically so the
+            // page stays responsive while the list builds.
+            if(mapList.getNumEntries() % 32 == 0) {
+                yieldFrameToBrowser();
+            }
+#endif
         }
     } else {
         switch(buttonID) {
@@ -460,6 +476,12 @@ void CustomGameMenu::onMapTypeChange(int buttonID)
 
         for(const std::string& file : getFileNamesList(currentMapDirectory, "ini", true, FileListOrder_Name_CaseInsensitive_Asc)) {
             mapList.addEntry(file.substr(0, file.length() - 4));
+#ifdef __EMSCRIPTEN__
+            // Browser build: same paced list build as the "All Maps" tab.
+            if(mapList.getNumEntries() % 32 == 0) {
+                yieldFrameToBrowser();
+            }
+#endif
         }
     }
 
@@ -487,6 +509,14 @@ void CustomGameMenu::onMapListSelectionChange(bool bInteractive)
     getCaseInsensitiveFilename(mapFilename);
 
     INIFile inimap(mapFilename);
+
+#ifdef __EMSCRIPTEN__
+    // Browser build: the INI parse above is a long synchronous block inside
+    // the selection-change handler; hand the browser a slice before the
+    // (also yielding) minimap render so clicks and signaling aren't queued
+    // behind the whole parse+render.
+    yieldFrameToBrowser();
+#endif
 
     int sizeX = 0;
     int sizeY = 0;
