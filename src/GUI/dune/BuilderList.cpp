@@ -28,6 +28,7 @@
 #include <House.h>
 #include <SoundPlayer.h>
 #include <sand.h>
+#include <dunecity/CityConstants.h>
 
 #include <structures/BuilderBase.h>
 #include <structures/StarPort.h>
@@ -243,8 +244,11 @@ void BuilderList::draw(Point position) {
         for(const BuildItem& buildItem : pBuilder->getBuildList()) {
 
             if((i >= currentListPos) && (i < currentListPos+getNumButtons(getSize().y) )) {
-                SDL_Texture* pTexture = resolveItemPicture(
-                    buildItem.itemID, static_cast<HOUSETYPE>(pBuilder->getOriginalHouseID()));
+                const HOUSETYPE pictureHouse = static_cast<HOUSETYPE>(
+                    DuneCity::isCityOnlyStructure(buildItem.itemID) && pBuilder->getOwner()
+                        ? pBuilder->getOwner()->getHouseID()
+                        : pBuilder->getOriginalHouseID());
+                SDL_Texture* pTexture = resolveItemPicture(buildItem.itemID, pictureHouse);
 
                 const SDL_Rect dest = calcDrawingRect(pTexture, position.x + getButtonPosition(i - currentListPos).x, position.y + getButtonPosition(i - currentListPos).y);
 

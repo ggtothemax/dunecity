@@ -183,6 +183,7 @@ public:
         std::string     language;           ///< Language code: "en" = English, "fr" = French, "de" = German
         int             scrollSpeed;        ///< Scroll speed in pixels
         bool            showTutorialHints;  ///< If true, tutorial hints are shown during the game
+        int             duneCityCampaignSkin; ///< 0=SimCity, 1=Dune2; presentation only
         bool            multiplePlayersPerHouse = false; ///< Custom game lobby: allow two players per house (remembered across games)
     } general;
 

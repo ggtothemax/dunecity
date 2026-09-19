@@ -25,6 +25,7 @@
 #include <globals.h>
 
 #include <Game.h>
+#include <dunecity/CityConstants.h>
 
 #include <sand.h>
 
@@ -62,7 +63,11 @@ protected:
         topBoxHBox.addWidget(Spacer::create());
         topBoxHBox.addWidget(&objPicture);
 
-        objPicture.setTexture(resolveItemPicture(itemID, (HOUSETYPE) pObject->getOriginalHouseID()));
+        const HOUSETYPE pictureHouse = static_cast<HOUSETYPE>(
+            DuneCity::isCityOnlyStructure(itemID) && pObject->getOwner()
+                ? pObject->getOwner()->getHouseID()
+                : pObject->getOriginalHouseID());
+        objPicture.setTexture(resolveItemPicture(itemID, pictureHouse));
 
         topBoxHBox.addWidget(Spacer::create());
     };

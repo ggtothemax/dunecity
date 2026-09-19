@@ -47,6 +47,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -285,6 +286,8 @@ static sdl2::surface_ptr createTintedMapEditorIcon(SDL_Surface* source, SDL_Surf
 static sdl2::surface_ptr createCustomMapEditorStar(SDL_Surface* source);
 static sdl2::surface_ptr resizeSurfaceNearest(SDL_Surface* source, int width, int height);
 static sdl2::surface_ptr scaleSurfaceNearest(SDL_Surface* source, int factor);
+static sdl2::surface_ptr scaleDuneCitySkinEdgeAware(SDL_Surface* source, int factor,
+                                                   int tilesX, int tilesY);
 static std::unique_ptr<Animation> loadPngStripAnimation(const std::string& filename, int frameCount, double frameRate, bool bDoublePic = true, int transparentColorKey = -1);
 
 
@@ -1785,6 +1788,8 @@ GFXManager::GFXManager() {
         }
     }
 
+    loadDuneCitySkinOverrides();
+
     objPic[ObjPic_CarryallShadow][HOUSE_HARKONNEN][0] = createShadowSurface(objPic[ObjPic_Carryall][HOUSE_HARKONNEN][0].get());
     objPic[ObjPic_CarryallShadow][HOUSE_HARKONNEN][1] = createShadowSurface(objPic[ObjPic_Carryall][HOUSE_HARKONNEN][1].get());
     objPic[ObjPic_CarryallShadow][HOUSE_HARKONNEN][2] = createShadowSurface(objPic[ObjPic_Carryall][HOUSE_HARKONNEN][2].get());
@@ -1980,6 +1985,164 @@ GFXManager::GFXManager() {
         auto airTex = makeStructDetailPic(ObjPic_Airport, 3 * D2_TILESIZE, 3 * D2_TILESIZE);
         if (airTex) smallDetailPicTex[Picture_Airport] = std::move(airTex);
         else        smallDetailPicTex[Picture_Airport] = extractSmallDetailPic("STARPORT.WSA");
+    }
+
+    // Per-house DuneCity Dune2 portraits. Until an authored Icon Sprite is
+    // installed, derive a readable portrait from that house's accepted
+    // Compact. An icon.png beside zone.ini/building.ini takes precedence and
+    // is the stable mount point used by the future ~dune2config Icon Sprite
+    // workflow. The regular smallDetailPicTex remains the SimCity fallback.
+    {
+        constexpr int portraitW = 91;
+        constexpr int portraitH = 55;
+        std::array<std::array<std::filesystem::path, NUM_HOUSES>, NUM_SMALLDETAILPICS> authoredIcons{};
+        std::array<std::array<std::filesystem::path, NUM_HOUSES>, NUM_SMALLDETAILPICS> representativeCompacts{};
+
+        const auto rememberIcon = [&](const std::filesystem::path& manifestPath,
+                                      int picture, int house) {
+            if(picture < 0 || picture >= NUM_SMALLDETAILPICS
+               || house < 0 || house >= static_cast<int>(NUM_HOUSES)) return;
+            const auto iconPath = manifestPath.parent_path() / "icon.png";
+            if(std::filesystem::is_regular_file(iconPath)) {
+                authoredIcons[picture][house] = iconPath;
+            }
+        };
+
+        if(ModManager::instance().isInitialized()) {
+            const auto skinRoot = std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+                / "graphics_skins" / "Dune2";
+            const auto zonesRoot = skinRoot / "zones";
+            if(std::filesystem::is_directory(zonesRoot)) {
+                for(const auto& entry : std::filesystem::recursive_directory_iterator(zonesRoot)) {
+                    if(!entry.is_regular_file() || entry.path().filename() != "zone.ini") continue;
+                    INIFile manifest(entry.path().string());
+                    const int itemID = manifest.getIntValue("Zone", "ItemID", -1);
+                    const int house = manifest.getIntValue("Zone", "HouseID", -1);
+                    const int picture = itemID == 20 ? Picture_ZoneResidential
+                        : (itemID == 21 ? Picture_ZoneCommercial
+                        : (itemID == 22 ? Picture_ZoneIndustrial : -1));
+                    rememberIcon(entry.path(), picture, house);
+                    if(picture >= 0 && house >= 0 && house < static_cast<int>(NUM_HOUSES)) {
+                        std::string compact = manifest.getStringValue("Cell.2.0.Idle", "Atlas.0", "");
+                        if(compact.empty()) {
+                            compact = manifest.getStringValue("Cell.0.0.Idle", "Atlas.0", "");
+                        }
+                        const auto compactPath = entry.path().parent_path() / compact;
+                        if(!compact.empty() && std::filesystem::is_regular_file(compactPath)) {
+                            representativeCompacts[picture][house] = compactPath;
+                        }
+                    }
+                }
+            }
+            const auto buildingsRoot = skinRoot / "buildings";
+            if(std::filesystem::is_directory(buildingsRoot)) {
+                for(const auto& entry : std::filesystem::recursive_directory_iterator(buildingsRoot)) {
+                    if(!entry.is_regular_file() || entry.path().filename() != "building.ini") continue;
+                    INIFile manifest(entry.path().string());
+                    const std::string name = manifest.getStringValue("Building", "ObjPic", "");
+                    const int house = manifest.getIntValue("Building", "HouseID", -1);
+                    const int picture = name == "NuclearPlant" ? Picture_NuclearPlant
+                        : (name == "PoliceStation" ? Picture_PoliceStation
+                        : (name == "Stadium" ? Picture_Stadium
+                        : (name == "Airport" ? Picture_Airport : -1)));
+                    rememberIcon(entry.path(), picture, house);
+                }
+            }
+        }
+
+        const auto createPortrait = [&](SDL_Surface* atlas, const SDL_Rect& source,
+                                        const std::filesystem::path& authored,
+                                        const std::filesystem::path& compact) -> sdl2::texture_ptr {
+            if(!authored.empty()) {
+                auto rwops = sdl2::RWops_ptr{ SDL_RWFromFile(authored.string().c_str(), "rb") };
+                auto raw = rwops ? LoadPNG_RW(rwops.get()) : sdl2::surface_ptr{};
+                if(raw) {
+                    auto fitted = (raw->w == portraitW && raw->h == portraitH)
+                        ? copySurface(raw.get()) : resizeSurfaceNearest(raw.get(), portraitW, portraitH);
+                    if(fitted) {
+                        SDL_SetColorKey(fitted.get(), SDL_FALSE, 0);
+                        SDL_SetSurfaceBlendMode(fitted.get(), SDL_BLENDMODE_BLEND);
+                        auto texture = convertSurfaceToTexture(fitted.get());
+                        if(texture) SDL_SetTextureBlendMode(texture.get(), SDL_BLENDMODE_BLEND);
+                        return texture;
+                    }
+                }
+            }
+            sdl2::surface_ptr compactSurface;
+            SDL_Surface* portraitSource = atlas;
+            SDL_Rect portraitRect = source;
+            if(!compact.empty()) {
+                auto rwops = sdl2::RWops_ptr{ SDL_RWFromFile(compact.string().c_str(), "rb") };
+                compactSurface = rwops ? LoadPNG_RW(rwops.get()) : sdl2::surface_ptr{};
+                if(compactSurface) {
+                    SDL_SetColorKey(compactSurface.get(), SDL_FALSE, 0);
+                    SDL_SetSurfaceBlendMode(compactSurface.get(), SDL_BLENDMODE_NONE);
+                    portraitSource = compactSurface.get();
+                    portraitRect = SDL_Rect{0, 0, compactSurface->w, compactSurface->h};
+                }
+            }
+            if(!portraitSource || portraitRect.w <= 0 || portraitRect.h <= 0) return {};
+            auto canvas = sdl2::surface_ptr{ SDL_CreateRGBSurfaceWithFormat(
+                0, portraitW, portraitH, 32, SDL_PIXELFORMAT_RGBA32) };
+            if(!canvas) return {};
+            SDL_FillRect(canvas.get(), nullptr, SDL_MapRGBA(canvas->format, 0, 0, 0, 0));
+            const int leftGutter = 16, bottomGutter = 14, topMargin = 2, rightMargin = 4;
+            const int usableW = portraitW - leftGutter - rightMargin;
+            const int usableH = portraitH - topMargin - bottomGutter;
+            const double scale = std::min(1.5, std::min(
+                static_cast<double>(usableW) / portraitRect.w,
+                static_cast<double>(usableH) / portraitRect.h));
+            SDL_Rect destination{
+                leftGutter + (usableW - static_cast<int>(portraitRect.w * scale)) / 2,
+                topMargin + (usableH - static_cast<int>(portraitRect.h * scale)) / 2,
+                static_cast<int>(portraitRect.w * scale), static_cast<int>(portraitRect.h * scale)};
+            SDL_BlendMode oldMode;
+            SDL_GetSurfaceBlendMode(portraitSource, &oldMode);
+            SDL_SetSurfaceBlendMode(portraitSource, SDL_BLENDMODE_NONE);
+            SDL_BlitScaled(portraitSource, &portraitRect, canvas.get(), &destination);
+            SDL_SetSurfaceBlendMode(portraitSource, oldMode);
+            auto texture = convertSurfaceToTexture(canvas.get());
+            if(texture) SDL_SetTextureBlendMode(texture.get(), SDL_BLENDMODE_BLEND);
+            return texture;
+        };
+
+        static const std::array<int, 3> zonePictures{
+            Picture_ZoneResidential, Picture_ZoneCommercial, Picture_ZoneIndustrial};
+        static const std::array<unsigned int, 3> zoneObjectPictures{
+            ObjPic_ZoneResidential, ObjPic_ZoneCommercial, ObjPic_ZoneIndustrial};
+        static const std::array<int, 6> buildingPictures{
+            Picture_NuclearPlant, Picture_PoliceStation, Picture_Stadium,
+            Picture_Airport, -1, -1};
+        for(int house = 0; house < static_cast<int>(NUM_HOUSES); ++house) {
+            for(std::size_t zone = 0; zone < zonePictures.size(); ++zone) {
+                SDL_Surface* atlas = duneCityDune2ZonePic[zone][house][0].get();
+                const int columns = std::max(1, objPicTiles[zoneObjectPictures[zone]].x);
+                const int rows = std::max(1, objPicTiles[zoneObjectPictures[zone]].y);
+                if(!atlas && representativeCompacts[zonePictures[zone]][house].empty()) continue;
+                const int cellW = atlas ? atlas->w / columns : 0;
+                const int cellH = atlas ? atlas->h / rows : 0;
+                const int representativeDensity = std::min(2, columns - 1);
+                SDL_Rect source{representativeDensity * cellW, 0, cellW, cellH};
+                const int picture = zonePictures[zone];
+                duneCityDune2DetailPicTex[picture][house] = createPortrait(
+                    atlas, source, authoredIcons[picture][house],
+                    representativeCompacts[picture][house]);
+            }
+            for(std::size_t building = 0; building < buildingPictures.size(); ++building) {
+                const int picture = buildingPictures[building];
+                if(picture < 0) continue;
+                SDL_Surface* atlas = duneCityDune2BuildingPic[building][house][0].get();
+                if(!atlas) continue;
+                static const std::array<unsigned int, 6> objectPictures{
+                    ObjPic_NuclearPlant, ObjPic_PoliceStation, ObjPic_Stadium,
+                    ObjPic_Airport, ObjPic_Hospital, ObjPic_Church};
+                const int columns = std::max(1, objPicTiles[objectPictures[building]].x);
+                const int rows = std::max(1, objPicTiles[objectPictures[building]].y);
+                SDL_Rect source{0, 0, atlas->w / columns, atlas->h / rows};
+                duneCityDune2DetailPicTex[picture][house] = createPortrait(
+                    atlas, source, authoredIcons[picture][house], {});
+            }
+        }
     }
 
     // DuneCity 1.0.506: Tornie unit portraits. The mod ships 91x55 PNG icons
@@ -4326,6 +4489,111 @@ static sdl2::surface_ptr scaleSurfaceNearest(SDL_Surface* source, int factor) {
     return resizeSurfaceNearest(source, source->w * factor, source->h * factor);
 }
 
+// Alpha-aware Scale2x/Scale3x for accepted DuneCity RGBA Compacts. The legacy
+// Scaler implementation intentionally remains indexed/palette-only. Processing
+// each atlas tile independently prevents neighbouring density/value cells from
+// influencing pixels along their shared sheet boundary.
+static sdl2::surface_ptr scaleDuneCitySkinEdgeAware(SDL_Surface* source, int factor,
+                                                   int tilesX, int tilesY) {
+    if(!source || (factor != 2 && factor != 3) || tilesX <= 0 || tilesY <= 0
+       || source->w % tilesX != 0 || source->h % tilesY != 0) {
+        return scaleSurfaceNearest(source, factor);
+    }
+
+    auto rgba = sdl2::surface_ptr{ SDL_ConvertSurfaceFormat(source, SDL_PIXELFORMAT_RGBA32, 0) };
+    auto scaled = sdl2::surface_ptr{ SDL_CreateRGBSurfaceWithFormat(
+        0, source->w * factor, source->h * factor, 32, SDL_PIXELFORMAT_RGBA32) };
+    if(!rgba || !scaled) {
+        return scaleSurfaceNearest(source, factor);
+    }
+
+    SDL_SetColorKey(rgba.get(), SDL_FALSE, 0);
+    SDL_SetColorKey(scaled.get(), SDL_FALSE, 0);
+    SDL_SetSurfaceBlendMode(rgba.get(), SDL_BLENDMODE_NONE);
+    SDL_SetSurfaceBlendMode(scaled.get(), SDL_BLENDMODE_NONE);
+
+    const int tileW = rgba->w / tilesX;
+    const int tileH = rgba->h / tilesY;
+    const Uint32 alphaMask = rgba->format->Amask;
+    const auto normalize = [alphaMask](Uint32 pixel) {
+        return alphaMask != 0 && (pixel & alphaMask) == 0 ? Uint32{0} : pixel;
+    };
+
+    sdl2::surface_lock sourceLock{ rgba.get() };
+    sdl2::surface_lock destinationLock{ scaled.get() };
+    const auto readPixel = [&](int x, int y) {
+        const auto* row = reinterpret_cast<const Uint32*>(
+            static_cast<const Uint8*>(rgba->pixels) + y * rgba->pitch);
+        return normalize(row[x]);
+    };
+    const auto writePixel = [&](int x, int y, Uint32 pixel) {
+        auto* row = reinterpret_cast<Uint32*>(
+            static_cast<Uint8*>(scaled->pixels) + y * scaled->pitch);
+        row[x] = normalize(pixel);
+    };
+
+    for(int tileY = 0; tileY < tilesY; ++tileY) {
+        for(int tileX = 0; tileX < tilesX; ++tileX) {
+            const int originX = tileX * tileW;
+            const int originY = tileY * tileH;
+            for(int y = 0; y < tileH; ++y) {
+                const int up = std::max(0, y - 1);
+                const int down = std::min(tileH - 1, y + 1);
+                for(int x = 0; x < tileW; ++x) {
+                    const int left = std::max(0, x - 1);
+                    const int right = std::min(tileW - 1, x + 1);
+                    const Uint32 A = readPixel(originX + left,  originY + up);
+                    const Uint32 B = readPixel(originX + x,     originY + up);
+                    const Uint32 C = readPixel(originX + right, originY + up);
+                    const Uint32 D = readPixel(originX + left,  originY + y);
+                    const Uint32 E = readPixel(originX + x,     originY + y);
+                    const Uint32 F = readPixel(originX + right, originY + y);
+                    const Uint32 G = readPixel(originX + left,  originY + down);
+                    const Uint32 H = readPixel(originX + x,     originY + down);
+                    const Uint32 I = readPixel(originX + right, originY + down);
+                    const int destinationX = (originX + x) * factor;
+                    const int destinationY = (originY + y) * factor;
+
+                    if(factor == 2) {
+                        Uint32 output[4] = {E, E, E, E};
+                        if(B != H && D != F) {
+                            output[0] = D == B ? D : E;
+                            output[1] = B == F ? F : E;
+                            output[2] = D == H ? D : E;
+                            output[3] = H == F ? F : E;
+                        }
+                        writePixel(destinationX,     destinationY,     output[0]);
+                        writePixel(destinationX + 1, destinationY,     output[1]);
+                        writePixel(destinationX,     destinationY + 1, output[2]);
+                        writePixel(destinationX + 1, destinationY + 1, output[3]);
+                    } else {
+                        Uint32 output[9] = {E, E, E, E, E, E, E, E, E};
+                        if(B != H && D != F) {
+                            output[0] = D == B ? D : E;
+                            output[1] = ((D == B && E != C) || (B == F && E != A)) ? B : E;
+                            output[2] = B == F ? F : E;
+                            output[3] = ((D == B && E != G) || (D == H && E != A)) ? D : E;
+                            output[5] = ((B == F && E != I) || (H == F && E != C)) ? F : E;
+                            output[6] = D == H ? D : E;
+                            output[7] = ((D == H && E != I) || (H == F && E != G)) ? H : E;
+                            output[8] = H == F ? F : E;
+                        }
+                        for(int outputY = 0; outputY < 3; ++outputY) {
+                            for(int outputX = 0; outputX < 3; ++outputX) {
+                                writePixel(destinationX + outputX, destinationY + outputY,
+                                           output[outputY * 3 + outputX]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SDL_SetSurfaceBlendMode(scaled.get(), SDL_BLENDMODE_BLEND);
+    return scaled;
+}
+
 static sdl2::surface_ptr createCustomMapEditorStar(SDL_Surface* source) {
     if(!source) {
         return nullptr;
@@ -4398,6 +4666,8 @@ void GFXManager::invalidateAllSpriteTextures() {
     enhancedBuildingDefinitions.clear();
     enhancedTerrainDefinitions.clear();
     enhancedWorldManifestsLoaded = false;
+    duneCityBuildingDefinitions.clear();
+    duneCityBuildingManifestsLoaded = false;
     if(enhancedBuildingAtlasCache) {
         enhancedBuildingAtlasCache->clear();
     }
@@ -5575,6 +5845,12 @@ SDL_Texture* GFXManager::getSmallDetailPic(unsigned int id, int house) {
         return nullptr;
     }
 
+    if(house >= 0 && house < static_cast<int>(NUM_HOUSES)
+       && duneCityHouseUsesDune2[house]
+       && duneCityDune2DetailPicTex[id][house]) {
+        return duneCityDune2DetailPicTex[id][house].get();
+    }
+
     const int visualHouse = getHouseVisualHouse(house);
     if(!isValidHouseColorSlot(visualHouse)
        || (visualHouse != HOUSE_CUSTOM && !isCustomHouseColorSlot(visualHouse))) {
@@ -6071,6 +6347,230 @@ sdl2::surface_ptr GFXManager::generateMapChoiceArrowFrames(SDL_Surface* arrowPic
     }
 
     return returnPic;
+}
+
+void GFXManager::loadDuneCitySkinOverrides() {
+    static const std::array<unsigned int, 3> zoneObjPics = {
+        ObjPic_ZoneResidential, ObjPic_ZoneCommercial, ObjPic_ZoneIndustrial
+    };
+    static const std::array<unsigned int, 6> buildingObjPics = {
+        ObjPic_NuclearPlant, ObjPic_PoliceStation, ObjPic_Stadium,
+        ObjPic_Airport, ObjPic_Hospital, ObjPic_Church
+    };
+
+    // Start the Dune2 skin as a byte-for-byte visual clone of Stefan's native
+    // SimCity atlas. Exact mounted cells are overlaid below; missing cells and
+    // houses therefore retain native art instead of becoming blank.
+    for(std::size_t zoneIndex = 0; zoneIndex < zoneObjPics.size(); ++zoneIndex) {
+        const unsigned int id = zoneObjPics[zoneIndex];
+        for(int house = 0; house < static_cast<int>(NUM_HOUSES); ++house) {
+            for(int zoom = 0; zoom < NUM_ZOOMLEVEL; ++zoom) {
+                if(objPic[id][house][zoom]) {
+                    duneCitySimCityZonePic[zoneIndex][house][zoom] = copySurface(objPic[id][house][zoom].get());
+                    duneCityDune2ZonePic[zoneIndex][house][zoom] = copySurface(objPic[id][house][zoom].get());
+                }
+            }
+        }
+    }
+    for(std::size_t buildingIndex = 0; buildingIndex < buildingObjPics.size(); ++buildingIndex) {
+        const unsigned int id = buildingObjPics[buildingIndex];
+        for(int house = 0; house < static_cast<int>(NUM_HOUSES); ++house) {
+            for(int zoom = 0; zoom < NUM_ZOOMLEVEL; ++zoom) {
+                if(objPic[id][house][zoom]) {
+                    duneCitySimCityBuildingPic[buildingIndex][house][zoom] = copySurface(objPic[id][house][zoom].get());
+                    duneCityDune2BuildingPic[buildingIndex][house][zoom] = copySurface(objPic[id][house][zoom].get());
+                }
+            }
+        }
+    }
+
+    if(!ModManager::instance().isInitialized()) return;
+    const std::filesystem::path zonesRoot =
+        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        / "graphics_skins" / "Dune2" / "zones";
+    if(!std::filesystem::is_directory(zonesRoot)) {
+        SDL_Log("GFXManager: DuneCity Dune2 skin has no mounted zones; SimCity fallback remains active");
+        return;
+    }
+
+    int loadedCells = 0;
+    for(const auto& entry : std::filesystem::recursive_directory_iterator(zonesRoot)) {
+        if(!entry.is_regular_file() || entry.path().filename() != "zone.ini") continue;
+        try {
+            INIFile manifest(entry.path().string());
+            const int itemID = manifest.getIntValue("Zone", "ItemID", -1);
+            const int house = manifest.getIntValue("Zone", "HouseID", -1);
+            const int zoneIndex = itemID == 20 ? 0 : (itemID == 21 ? 1 : (itemID == 22 ? 2 : -1));
+            if(zoneIndex < 0 || house < 0 || house >= static_cast<int>(NUM_HOUSES)) {
+                SDL_Log("GFXManager: Ignoring DuneCity zone manifest with ItemID=%d HouseID=%d: %s",
+                        itemID, house, entry.path().string().c_str());
+                continue;
+            }
+
+            SDL_Surface* target = duneCityDune2ZonePic[zoneIndex][house][0].get();
+            if(!target) continue;
+            const unsigned int objPicID = zoneObjPics[zoneIndex];
+            const int columns = std::max(1, objPicTiles[objPicID].x);
+            const int rows = std::max(1, objPicTiles[objPicID].y);
+            const int cellW = target->w / columns;
+            const int cellH = target->h / rows;
+
+            for(auto section = manifest.begin(); section != manifest.end(); ++section) {
+                const std::string sectionName = section->getSectionName();
+                int density = -1;
+                int value = -1;
+                if(std::sscanf(sectionName.c_str(), "Cell.%d.%d.Idle", &density, &value) != 2
+                   || density < 0 || density >= columns || value < 0 || value >= rows) continue;
+                const std::string atlasName = manifest.getStringValue(sectionName, "Atlas.0", "");
+                if(atlasName.empty()) continue;
+                const std::filesystem::path atlasPath = entry.path().parent_path() / atlasName;
+                if(!std::filesystem::is_regular_file(atlasPath)) continue;
+                auto rwops = sdl2::RWops_ptr{ SDL_RWFromFile(atlasPath.string().c_str(), "rb") };
+                auto cell = rwops ? LoadPNG_RW(rwops.get()) : sdl2::surface_ptr{};
+                if(!cell) continue;
+
+                // Replace the complete atlas cell, including transparent
+                // pixels. Alpha blending would leave pieces of the native
+                // SimCity cell visible beneath transparent Compact corners.
+                // LoadPNG_RW may also preserve a PNG colour key; disable it
+                // explicitly or keyed pixels are skipped even with blending
+                // disabled, exposing the cloned SimCity fallback underneath.
+                SDL_SetColorKey(cell.get(), SDL_FALSE, 0);
+                SDL_SetSurfaceBlendMode(cell.get(), SDL_BLENDMODE_NONE);
+                SDL_Rect source{0, 0,
+                    std::min(cell->w, manifest.getIntValue(sectionName, "FrameWidth", cellW)),
+                    std::min(cell->h, manifest.getIntValue(sectionName, "FrameHeight", cellH))};
+                SDL_Rect destination{density * cellW, value * cellH, cellW, cellH};
+                const Uint32 transparent = SDL_MapRGBA(target->format, 0, 0, 0, 0);
+                SDL_FillRect(target, &destination, transparent);
+                SDL_BlitScaled(cell.get(), &source, target, &destination);
+                ++loadedCells;
+            }
+            duneCityDune2ZonePic[zoneIndex][house][1] =
+                scaleDuneCitySkinEdgeAware(target, 2, columns, rows);
+            duneCityDune2ZonePic[zoneIndex][house][2] =
+                scaleDuneCitySkinEdgeAware(target, 3, columns, rows);
+        } catch(const std::exception& e) {
+            SDL_Log("GFXManager: DuneCity skin manifest failed (%s): %s",
+                    entry.path().string().c_str(), e.what());
+        }
+    }
+    SDL_Log("GFXManager: Loaded %d exact DuneCity Dune2 density/value cells", loadedCells);
+
+    const std::filesystem::path buildingsRoot =
+        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        / "graphics_skins" / "Dune2" / "buildings";
+    if(!std::filesystem::is_directory(buildingsRoot)) {
+        SDL_Log("GFXManager: DuneCity Dune2 skin has no mounted special buildings; SimCity fallback remains active");
+        return;
+    }
+
+    const auto buildingIndexForName = [](const std::string& name) -> int {
+        if(name == "NuclearPlant") return 0;
+        if(name == "PoliceStation") return 1;
+        if(name == "Stadium") return 2;
+        if(name == "Airport") return 3;
+        if(name == "Hospital") return 4;
+        if(name == "Church") return 5;
+        return -1;
+    };
+    int loadedBuildingFrames = 0;
+    for(const auto& entry : std::filesystem::recursive_directory_iterator(buildingsRoot)) {
+        if(!entry.is_regular_file() || entry.path().filename() != "building.ini") continue;
+        try {
+            INIFile manifest(entry.path().string());
+            const std::string objPicName = manifest.getStringValue("Building", "ObjPic", "");
+            const int buildingIndex = buildingIndexForName(objPicName);
+            const int house = manifest.getIntValue("Building", "HouseID", -1);
+            if(buildingIndex < 0 || house < 0 || house >= static_cast<int>(NUM_HOUSES)) {
+                SDL_Log("GFXManager: Ignoring DuneCity building manifest ObjPic=%s HouseID=%d: %s",
+                        objPicName.c_str(), house, entry.path().string().c_str());
+                continue;
+            }
+
+            const unsigned int objPicID = buildingObjPics[buildingIndex];
+            SDL_Surface* target = duneCityDune2BuildingPic[buildingIndex][house][0].get();
+            if(!target) continue;
+            const int columns = std::max(1, objPicTiles[objPicID].x);
+            const int rows = std::max(1, objPicTiles[objPicID].y);
+            const int cellW = target->w / columns;
+            const int cellH = target->h / rows;
+            const std::string fallbackFrame = manifest.getStringValue("Frame.0", "File", "");
+
+            for(int frame = 0; frame < columns * rows; ++frame) {
+                const std::string sectionName = "Frame." + std::to_string(frame);
+                std::string frameName = manifest.getStringValue(sectionName, "File", "");
+                if(frameName.empty()) frameName = fallbackFrame;
+                if(frameName.empty()) continue;
+                const std::filesystem::path framePath = entry.path().parent_path() / frameName;
+                if(!std::filesystem::is_regular_file(framePath)) continue;
+                auto rwops = sdl2::RWops_ptr{ SDL_RWFromFile(framePath.string().c_str(), "rb") };
+                auto cell = rwops ? LoadPNG_RW(rwops.get()) : sdl2::surface_ptr{};
+                if(!cell) continue;
+                SDL_SetColorKey(cell.get(), SDL_FALSE, 0);
+                SDL_SetSurfaceBlendMode(cell.get(), SDL_BLENDMODE_NONE);
+                SDL_Rect source{0, 0, cell->w, cell->h};
+                SDL_Rect destination{(frame % columns) * cellW, (frame / columns) * cellH, cellW, cellH};
+                const Uint32 transparent = SDL_MapRGBA(target->format, 0, 0, 0, 0);
+                SDL_FillRect(target, &destination, transparent);
+                SDL_BlitScaled(cell.get(), &source, target, &destination);
+                ++loadedBuildingFrames;
+            }
+            duneCityDune2BuildingPic[buildingIndex][house][1] =
+                scaleDuneCitySkinEdgeAware(target, 2, columns, rows);
+            duneCityDune2BuildingPic[buildingIndex][house][2] =
+                scaleDuneCitySkinEdgeAware(target, 3, columns, rows);
+        } catch(const std::exception& e) {
+            SDL_Log("GFXManager: DuneCity building skin manifest failed (%s): %s",
+                    entry.path().string().c_str(), e.what());
+        }
+    }
+    SDL_Log("GFXManager: Loaded %d DuneCity Dune2 special-building frame slots", loadedBuildingFrames);
+}
+
+void GFXManager::resetDuneCityGraphicsSkins() {
+    for(int house = 0; house < static_cast<int>(NUM_HOUSES); ++house) {
+        setDuneCityHouseGraphicsSkin(house, false);
+    }
+}
+
+void GFXManager::setDuneCityHouseGraphicsSkin(int house, bool useDune2) {
+    if(house < 0 || house >= static_cast<int>(NUM_HOUSES)) return;
+    duneCityHouseUsesDune2[house] = useDune2;
+    static const std::array<unsigned int, 3> zoneObjPics = {
+        ObjPic_ZoneResidential, ObjPic_ZoneCommercial, ObjPic_ZoneIndustrial
+    };
+    static const std::array<unsigned int, 6> buildingObjPics = {
+        ObjPic_NuclearPlant, ObjPic_PoliceStation, ObjPic_Stadium,
+        ObjPic_Airport, ObjPic_Hospital, ObjPic_Church
+    };
+    for(std::size_t zoneIndex = 0; zoneIndex < zoneObjPics.size(); ++zoneIndex) {
+        const unsigned int id = zoneObjPics[zoneIndex];
+        auto& source = useDune2 ? duneCityDune2ZonePic[zoneIndex][house]
+                                : duneCitySimCityZonePic[zoneIndex][house];
+        for(int zoom = 0; zoom < NUM_ZOOMLEVEL; ++zoom) {
+            if(source[zoom]) {
+                objPic[id][house][zoom] = copySurface(source[zoom].get());
+                objPicTex[id][house][zoom].reset();
+            }
+        }
+    }
+    for(std::size_t buildingIndex = 0; buildingIndex < buildingObjPics.size(); ++buildingIndex) {
+        const unsigned int id = buildingObjPics[buildingIndex];
+        auto& source = useDune2 ? duneCityDune2BuildingPic[buildingIndex][house]
+                                : duneCitySimCityBuildingPic[buildingIndex][house];
+        for(int zoom = 0; zoom < NUM_ZOOMLEVEL; ++zoom) {
+            if(source[zoom]) {
+                objPic[id][house][zoom] = copySurface(source[zoom].get());
+                objPicTex[id][house][zoom].reset();
+            }
+        }
+    }
+}
+
+bool GFXManager::isDuneCityHouseUsingDune2(int house) const {
+    return house >= 0 && house < static_cast<int>(NUM_HOUSES)
+        && duneCityHouseUsesDune2[house];
 }
 
 void GFXManager::loadCompactObjPicOverrides() {
@@ -6708,22 +7208,6 @@ void GFXManager::loadDuneCityZoneManifests() {
        || !ModManager::instance().isCityModeActive()) {
         return;
     }
-    if(!duneCitySkinPreferenceLoaded) {
-        duneCitySkinPreferenceLoaded = true;
-        try {
-            INIFile config(getConfigFilepath());
-            std::string skin = config.getStringValue("DuneCity", "Skin", "SimCity");
-            std::transform(skin.begin(), skin.end(), skin.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            duneCityDune2SkinEnabled = skin == "dune2";
-        } catch(const std::exception& e) {
-            SDL_Log("GFXManager: Could not load DuneCity skin preference: %s", e.what());
-        }
-    }
-    if(!duneCityDune2SkinEnabled) {
-        return;
-    }
-
     const std::filesystem::path zonesRoot =
         std::filesystem::path(ModManager::instance().getModPath("dunecity"))
         / "graphics_skins" / "Dune2" / "zones";
@@ -6812,6 +7296,81 @@ void GFXManager::loadDuneCityZoneManifests() {
             }
         } catch(const std::exception& e) {
             SDL_Log("GFXManager: Failed to read DuneCity zone manifest %s: %s",
+                    manifestPath.string().c_str(), e.what());
+        }
+    }
+}
+
+void GFXManager::loadDuneCityBuildingManifests() {
+    if(duneCityBuildingManifestsLoaded) {
+        return;
+    }
+    duneCityBuildingManifestsLoaded = true;
+    duneCityBuildingDefinitions.clear();
+
+    if(!ModManager::instance().isInitialized()
+       || !ModManager::instance().isCityModeActive()) {
+        return;
+    }
+    const std::filesystem::path buildingsRoot =
+        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        / "graphics_skins" / "Dune2" / "buildings";
+    if(!std::filesystem::is_directory(buildingsRoot)) {
+        return;
+    }
+    const auto itemForObjPic = [](const std::string& name) {
+        if(name == "NuclearPlant") return static_cast<int>(Structure_NuclearPlant);
+        if(name == "PoliceStation") return static_cast<int>(Structure_PoliceStation);
+        if(name == "Stadium") return static_cast<int>(Structure_Stadium);
+        if(name == "Airport") return static_cast<int>(Structure_Airport);
+        return -1;
+    };
+
+    for(const auto& entry : std::filesystem::directory_iterator(buildingsRoot)) {
+        const auto manifestPath = entry.path() / "building.ini";
+        if(!entry.is_directory() || !std::filesystem::is_regular_file(manifestPath)) {
+            continue;
+        }
+        try {
+            INIFile manifest(manifestPath.string());
+            DuneCityBuildingDefinition definition;
+            definition.itemID = itemForObjPic(
+                manifest.getStringValue("Building", "ObjPic", ""));
+            definition.houseID = manifest.getIntValue("Building", "HouseID", -1);
+            definition.sourceUnit = manifest.getStringValue(
+                "Building", "SourceUnit", entry.path().filename().string());
+            const int frameCount = std::clamp(
+                manifest.getIntValue("Building", "Frames", 0), 0, 64);
+            if(definition.itemID < 0 || definition.houseID < 0
+               || definition.houseID >= static_cast<int>(NUM_HOUSES)
+               || frameCount <= 0) {
+                continue;
+            }
+            for(int frame = 0; frame < frameCount; ++frame) {
+                const std::string section = "Frame." + std::to_string(frame);
+                const std::string imageName = manifest.getStringValue(section, "File", "");
+                const auto imagePath = std::filesystem::weakly_canonical(entry.path() / imageName);
+                if(imageName.empty() || !isPathInside(imagePath, buildingsRoot)
+                   || !std::filesystem::is_regular_file(imagePath)) {
+                    definition.frames.clear();
+                    break;
+                }
+                auto input = sdl2::RWops_ptr{SDL_RWFromFile(imagePath.string().c_str(), "rb")};
+                auto surface = input ? LoadPNG_RW(input.get()) : nullptr;
+                if(!surface || surface->w <= 0 || surface->h <= 0
+                   || surface->w > 2048 || surface->h > 2048) {
+                    definition.frames.clear();
+                    break;
+                }
+                definition.frames.push_back({imagePath.string(), surface->w, surface->h});
+            }
+            if(static_cast<int>(definition.frames.size()) == frameCount) {
+                SDL_Log("GFXManager: Registered high-detail DuneCity building ItemID=%d HouseID=%d from %s",
+                        definition.itemID, definition.houseID, manifestPath.string().c_str());
+                duneCityBuildingDefinitions.push_back(std::move(definition));
+            }
+        } catch(const std::exception& e) {
+            SDL_Log("GFXManager: Failed to read DuneCity building manifest %s: %s",
                     manifestPath.string().c_str(), e.what());
         }
     }
@@ -7211,7 +7770,7 @@ bool GFXManager::drawDuneCityZone(int itemID, int house, unsigned int z,
         return false;
     }
     loadDuneCityZoneManifests();
-    if(!duneCityDune2SkinEnabled) {
+    if(!isDuneCityHouseUsingDune2(house)) {
         return false;
     }
 
@@ -7296,6 +7855,40 @@ bool GFXManager::drawDuneCityZone(int itemID, int house, unsigned int z,
             break;
         }
     }
+    return true;
+}
+
+bool GFXManager::drawDuneCityBuilding(int itemID, int house, int frame,
+                                      const SDL_Rect& destination) {
+    if(destination.w <= 0 || destination.h <= 0
+       || !isDuneCityHouseUsingDune2(house)) {
+        return false;
+    }
+    loadDuneCityBuildingManifests();
+    DuneCityBuildingDefinition* selected = nullptr;
+    for(auto& definition : duneCityBuildingDefinitions) {
+        if(definition.itemID == itemID && definition.houseID == house) {
+            selected = &definition;
+            break;
+        }
+    }
+    if(!selected || selected->frames.empty()) {
+        return false;
+    }
+    const int frameCount = static_cast<int>(selected->frames.size());
+    const int selectedFrame = std::clamp(frame, 0, frameCount - 1);
+    const auto& visual = selected->frames[selectedFrame];
+    if(!enhancedBuildingAtlasCache) {
+        enhancedBuildingAtlasCache = std::make_unique<EnhancedAtlasCache>(renderer);
+    }
+    SDL_Texture* texture = enhancedBuildingAtlasCache->request(
+        visual.imagePath, visual.width, visual.height);
+    if(!texture) {
+        return false;
+    }
+    const SDL_Rect source{0, 0, visual.width, visual.height};
+    SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
+    SDL_RenderCopy(renderer, texture, &source, &destination);
     return true;
 }
 

@@ -21,6 +21,7 @@ docs/*
 !docs/index.html
 !docs/guide.html
 !docs/style.css
+!docs/dunecity-graphics-skins.md
 !docs/img/
 missing
 aclocal.m4

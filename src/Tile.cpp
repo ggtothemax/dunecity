@@ -517,8 +517,21 @@ void Tile::blitGround(int xPos, int yPos) {
         }
     }
 
-    // city zone overlay
-    if (hasCityZone()) {
+    // Stefan's native SimCity skin uses coloured R/C/I tile fills and borders
+    // as part of its zoning presentation. They are drawn independently of the
+    // building atlas, so allowing them beneath a transparent Dune2 Compact
+    // produces bright green/blue/yellow rectangles around the replacement.
+    // Keep the markers for SimCity, but suppress them for the owning house's
+    // Dune2 skin.
+    bool drawCityZoneOverlay = hasCityZone();
+    if (drawCityZoneOverlay) {
+        const ObjectBase* zoneObject = getNonInfantryGroundObject();
+        const House* zoneOwner = zoneObject ? zoneObject->getOwner() : nullptr;
+        if (zoneOwner && pGFXManager->isDuneCityHouseUsingDune2(zoneOwner->getHouseID())) {
+            drawCityZoneOverlay = false;
+        }
+    }
+    if (drawCityZoneOverlay) {
         Uint8 baseR = 0, baseG = 0, baseB = 0;
         Uint8 borderR = 0, borderG = 0, borderB = 0;
         

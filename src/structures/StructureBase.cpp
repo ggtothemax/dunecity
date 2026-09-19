@@ -274,7 +274,16 @@ void StructureBase::blitToScreen() {
     }
 
     bool enhancedDrawn = false;
-    if(!fogged && dune2rBlend > 0 && owner != nullptr) {
+    if(!fogged && owner != nullptr) {
+        // DuneCity Compact frames may carry more source pixels than the
+        // native SimCity atlas cell. Draw that source directly into the
+        // already-calculated classic destination so visual detail can rise
+        // without changing placement, collision, footprint, or animation
+        // state selection.
+        enhancedDrawn = pGFXManager->drawDuneCityBuilding(
+            itemID, owner->getHouseID(), index, dest);
+    }
+    if(!enhancedDrawn && !fogged && dune2rBlend > 0 && owner != nullptr) {
         const Uint32 nowMs = currentGame->getGameTime();
         auto visualState = GFXManager::EnhancedBuildingState::Idle;
         Uint32 elapsedMs = nowMs + getObjectID() * 97u;

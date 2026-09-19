@@ -677,6 +677,8 @@ public:
                                       int density, int valueTier,
                                       DuneCityZoneActivity activity,
                                       Uint32 elapsedMs, int anchorX, int anchorY);
+    bool             drawDuneCityBuilding(int itemID, int house, int frame,
+                                          const SDL_Rect& destination);
     Uint8            getDune2RVisualBlend();
     bool             isDune2RVisualsEnabled();
     void             setDune2RVisualsEnabled(bool enabled);
@@ -697,6 +699,9 @@ public:
                                                EnhancedRenderMode mode);
     void             reloadEnhancedUnitMounts();
     bool             hasObjPic(unsigned int id, int house=HOUSE_HARKONNEN, unsigned int z=0) const;
+    void             resetDuneCityGraphicsSkins();
+    void             setDuneCityHouseGraphicsSkin(int house, bool useDune2);
+    bool             isDuneCityHouseUsingDune2(int house) const;
 
     // DuneCity 1.0.487: invalidate sprite texture cache
     // (objPicTex + objPic, NOT uiGraphic). Re-applied per
@@ -735,10 +740,12 @@ private:
     sdl2::surface_ptr   generateDoubledObjPic(unsigned int id, int h) const;
     sdl2::surface_ptr   generateTripledObjPic(unsigned int id, int h) const;
     void                loadCompactObjPicOverrides();
+    void                loadDuneCitySkinOverrides();
     bool                loadHDObjPicOverride(unsigned int id);
     void                loadEnhancedUnitManifests();
     void                loadEnhancedWorldManifests();
     void                loadDuneCityZoneManifests();
+    void                loadDuneCityBuildingManifests();
     void                invalidateEnhancedUnitMountsIfChanged(bool force = false);
     void                loadEnhancedRenderModes();
     void                loadDune2RVisualPreference();
@@ -864,6 +871,19 @@ private:
         std::map<int, EnhancedBuildingAnimation> animations;
     };
 
+    struct DuneCityBuildingFrame {
+        std::string imagePath;
+        int width = 0;
+        int height = 0;
+    };
+
+    struct DuneCityBuildingDefinition {
+        int itemID = -1;
+        int houseID = -1;
+        std::string sourceUnit;
+        std::vector<DuneCityBuildingFrame> frames;
+    };
+
     struct EnhancedTerrainVariant {
         EnhancedTerrainVariant() = default;
         EnhancedTerrainVariant(const EnhancedTerrainVariant&) = delete;
@@ -890,6 +910,11 @@ private:
 
     // 8-bit surfaces kept in main memory for processing as needed, e.g. color remapping
     std::array<std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSE_COLOR_SLOTS>, NUM_OBJPICS> objPic;
+    std::array<std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSES>, 3> duneCitySimCityZonePic;
+    std::array<std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSES>, 3> duneCityDune2ZonePic;
+    std::array<std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSES>, 6> duneCitySimCityBuildingPic;
+    std::array<std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSES>, 6> duneCityDune2BuildingPic;
+    std::array<bool, NUM_HOUSES> duneCityHouseUsesDune2{};
     std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSE_COLOR_SLOTS> scoutpostBaseGraphics{};
     std::array<std::array<sdl2::surface_ptr, NUM_ZOOMLEVEL>, NUM_HOUSE_COLOR_SLOTS> chaosFactoryBaseGraphics{};
     std::array<std::array<sdl2::surface_ptr, NUM_HOUSE_COLOR_SLOTS>, NUM_UIGRAPHICS> uiGraphic;
@@ -908,13 +933,13 @@ private:
     std::vector<EnhancedUnitDefinition> enhancedUnitDefinitions;
     std::vector<EnhancedBuildingDefinition> enhancedBuildingDefinitions;
     std::vector<DuneCityZoneDefinition> duneCityZoneDefinitions;
+    std::vector<DuneCityBuildingDefinition> duneCityBuildingDefinitions;
     std::unique_ptr<EnhancedAtlasCache> enhancedBuildingAtlasCache;
     std::vector<EnhancedTerrainDefinition> enhancedTerrainDefinitions;
     bool enhancedUnitManifestsLoaded = false;
     bool enhancedWorldManifestsLoaded = false;
     bool duneCityZoneManifestsLoaded = false;
-    bool duneCitySkinPreferenceLoaded = false;
-    bool duneCityDune2SkinEnabled = false;
+    bool duneCityBuildingManifestsLoaded = false;
     std::string enhancedUnitMountRevision;
     Uint32 enhancedUnitMountLastCheck = 0;
     std::map<int, EnhancedRenderMode> enhancedUnitRenderModes;
@@ -927,6 +952,7 @@ private:
     Uint32 dune2rVisualTransitionStartTicks = 0;
     std::array<sdl2::texture_ptr, NUM_SMALLDETAILPICS> smallDetailPicTex;
     std::array<std::array<sdl2::texture_ptr, NUM_HOUSE_COLOR_SLOTS>, NUM_SMALLDETAILPICS> houseSmallDetailPicTex;
+    std::array<std::array<sdl2::texture_ptr, NUM_HOUSES>, NUM_SMALLDETAILPICS> duneCityDune2DetailPicTex;
     std::array<sdl2::texture_ptr, NUM_TINYPICTURE> tinyPictureTex;
     std::array<std::array<sdl2::texture_ptr, NUM_HOUSE_COLOR_SLOTS>, NUM_UIGRAPHICS> uiGraphicTex;
     std::array<std::array<sdl2::texture_ptr, NUM_HOUSE_COLOR_SLOTS>, NUM_MAPCHOICEPIECES> mapChoicePiecesTex;

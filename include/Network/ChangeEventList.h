@@ -37,7 +37,8 @@ public:
             ChangeTeam,
             ChangeColor,
             ChangePlayer,
-            SetHumanPlayer
+            SetHumanPlayer,
+            ChangeGraphicsSkin
         };
 
 

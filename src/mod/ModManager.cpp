@@ -1377,6 +1377,38 @@ void ModManager::seedDunecityFromDefaults() {
     info.enablesCityMode = true;
     writeModInfo(dunecityPath, info);
 
+    // Install bundled graphics-only skins without deleting locally mounted
+    // authored assets. The normal config files above remain authoritative;
+    // this directory carries presentation payloads only.
+    const std::filesystem::path bundledDunecity = findBundledModPath(DUNECITY_MOD_NAME);
+    const std::filesystem::path bundledSkins = bundledDunecity / "graphics_skins";
+    if(std::filesystem::is_directory(bundledSkins)) {
+        try {
+            const std::filesystem::path installedSkins =
+                std::filesystem::path(dunecityPath) / "graphics_skins";
+            std::filesystem::create_directories(installedSkins);
+            // Android's libc++ filesystem implementation reports
+            // "Function not implemented" for recursive directory copy.
+            // Copy files individually; this also preserves locally authored
+            // files that are absent from the bundled presentation payload.
+            for(const auto& entry : std::filesystem::recursive_directory_iterator(bundledSkins)) {
+                const auto relative = std::filesystem::relative(entry.path(), bundledSkins);
+                const auto destination = installedSkins / relative;
+                if(entry.is_directory()) {
+                    std::filesystem::create_directories(destination);
+                } else if(entry.is_regular_file()) {
+                    std::filesystem::create_directories(destination.parent_path());
+                    std::filesystem::copy_file(
+                        entry.path(), destination,
+                        std::filesystem::copy_options::overwrite_existing);
+                }
+            }
+            SDL_Log("ModManager: Installed bundled DuneCity graphics skins");
+        } catch(const std::exception& e) {
+            SDL_Log("ModManager: Warning - DuneCity graphics skins were not copied: %s", e.what());
+        }
+    }
+
     SDL_Log("ModManager: Dunecity mod seeded successfully");
 }
 

@@ -30,6 +30,16 @@ class GameInitSettings
 {
 public:
 
+    enum class GraphicsSkin : Uint32 {
+        SimCity = 0,
+        Dune2 = 1
+    };
+
+    static GraphicsSkin sanitizeGraphicsSkin(Uint32 value) {
+        return value == static_cast<Uint32>(GraphicsSkin::Dune2)
+            ? GraphicsSkin::Dune2 : GraphicsSkin::SimCity;
+    }
+
     class PlayerInfo {
     public:
         PlayerInfo(const std::string& newPlayerName, const std::string& newPlayerClass)
@@ -92,6 +102,7 @@ public:
         HOUSETYPE       houseID;
         int             colorOfHouse;
         int             team;
+        GraphicsSkin    graphicsSkin = GraphicsSkin::SimCity;
         PlayerInfoList  playerInfoList;
     };
 
@@ -192,6 +203,8 @@ public:
     inline bool isMultiplePlayersPerHouse() const { return multiplePlayersPerHouse; };
     inline void setMultiplePlayersPerHouse(bool multiplePlayersPerHouse) { this->multiplePlayersPerHouse = multiplePlayersPerHouse; };
     inline const SettingsClass::GameOptionsClass& getGameOptions() const { return gameOptions; };
+    inline GraphicsSkin getCampaignGraphicsSkin() const { return campaignGraphicsSkin; };
+    inline void setCampaignGraphicsSkin(GraphicsSkin skin) { campaignGraphicsSkin = skin; };
 
     /// Mod that was active when this game was created. Persisted in
     /// savegames and shipped over the network so clients can mirror the
@@ -240,6 +253,7 @@ private:
     bool            multiplePlayersPerHouse = false;
 
     SettingsClass::GameOptionsClass gameOptions;
+    GraphicsSkin    campaignGraphicsSkin = GraphicsSkin::SimCity;
 
     // Mod info for save/replay compatibility
     std::string     modName = "vanilla";      ///< Name of active mod when game was started

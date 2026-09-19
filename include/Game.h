@@ -826,6 +826,8 @@ public:
     void logPathInstrumentationIfNeeded();
 
 private:
+    void applyDuneCityGraphicsSkins();
+
     bool        chatMode = false;   ///< chat mode on?
     std::string typingChatMessage;  ///< currently typed chat message
 

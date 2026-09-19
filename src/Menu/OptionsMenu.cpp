@@ -162,6 +162,26 @@ OptionsMenu::OptionsMenu() : MenuBase()
     introHBox.addWidget(Spacer::create(), 0.5);
     pages[0].addWidget(&introHBox, 32);
     pages[0].addWidget(VSpacer::create(6));
+
+    const bool duneCityActive = ModManager::instance().isInitialized()
+        && ModManager::instance().getActiveModName() == "dunecity";
+    duneCitySkinHBox.addWidget(Spacer::create(), 0.5);
+    duneCitySkinHBox.addWidget(optionLabel(_("Campaign Graphics Skin")), 190);
+    duneCityCampaignSkinDropDownBox.addEntry(_("SimCity"), 0);
+    duneCityCampaignSkinDropDownBox.addEntry(_("Dune2"), 1);
+    duneCityCampaignSkinDropDownBox.setSelectedItem(
+        settings.general.duneCityCampaignSkin == 1 ? 1 : 0);
+    duneCityCampaignSkinDropDownBox.setOnSelectionChange(
+        std::bind(&OptionsMenu::onChangeOption, this, std::placeholders::_1));
+    duneCitySkinHBox.addWidget(&duneCityCampaignSkinDropDownBox, 130);
+    duneCitySkinHBox.addWidget(Spacer::create(), 160);
+    duneCitySkinHBox.addWidget(Spacer::create(), 0.5);
+    duneCitySkinHBox.setVisible(duneCityActive);
+    duneCitySkinHBox.setEnabled(duneCityActive);
+    if(duneCityActive) {
+        pages[0].addWidget(&duneCitySkinHBox, 32);
+        pages[0].addWidget(VSpacer::create(6));
+    }
     generalHBox.addWidget(Spacer::create(), 0.5);
 
     pages[4].addWidget(&generalHBox, 32);
@@ -449,6 +469,8 @@ void OptionsMenu::onChangeOption(bool bInteractive) {
 #endif
     bChanged |= (settings.general.playIntro != introCheckbox.isChecked());
     bChanged |= (settings.general.showTutorialHints != showTutorialHintsCheckbox.isChecked());
+    bChanged |= (settings.general.duneCityCampaignSkin
+                 != duneCityCampaignSkinDropDownBox.getSelectedEntryIntData());
 
     int selectedResolution = resolutionDropDownBox.getSelectedEntryIntData();
     if(selectedResolution >= 0) {
@@ -511,6 +533,8 @@ void OptionsMenu::onOptionsOK() {
     settings.general.language = languageFilename.substr(languageFilename.size()-5,2);
     settings.general.playIntro = introCheckbox.isChecked();
     settings.general.showTutorialHints = showTutorialHintsCheckbox.isChecked();
+    settings.general.duneCityCampaignSkin =
+        duneCityCampaignSkinDropDownBox.getSelectedEntryIntData() == 1 ? 1 : 0;
 
     const PlayerFactory::PlayerData* pPlayerData = PlayerFactory::getByIndex(aiDropDownBox.getSelectedEntryIntData());
     settings.ai.campaignAI = ((pPlayerData != nullptr) ? pPlayerData->getPlayerClass() : DEFAULTAIPLAYERCLASS);
@@ -639,6 +663,7 @@ void OptionsMenu::saveConfiguration2File() {
     myINIFile.setIntValue("General","Scroll Speed",settings.general.scrollSpeed);
     myINIFile.setBoolValue("General","Play Intro",settings.general.playIntro);
     myINIFile.setBoolValue("General","Show Tutorial Hints",settings.general.showTutorialHints);
+    myINIFile.setIntValue("General","DuneCity Campaign Skin",settings.general.duneCityCampaignSkin);
     myINIFile.setBoolValue("General","Multiple Players Per House",settings.general.multiplePlayersPerHouse);
 
     myINIFile.setIntValue("Video","Physical Width",settings.video.physicalWidth);

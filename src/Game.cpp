@@ -476,6 +476,32 @@ void Game::logPerformance(const char* format, ...) {
 }
 
 
+void Game::applyDuneCityGraphicsSkins() {
+    if(!pGFXManager) {
+        return;
+    }
+
+    pGFXManager->resetDuneCityGraphicsSkins();
+    if(!citySimEnabled_) {
+        return;
+    }
+
+    if(gameInitSettings.getGameType() == GameType::Campaign) {
+        const bool useDune2 = gameInitSettings.getCampaignGraphicsSkin()
+            == GameInitSettings::GraphicsSkin::Dune2;
+        for(int house = 0; house < static_cast<int>(NUM_HOUSES); ++house) {
+            pGFXManager->setDuneCityHouseGraphicsSkin(house, useDune2);
+        }
+        return;
+    }
+
+    for(const GameInitSettings::HouseInfo& houseInfo : gameInitSettings.getHouseInfoList()) {
+        pGFXManager->setDuneCityHouseGraphicsSkin(
+            static_cast<int>(houseInfo.houseID),
+            houseInfo.graphicsSkin == GameInitSettings::GraphicsSkin::Dune2);
+    }
+}
+
 void Game::initGame(const GameInitSettings& newGameInitSettings) {
     gameInitSettings = newGameInitSettings;
 
@@ -506,6 +532,8 @@ void Game::initGame(const GameInitSettings& newGameInitSettings) {
             }
         }
     }
+
+    applyDuneCityGraphicsSkins();
 
     targetRequestQueue.clear();
     pendingTargetRequestIds.clear();
@@ -4120,6 +4148,18 @@ bool Game::loadSaveGame(InputStream& stream) {
         }
     }
 
+    // HouseInfo's legacy standalone save block intentionally keeps its old
+    // byte layout. MOD3 stores skins in GameInitSettings, so restore them by
+    // house identity into the setup copy used by load-game lobbies.
+    for(GameInitSettings::HouseInfo& setupHouseInfo : houseInfoListSetup) {
+        for(const GameInitSettings::HouseInfo& initHouseInfo : gameInitSettings.getHouseInfoList()) {
+            if(initHouseInfo.houseID == setupHouseInfo.houseID) {
+                setupHouseInfo.graphicsSkin = initHouseInfo.graphicsSkin;
+                break;
+            }
+        }
+    }
+
     resetHouseVisualHouseMapping();
     for(const GameInitSettings::HouseInfo& setupHouseInfo : houseInfoListSetup) {
         int colorOfHouse = setupHouseInfo.colorOfHouse;
@@ -4360,6 +4400,10 @@ bool Game::loadSaveGame(InputStream& stream) {
             objectData.data[Structure_ZoneIndustrial][h].enabled  = false;
         }
     }
+
+    // loadSaveGame replaces gameInitSettings and may switch the active mod.
+    // Apply the serialized skin choices only after both facts are known.
+    applyDuneCityGraphicsSkins();
 
     // load triggers
     logLoadStage("triggers");
