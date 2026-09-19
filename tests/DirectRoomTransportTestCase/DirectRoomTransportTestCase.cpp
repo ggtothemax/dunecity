@@ -18,6 +18,7 @@
 #include <Network/NetworkPacketPolicy.h>
 #include <Network/P2PWireFraming.h>
 
+#include <algorithm>
 #include <deque>
 #include <map>
 #include <memory>
@@ -1180,6 +1181,88 @@ TEST_CASE("A guest accepts exactly one committed start after matching preparatio
     c->deliver(P2PWire::encodeStartEnvelope('c',id,"1,2",packet));h.pump();
     while(h.transport->pollEvent(e)) REQUIRE(e.type!=RoomSessionTransport::Event::Type::GamePayload);
     REQUIRE_FALSE(h.transport->acceptStartCallback());
+}
+
+TEST_CASE("Changed readiness refreshes our report without echoing identical reports", "[direct][start]") {
+    Harness h;
+    h.join();
+    h.deliverPoll("status=ok\nphase=lobby\n" + peerRecord(2,"client","Partner","native") + "cursor=0\n");
+    auto channel = h.channels[0];
+    channel->current = DirectPeerConnection::State::Connected;
+    h.pump();
+    const auto report = P2PWire::encodeReadinessEnvelope("1,2", {2});
+    const auto countReports = [&]() { return std::count(channel->sent.begin(), channel->sent.end(), report); };
+    const auto initial = countReports();
+    REQUIRE(initial > 0);
+    // Our first report can reach a peer before its authenticated role update.
+    // Its first controller report must elicit a fresh copy of ours.
+    channel->deliver(P2PWire::encodeReadinessEnvelope("1,2", {1}));
+    h.pump();
+    REQUIRE(countReports() == initial + 1);
+    channel->deliver(P2PWire::encodeReadinessEnvelope("1,2", {1}));
+    h.pump();
+    REQUIRE(countReports() == initial + 1);
+}
+
+TEST_CASE("A guest waits for cross-channel readiness before acknowledging a start", "[direct][start]") {
+    Harness h;
+    std::string error;
+    REQUIRE(h.transport->start(h.config(), error));
+    h.service->answers.push_back(ScriptedService::ok(
+        "status=ok\nprotocol=1\npeer=1\nsession=" + std::string(64, 'c')
+        + "\nrole=client\nmaxPeers=4\nphase=lobby\n"));
+    h.pump();
+    h.deliverPoll("status=ok\nphase=lobby\n" + peerRecord(2,"host","Host","browser")
+        + peerRecord(3,"client","Partner","native") + "cursor=0\n");
+    REQUIRE(h.channels.size() == 2);
+    for(auto& channel : h.channels) channel->current = DirectPeerConnection::State::Connected;
+    h.pump();
+    auto host = h.channels[0];
+    auto partner = h.channels[1];
+    const auto id = std::string(32, 'a');
+    const auto prepare = P2PWire::encodeStartEnvelope('p', id, "1,2,3");
+    const auto ack = P2PWire::encodeStartEnvelope('a', id, "1,2,3");
+    host->deliver(P2PWire::encodeReadinessEnvelope("1,2,3", {1,3}));
+    // Different peer channels have no shared delivery ordering: the host's
+    // prepare can arrive before Partner's readiness, even within one pump.
+    host->deliver(prepare);
+    h.pump();
+    REQUIRE(h.transport->isJoined());
+    REQUIRE(std::count(host->sent.begin(), host->sent.end(), ack) == 0);
+    REQUIRE_FALSE(h.transport->acceptStartCallback());
+
+    SECTION("late readiness acknowledges once, then allows the committed start") {
+        partner->deliver(P2PWire::encodeReadinessEnvelope("1,2,3", {1,2}));
+        h.pump();
+        REQUIRE(h.transport->isJoined());
+        REQUIRE(std::count(host->sent.begin(), host->sent.end(), ack) == 1);
+        host->deliver(prepare);
+        h.pump();
+        REQUIRE(std::count(host->sent.begin(), host->sent.end(), ack) == 1);
+        host->deliver(P2PWire::encodeStartEnvelope('c', id, "1,2,3", {8,0,0,0,184,11,0,0}));
+        h.pump();
+        REQUIRE(h.transport->acceptStartCallback());
+        REQUIRE_FALSE(h.transport->acceptStartCallback());
+    }
+    SECTION("replayed preparation cannot extend the readiness deadline") {
+        h.pump(1, 20000);
+        host->deliver(prepare);
+        h.pump();
+        h.pump(1, 11000);
+        REQUIRE(h.transport->status() == RoomSessionTransport::Status::Closed);
+        REQUIRE(std::count(host->sent.begin(), host->sent.end(), ack) == 0);
+    }
+    SECTION("commit before readiness never starts the guest") {
+        host->deliver(P2PWire::encodeStartEnvelope('c', id, "1,2,3", {8,0,0,0,184,11,0,0}));
+        h.pump();
+        REQUIRE(h.transport->status() == RoomSessionTransport::Status::Closed);
+        REQUIRE_FALSE(h.transport->acceptStartCallback());
+    }
+    SECTION("a conflicting roster is still rejected") {
+        host->deliver(P2PWire::encodeStartEnvelope('p', id, "1,2"));
+        h.pump();
+        REQUIRE(h.transport->status() == RoomSessionTransport::Status::Closed);
+    }
 }
 
 TEST_CASE("Spectators can leave a frozen match without closing player connections", "[direct][spectator]") {

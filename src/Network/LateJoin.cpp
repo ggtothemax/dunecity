@@ -32,6 +32,9 @@ bool NetworkManager::beginLateJoin(const std::string& request, const std::string
         if(!present) it=joinSpectators.erase(it); else ++it;
     }
     if(spectator) joinSpectators.insert(name);
+    else joinSpectators.erase(name); // A seated spectator may become a controller.
+    Uint32 promotingPeer=0;
+    for(const auto& peer : direct->peers()) if(peer.spectator && peer.name==name) promotingPeer=peer.id;
     for(const auto& house : snapshot.getHouseInfoList()) for(const auto& p : house.playerInfoList) {
         if(joinSpectators.count(p.playerName)) { joinStatus="That name already belongs to a game controller."; return false; }
     }
@@ -47,6 +50,12 @@ bool NetworkManager::beginLateJoin(const std::string& request, const std::string
     joinAcks.clear(); joinOriginalPeers.clear();
     for(const auto& peer : direct->peers()) if(!peer.spectator) joinOriginalPeers.push_back(peer.id);
     joinStage=JoinStage::Preparing; joinDeadline=SDL_GetTicks()+120000;
+    if(promotingPeer) {
+        // Stop only this viewer's stream. Existing players are already entering the
+        // usual player-admission barrier; unrelated spectators never join it.
+        observerTransfers.erase(promotingPeer);
+        if(!sendJoinSync(20,0,name,promotingPeer)) { abortLateJoin("Could not reach the spectator."); return false; }
+    }
     joinStatus="Pausing to add "+name+"...";
     if(!joinOriginalPeers.empty() && !sendJoinSync(1,static_cast<Uint32>(joinBytes.size()),name)) {
         abortLateJoin("Could not pause all players."); return false;
@@ -56,6 +65,13 @@ bool NetworkManager::beginLateJoin(const std::string& request, const std::string
 
 void NetworkManager::receiveJoinSync(Uint32 peer, Uint32 operation, Uint32 transaction, Uint32 offset, const std::string& data) {
     auto* direct=getDirectTransport(); if(!direct) return;
+    if(operation==20) {
+        if(!bIsServer && peer==relayHostPeerId() && data==playerName && direct->prepareSpectatorPromotion()) {
+            joinExpected=true; observerIncoming.clear();
+            joinStatus="The host accepted your request. Preparing your player slot...";
+        }
+        return;
+    }
     if(operation>=10) { receiveObserverPacket(peer,operation,transaction,offset,data); return; }
     if(direct->isSpectating() || direct->isSpectatorPeer(peer)) return;
     if(bIsServer) {
@@ -69,7 +85,7 @@ void NetworkManager::receiveJoinSync(Uint32 peer, Uint32 operation, Uint32 trans
         joinTransaction=transaction; joinName=data; joinBytes.clear(); joinTotal=offset;
         joinDeadline=SDL_GetTicks()+120000; joinStage=JoinStage::Receiving;
         joinStatus="Synchronizing the game for "+data+"...";
-        if(bGameInProgress && !direct->openJoinWindow(data)) { abortLateJoin("Could not prepare the game connection."); return; }
+        if(bGameInProgress && !joinExpected && !direct->openJoinWindow(data)) { abortLateJoin("Could not prepare the game connection."); return; }
         bGameInProgress=false;
         sendJoinSync(0,prepareAck,{});
         return;

@@ -82,8 +82,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             libsdl2-dev libsdl2-mixer-dev libsdl2-ttf-dev \
-            libcurl4-openssl-dev \
+            libcurl4-openssl-dev libssl-dev python3-cryptography \
             catch2
+
+      - name: Verify signed update feeds and AppImage replacement
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_desktop_updates.py
+          python3 -m unittest discover -s scripts/tests -p test_macos_runtime.py
+          python3 tests/desktop-updater/run-appimage-flow.py --output "$RUNNER_TEMP/appimage-update-test"
 
       - name: Configure CMake
         # The unit tests exercise the direct transport with fake data channels, so this job does
@@ -184,6 +190,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
+      - name: Preflight Windows installer configuration
+        run: |
+          cmake -S tests/windows-installer -B installer-preflight
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cpack --config installer-preflight/CPackConfig.cmake -G NSIS -B installer-preflight/package
+          if ($LASTEXITCODE -ne 0) {
+            Get-ChildItem installer-preflight -Recurse -Filter NSISOutput.log | ForEach-Object { Get-Content $_.FullName }
+            exit 1
+          }
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
@@ -210,13 +229,38 @@ jobs:
         run: |
           cd build
           cmake --install . --prefix install --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($runtime in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            if (-not (Test-Path "install/$runtime")) { throw "Missing bundled MSVC runtime: $runtime" }
+          }
+          if ((Get-Item install/README).LinkType) { throw "Packaged README must be a regular file" }
           cpack -G ZIP -C Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cpack -G NSIS -C Release
+          if ($LASTEXITCODE -ne 0) {
+            Get-ChildItem _CPack_Packages -Recurse -Filter NSISOutput.log | ForEach-Object { Get-Content $_.FullName }
+            exit 1
+          }
+
+      - name: Preserve installer diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Windows-installer-diagnostics
+          path: |
+            installer-preflight/package/**/NSISOutput.log
+            installer-preflight/package/**/project.nsi
+            build/_CPack_Packages/**/NSISOutput.log
+            build/_CPack_Packages/**/project.nsi
+            build/*.zip
 
       - name: Upload Installer
         uses: actions/upload-artifact@v7
         with:
           name: DuneCity-Windows-Installer
-          path: build/*.zip
+          path: |
+            build/*.zip
+            build/*.exe
 
   build-macos:
     # Runs on the Mac mini (claw.local, M4, macOS 26.6) registered as the
@@ -325,10 +369,28 @@ jobs:
       - name: Verify secure relay support
         run: build/bin/dunecity.app/Contents/MacOS/dunecity --check-relay-support
 
-      - name: Create DMG Installer
+      - name: Create development DMG
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
           cd build
           cpack -G DragNDrop -C Release
+
+      - name: Sign and notarize stable Mac packages
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          MAC_SIGNING_IDENTITY: 'Developer ID Application: Stefan van der Wel (34X7AYJZ93)'
+        run: |
+          python3 scripts/unlock-macos-signing.py
+          cmake --install build --prefix "$RUNNER_TEMP/dunecity-mac-install" --config Release
+          python3 scripts/package-signed-macos.py \
+            --app "$RUNNER_TEMP/dunecity-mac-install/dunecity.app" \
+            --output "$RUNNER_TEMP/dunecity-mac-signed-${{ github.run_id }}-${{ github.run_attempt }}" \
+            --identity "$MAC_SIGNING_IDENTITY" \
+            --signing-keychain "$HOME/Library/Keychains/DuneCity-Signing.keychain-db" \
+            --notary-profile DuneCityNotarization \
+            --notary-keychain "$HOME/Library/Keychains/DuneCity-Signing.keychain-db"
+          cp "$RUNNER_TEMP/dunecity-mac-signed-${{ github.run_id }}-${{ github.run_attempt }}"/*.dmg build/
+          cp "$RUNNER_TEMP/dunecity-mac-signed-${{ github.run_id }}-${{ github.run_attempt }}"/*.zip build/
 
       - name: Verify DMG
         run: bash scripts/verify-macos-dmg.sh build/DuneCity-*-macOS.dmg
@@ -337,7 +399,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: DuneCity-macOS-DMG
-          path: build/*.dmg
+          path: |
+            build/*.dmg
+            build/*-macOS.zip
           if-no-files-found: error
           retention-days: 14
 
@@ -600,13 +664,57 @@ jobs:
               --prerelease
           fi
 
-  # Auto-publish a GitHub Release on every v* tag push. Pulls down the
-  # three platform artifacts from this run and attaches them. The
-  # in-game VersionChecker hits the GitHub Releases /latest endpoint,
-  # so creating a release here automatically flips every existing
-  # install's "update available" flag the next time they launch.
+  # Only trusted stable tags reach the local update-signing key.
+  sign-desktop-updates:
+    needs: [build-windows, build-linux, build-macos]
+    if: success() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, macOS, ARM64, dunecity-builder]
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: DuneCity-Windows-Installer
+          path: update-input/windows
+      - uses: actions/download-artifact@v8
+        with:
+          name: DuneCity-Linux-Packages
+          path: update-input/linux
+      - uses: actions/download-artifact@v8
+        with:
+          name: DuneCity-macOS-DMG
+          path: update-input/macos
+      - name: Prepare update-signing Python
+        run: |
+          python3 -m venv "$RUNNER_TEMP/dunecity-update-signing-python"
+          "$RUNNER_TEMP/dunecity-update-signing-python/bin/pip" install --disable-pip-version-check cryptography==50.0.1
+
+      - name: Prepare signed update feeds
+        env:
+          UPDATE_TAG: ${{ github.ref_name }}
+          UPDATE_REPO: ${{ github.repository }}
+        run: |
+          VERSION="${UPDATE_TAG#v}"
+          KEY_DIR="$HOME/Library/Application Support/DuneCity Signing/updates"
+          BASE="https://github.com/${UPDATE_REPO}/releases/download/${UPDATE_TAG}"
+          for SPEC in "macos-arm64:macos:DuneCity-${VERSION}-macOS.zip" "windows-x64:windows:DuneCity-${VERSION}-Windows-x64.exe" "linux-x86_64:linux:DuneCity-${VERSION}-Linux-x86_64.AppImage"; do
+            IFS=: read -r PLATFORM FOLDER FILE <<< "$SPEC"
+            "$RUNNER_TEMP/dunecity-update-signing-python/bin/python" scripts/prepare-desktop-updates.py --version "$VERSION" --platform "$PLATFORM" \
+              --archive "update-input/$FOLDER/$FILE" --base-url "$BASE" \
+              --key-file "$KEY_DIR/update-ed25519.pem" --password-file "$KEY_DIR/update-key-password" \
+              --output update-feeds
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DuneCity-Update-Feeds
+          path: update-feeds/*
+          if-no-files-found: error
+
+  # Publish all binaries and their signed feeds together after every build passes.
   release:
-    needs: [verify-version, test-linux, relay-tests, signaling-tests, build-emscripten, build-windows, build-linux, build-macos]
+    needs: [verify-version, test-linux, relay-tests, signaling-tests, build-emscripten, build-windows, build-linux, build-macos, sign-desktop-updates]
     # The website advertises all desktop platforms at this version. Publish only
     # after tests and every desktop package have actually succeeded.
     if: success() && startsWith(github.ref, 'refs/tags/v')
@@ -634,6 +742,12 @@ jobs:
           name: DuneCity-Linux-Packages
           path: dist/linux
 
+      - name: Download signed update feeds
+        uses: actions/download-artifact@v8
+        with:
+          name: DuneCity-Update-Feeds
+          path: dist/updates
+
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -650,12 +764,12 @@ jobs:
               echo
             fi
             echo "**Downloads** (attached below):"
-            echo "- Windows: \`DuneCity-*.zip\`"
+            echo "- Windows: \`DuneCity-*.exe\` installer (recommended), or portable \`.zip\`"
             echo "- Linux: \`.AppImage\` (recommended) / \`.deb\` / \`.rpm\` / \`.tar.gz\`"
             if compgen -G "dist/macos/*.dmg" > /dev/null; then
               echo "- macOS: \`DuneCity-*.dmg\`"
               echo
-              echo "**Running on macOS:** the build is ad-hoc signed, so Gatekeeper blocks it on first launch (\"dunecity.app was blocked to protect your Mac\"). It's not damaged — approve it once: **System Settings → Privacy & Security → Open Anyway** (macOS 15/26), or right-click the app → **Open** on macOS 14 and earlier. Details: https://dunelegacy.com/dune-city.html#macos-fix"
+              echo "**macOS:** Developer ID signed and Apple notarized. Drag Dune City into Applications."
             else
               echo "- macOS: no build was produced for this release. The last stable Mac build remains Dune City 1.0.359."
             fi
@@ -663,17 +777,19 @@ jobs:
             echo "Upgrading from a previous Dune City install? Your built-in mod INI files are reseeded automatically on first launch."
           } > "$NOTES_FILE"
 
-          # If a release for this tag already exists (e.g. it was hand-
-          # made first), upload the artifacts onto it; otherwise create
-          # a fresh release.
+          # Publish only after all binaries and feeds have uploaded to a draft.
           if gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != true ]; then
+              echo "Refusing to overwrite a published release. Use a new version."
+              exit 1
+            fi
             gh release upload "$TAG" dist/*/* --clobber
             gh release edit "$TAG" --notes-file "$NOTES_FILE"
           else
-            gh release create "$TAG" dist/*/* \
-              --title "Dune City ${TAG}" \
-              --notes-file "$NOTES_FILE"
+            gh release create "$TAG" dist/*/* --draft \
+              --title "Dune City ${TAG}" --notes-file "$NOTES_FILE"
           fi
+          gh release edit "$TAG" --draft=false --latest
 
       - name: Update dunelegacy.com website
         env:
@@ -710,6 +826,9 @@ jobs:
           for FILE in website/index.html website/dune-city.html; do
             # Download URLs: v1.0.4/DuneCity-1.0.4-... -> vVERSION/DuneCity-VERSION-...
             sed -i "s|/v[0-9]\+\.[0-9]\+\.[0-9]\+/DuneCity-[0-9]\+\.[0-9]\+\.[0-9]\+-|/v${VERSION}/DuneCity-${VERSION}-|g" "$FILE"
+            # The EXE installs the Windows updater; the portable ZIP remains available on Releases.
+            sed -i "s|Windows-x64\.zip|Windows-x64.exe|g" "$FILE"
+            sed -i '/DuneCity-.*-Windows-x64[.]exe/s|>Download ZIP<|>Download Installer<|g' "$FILE"
             # Debian package names use lowercase and underscores.
             sed -i "s|/v[0-9]\+\.[0-9]\+\.[0-9]\+/dunecity_[0-9]\+\.[0-9]\+\.[0-9]\+_amd64\.deb|/v${VERSION}/dunecity_${VERSION}_amd64.deb|g" "$FILE"
             # Release tag links

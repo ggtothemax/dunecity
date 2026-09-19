@@ -26,6 +26,7 @@
 #include <Command.h>
 #include <players/Player.h>
 #include <Game.h>
+#include <Network/NetworkManager.h>
 
 #include <ObjectBase.h>
 #include <GUI/ObjectInterfaces/ObjectInterface.h>
@@ -134,6 +135,16 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         && ModManager::instance().getActiveModName() == "Dune2R";
     dune2rZoomButton.setVisible(showViewControls);
     dune2rVisualButton.setVisible(showViewControls);
+
+    // A persistent map-screen notice, clear of the population and view controls.
+    joinRequestButton.setText("Request waiting approval");
+    joinRequestButton.setTooltipText("Waiting for the host. Click for request options.");
+    joinRequestButton.setTextColor(COLOR_RGB(255,255,255));
+    joinRequestButton.setOnClick(std::bind(&Game::onJoinRequests, currentGame));
+    joinRequestButton.setVisible(false);
+    windowWidget.addWidget(&joinRequestButton,
+        Point(std::max(8, viewControlsRight - 400), viewControlsY + viewButtonHeight + 12),
+        Point(400, 36));
 
     // add radar
     const Point radarOrigin(getRendererWidth() - sideBar.getSize().x + SIDEBAR_COLUMN_WIDTH, 0);
@@ -286,6 +297,7 @@ GameInterface::~GameInterface() {
 }
 
 void GameInterface::draw(Point position) {
+    updateJoinRequestButton();
     const bool dune2rActive = ModManager::instance().isInitialized()
         && ModManager::instance().getActiveModName() == "Dune2R";
     dune2rZoomButton.setVisible(dune2rActive);
@@ -437,6 +449,45 @@ void GameInterface::draw(Point position) {
 
     if(showCityStatsOverlay) {
         drawCityStatsOverlay();
+    }
+}
+
+void GameInterface::updateJoinRequestButton() {
+    std::string text, tooltip;
+    bool pending = false;
+    auto* direct = pNetworkManager ? pNetworkManager->getDirectTransport() : nullptr;
+    if(direct && !pNetworkManager->lateJoinPaused()) {
+        if(pNetworkManager->isServer()) {
+            const auto& requests = direct->joinRequests();
+            const auto count = std::count_if(requests.begin(), requests.end(),
+                [](const auto& request) { return !request.spectator; });
+            if(count) {
+                text = "Join requests (" + std::to_string(count) + "): waiting approval";
+                tooltip = "Click to approve or reject a request to play.";
+                pending = true;
+            }
+        } else if(currentGame->isSpectating()) {
+            const auto& state = direct->playRequestState();
+            if(state == "pending") { text = "Request waiting approval"; pending = true; }
+            else if(state == "approved") text = "Request approved - joining";
+            else if(state == "declined") text = "Request declined - still spectating";
+            else if(state == "error") text = "Request failed - click to try again";
+            tooltip = pending ? "Waiting for the host. Click for request options."
+                              : "Click for request-to-play options.";
+        }
+    }
+    joinRequestButton.setVisible(!text.empty());
+    if(text.empty()) return;
+    if(joinRequestButton.getText() != text) {
+        joinRequestButton.setText(text);
+        joinRequestButton.setTooltipText(tooltip);
+    }
+    // Flash the colour, never the hit target or readable label. Wall time keeps
+    // the notice pulsing even when the simulation is waiting for network data.
+    const bool flash = pending && (SDL_GetTicks() / 750) % 2 == 0;
+    if(flash != joinRequestFlash) {
+        joinRequestFlash = flash;
+        joinRequestButton.setTextColor(flash ? COLOR_RGB(255,210,64) : COLOR_RGB(255,255,255));
     }
 }
 

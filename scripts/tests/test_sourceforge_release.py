@@ -15,6 +15,13 @@ class ReleaseTests(unittest.TestCase):
         return {'tag_name':'v1.0.612','draft':False,'prerelease':False,
                 'assets':[{'name':n,'size':1} for n in sf.expected_files('v1.0.612')]}
 
+    def test_updater_releases_prefer_exe_and_keep_portable_zip(self):
+        files = sf.expected_files('v1.0.731')
+        self.assertEqual(files[0], 'DuneCity-1.0.731-Windows-x64.exe')
+        self.assertIn('DuneCity-1.0.731-Windows-x64.zip', files)
+        self.assertEqual(len(files), 7)
+        self.assertTrue(sf.expected_files('v1.0.730')[0].endswith('.zip'))
+
     def test_stable_tags_only(self):
         for tag in ['latest-dev','v1.0.612-rc1','v1.0.612;echo test','../bad','v1.0.612\n']:
             with self.assertRaises(ValueError): sf.version(tag)

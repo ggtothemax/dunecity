@@ -24,6 +24,7 @@
 #include <Explosion.h>
 #include <SoundPlayer.h>
 #include <Map.h>
+#include <SpatialGrid.h>
 #include <ScreenBorder.h>
 
 #include <FileClasses/GFXManager.h>
@@ -158,6 +159,9 @@ void AirUnit::move() {
     if(newLocation != location) {
         unassignFromMap(location);
         assignToMap(newLocation);
+        if(auto* spatialGrid = currentGame->getSpatialGrid()) {
+            spatialGrid->move(*this, getGridHandle(), location, newLocation);
+        }
         location = newLocation;
     }
 

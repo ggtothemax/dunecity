@@ -18,6 +18,7 @@
 #include <Game.h>
 #include <misc/OMemoryStream.h>
 #include <GUI/dune/JoinProgressWindow.h>
+#include <GUI/dune/JoinRequestsWindow.h>
 #include <GUI/dune/FeedbackWindow.h>
 #include <misc/CampaignControls.h>
 #include <main.h>
@@ -87,6 +88,7 @@ std::mutex Game::performanceLogMutex;
 #include <sand.h>
 
 #include <structures/StructureBase.h>
+#include <structures/ZoneStructure.h>
 #include <structures/WindTrap.h>
 #include <structures/AdvancedWindTrap.h>
 #include <structures/NuclearPlant.h>
@@ -3614,6 +3616,10 @@ void Game::resumeGame()
     if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
         return;
     }
+    if(bPause && settings.general.diagnosticLogs) {
+        AITelemetry::log().write(gameCycleCount,-1,-1,"pause_changed",
+            AITelemetry::Record().set("paused",false).set("source","resume"));
+    }
     bPause = false;
     
     // Notify other players in multiplayer that we resumed
@@ -3628,11 +3634,15 @@ void Game::resumeGame()
     }
 }
 
-void Game::pauseGame() {
+void Game::pauseGame(const char* source) {
     // A local pause freezes the cycle that would transmit the pause command itself.
     // Until a synchronized pause protocol exists, relay games continue behind menus.
     if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
         return;
+    }
+    if(!bPause && settings.general.diagnosticLogs) {
+        AITelemetry::log().write(gameCycleCount,-1,-1,"pause_changed",
+            AITelemetry::Record().set("paused",true).set("source",source).set("menu_open",bMenu));
     }
     bPause = true;
     
@@ -3875,7 +3885,18 @@ void Game::onOptions()
         Uint32 color = getHouseColorRGB(getHouseVisualHouse(pLocalHouse->getHouseID()), 3);
         pInGameMenu = std::make_unique<InGameMenu>((isNetworkGameType(gameType)), color);
         bMenu = true;
-        pauseGame();
+        pauseGame("options");
+    }
+}
+
+void Game::onJoinRequests() {
+    if(!pNetworkManager || !pNetworkManager->getDirectTransport()
+       || pNetworkManager->lateJoinPaused() || pInGameMenu || pInGameMentat) return;
+    if(pNetworkManager->isServer()) {
+        pInGameMenu = std::make_unique<JoinRequestsWindow>();
+        bMenu = true; // Choosing a controller does not pause an online game.
+    } else if(isSpectating()) {
+        onOptions();
     }
 }
 
@@ -3931,7 +3952,7 @@ void Game::onMentat()
 {
     pInGameMentat = std::make_unique<MentatHelp>(pLocalHouse->getHouseID(), techLevel, gameInitSettings.getMission());
     bMenu = true;
-    pauseGame();
+    pauseGame("mentat");
 }
 
 bool Game::canSkipMission() const {
@@ -3944,7 +3965,7 @@ void Game::onSkipMission() {
     if(!canSkipMission())return;
     auto menu=std::make_unique<InGameMenu>(isNetworkGameType(gameType),COLOR_WHITE);
     menu->onSkipMission();
-    pInGameMenu=std::move(menu); bMenu=true; pauseGame();
+    pInGameMenu=std::move(menu); bMenu=true; pauseGame("skip_mission");
 }
 
 void Game::confirmSkipMission() {
@@ -3954,7 +3975,7 @@ void Game::confirmSkipMission() {
 void Game::onFeedback() {
     pInGameMenu = std::make_unique<FeedbackWindow>();
     bMenu = true;
-    pauseGame();
+    pauseGame("feedback");
 }
 
 void Game::onCityBudget()
@@ -4279,7 +4300,9 @@ bool Game::loadSaveGame(InputStream& stream) {
     // Single-player saves contain a local-player byte even when hosted online.
     Uint8 savedLocalPlayerID = 0;
     if(!savedNetworkLayout) savedLocalPlayerID = stream.readUint8();
-    if(lateJoinLoad) {
+    // Passive observers retain the saved controllers exactly. Reconfiguring an
+    // unchanged mixed human/AI house can alter its AI flag and unit rally logic.
+    if(lateJoinLoad && !isSpectating()) {
         for(const auto& info : oldHouseInfoList) {
             auto* target=getHouse(info.houseID);
             if(!target) THROW(std::runtime_error,"The requested house no longer exists.");
@@ -4448,7 +4471,10 @@ bool Game::loadSaveGame(InputStream& stream) {
             citySimulation_->setCityEffectsEnabled(
                 DuneCity::shouldEnableLoadedCityEffects(hasCitySim));
             citySimulation_->load(stream);
-            citySimulation_->reconcileLoadedMapState(gameCycleCount);
+            // A passive viewer must not perform the extra effects/growth pass
+            // used to repair ordinary disk saves. Its exact live caches follow
+            // in the observer runtime supplement.
+            if(!isSpectating()) citySimulation_->reconcileLoadedMapState(gameCycleCount);
         }
     }
 
@@ -5396,7 +5422,7 @@ void Game::handleKeyInput(SDL_KeyboardEvent& keyboardEvent)
                     pNetworkManager->sendChatMessage(message);
                 }
             } else {
-                pauseGame();
+                pauseGame(keyboardEvent.repeat ? "space_repeat" : "space");
                 const std::string message = _("Game paused!");
                 pInterface->getChatManager().addInfoMessage(message);
                 if(isMultiplayer && pNetworkManager != nullptr) {
@@ -6155,17 +6181,23 @@ bool Game::handleNetworkUpdates() {
 
     pNetworkManager->update();
     if(auto* direct=pNetworkManager->getDirectTransport(); direct && pNetworkManager->isServer()) {
-        std::set<std::string> currentRequests;
         for(const auto& request : direct->joinRequests()) {
-            currentRequests.insert(request.id);
             if(request.spectator) {
                 if(!pNetworkManager->lateJoinPaused() && !direct->joinDecisionPending()
                    && !direct->manageJoin("approve_spectator",request.id)) direct->manageJoin("abort",request.id);
                 continue;
             }
-            if(!seenJoinRequests.count(request.id)) addToNewsTicker(request.name+" wants to join. Open Options > Join requests.");
         }
-        seenJoinRequests=std::move(currentRequests);
+    }
+    if(auto* direct=pNetworkManager->getDirectTransport(); direct && isSpectating()) {
+        const auto& state=direct->playRequestState();
+        if(state!=lastPlayRequestState) {
+            lastPlayRequestState=state;
+            if(state=="pending") addToNewsTicker("Request sent. You can keep spectating while the host chooses.");
+            else if(state=="declined") addToNewsTicker("The host declined your request. You can keep spectating.");
+            else if(state=="cancelled") addToNewsTicker("Request to play cancelled. You are still spectating.");
+            else if(state=="error") addToNewsTicker("Could not send the request to play. Please try again.");
+        }
     }
     if(!pNetworkManager->lateJoinStatus().empty() && lastJoinStatus!=pNetworkManager->lateJoinStatus()) {
         lastJoinStatus=pNetworkManager->lateJoinStatus(); addToNewsTicker(lastJoinStatus);
@@ -6189,8 +6221,14 @@ bool Game::handleNetworkUpdates() {
             const auto budget=frame.readUint32(); const auto fingerprint=frame.readString();
             if(!fingerprint.empty()) {
                 GameStateDigest::Digest expected;
-                if(!GameStateDigest::decode(reinterpret_cast<const Uint8*>(fingerprint.data()),fingerprint.size(),expected)
-                   || computeStateDigest().divergesFrom(expected)) throw std::runtime_error("Spectator state diverged");
+                if(!GameStateDigest::decode(reinterpret_cast<const Uint8*>(fingerprint.data()),fingerprint.size(),expected))
+                    throw std::runtime_error("Invalid spectator fingerprint");
+                const auto actual=computeStateDigest();
+                if(actual.divergesFrom(expected)) {
+                    SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,"Spectator fingerprint expected: %s; actual: %s",
+                        GameStateDigest::describe(expected).c_str(),GameStateDigest::describe(actual).c_str());
+                    throw std::runtime_error("Spectator state diverged");
+                }
             }
             const auto count=frame.readUint32();
             if(budget<kMinBudget || budget>kMaxBudget || count>4096) throw std::runtime_error("Invalid spectator tick");
@@ -6530,14 +6568,14 @@ std::vector<Game::JoinSlot> Game::availableJoinSlots() const {
         if(!target || !target->isAlive() || (coop && h!=gameInitSettings.getHouseID())) continue;
         const auto& controllers=target->getPlayerList();
         if(controllers.empty()) continue;
+        if(shared && controllers.size()<2)
+            result.push_back({h,static_cast<int>(controllers.size()),"Share with "+controllers.front()->getPlayername()+" (keep existing player)"});
         int index=0;
         for(const auto& p : controllers) {
             if(dynamic_cast<HumanPlayer*>(p.get())==nullptr)
-                result.push_back({h,index,"Replace "+p->getPlayername()+" (house "+std::to_string(h+1)+")"});
+                result.push_back({h,index,"Replace "+p->getPlayername()+" (remove AI)"});
             ++index;
         }
-        if(shared && controllers.size()<2)
-            result.push_back({h,index,"Share with "+controllers.front()->getPlayername()+" (house "+std::to_string(h+1)+")"});
     }
     return result;
 }
@@ -6590,14 +6628,15 @@ void Game::prepareObserverStreams() {
         const auto snapshot=spectatorSnapshot(); const auto runtime=saveObserverRuntime();
         for(const auto peer : pending) if(!pNetworkManager->beginObserverSnapshot(peer,snapshot,runtime,gameCycleCount))
             pNetworkManager->getDirectTransport()->disconnectSpectator(peer,"This game is too large to spectate.");
-    } catch(const std::exception&) {
+    } catch(const std::exception& error) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,"Spectator checkpoint preparation failed: %s",error.what());
         for(const auto peer : pending) pNetworkManager->getDirectTransport()->disconnectSpectator(peer,"Could not prepare the spectator view.");
     }
 }
 
 std::string Game::saveObserverRuntime() const {
     OMemoryStream out; out.open();
-    out.writeUint32(1); out.writeUint32(gameCycleCount);
+    out.writeUint32(2); out.writeUint32(gameCycleCount);
     out.writeUint32(negotiatedBudget); out.writeUint32(cmdManager.getNetworkCycleBuffer());
     out.writeUint32(currentGameMap->getPathingRevision());
     out.writeUint32(targetRequestQueue.size());
@@ -6611,12 +6650,18 @@ std::string Game::saveObserverRuntime() const {
         if(const auto* bot=dynamic_cast<const QuantBot*>(p.get())) bots.push_back(bot);
     out.writeUint32(bots.size());
     for(const auto* bot : bots) { out.writeUint8(bot->getPlayerID()); bot->saveObserverRuntime(out); }
+    for(const auto& h : house) {
+        out.writeBool(h != nullptr);
+        if(h) out.writeBool(h->isAI());
+    }
+    out.writeBool(citySimulation_ != nullptr);
+    if(citySimulation_) citySimulation_->saveObserverRuntime(out);
     return std::string(out.getData(),out.getDataLength());
 }
 
 void Game::loadObserverRuntime(const std::string& bytes) {
     IMemoryStream in(bytes.data(),bytes.size());
-    if(in.readUint32()!=1 || in.readUint32()!=gameCycleCount) throw std::runtime_error("Invalid spectator checkpoint cycle");
+    if(in.readUint32()!=2 || in.readUint32()!=gameCycleCount) throw std::runtime_error("Invalid spectator checkpoint cycle");
     negotiatedBudget=in.readUint32(); const auto buffer=in.readUint32();
     if(negotiatedBudget<kMinBudget || negotiatedBudget>kMaxBudget || buffer>1000) throw std::runtime_error("Invalid spectator checkpoint budget");
     cmdManager.setNetworkCycleBuffer(buffer);
@@ -6640,5 +6685,15 @@ void Game::loadObserverRuntime(const std::string& bytes) {
         if(!bot || !seenBots.insert(id).second) throw std::runtime_error("Invalid spectator AI");
         bot->loadObserverRuntime(in);
     }
+    for(const auto& h : house) {
+        if(in.readBool() != (h != nullptr)) throw std::runtime_error("Invalid spectator house state");
+        if(h) h->restoreObserverAI(in.readBool());
+    }
+    if(in.readBool() != (citySimulation_ != nullptr)) throw std::runtime_error("Invalid spectator city state");
+    if(citySimulation_) citySimulation_->loadObserverRuntime(in);
+    // Zone constructors restore occupancy but do not register its dynamic power
+    // draw. Rebuild that derived house total without running city growth.
+    for(auto* structure : structureList)
+        if(auto* zone=dynamic_cast<ZoneStructure*>(structure)) zone->refreshZonePowerDraw();
     if(in.getRemainingLength()!=0) throw std::runtime_error("Extra spectator checkpoint data");
 }

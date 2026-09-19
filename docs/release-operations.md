@@ -16,6 +16,15 @@ The legacy website files are `sourceforge_website/` in both game checkouts.
 Main website files are `website/` in the separate website repository. Do not
 confuse pushing website source with publishing it to SourceForge web hosting.
 
+## Signed desktop updates from 1.0.731
+
+See [desktop updates](desktop-updates.md) for platform behavior, the local signing
+key/profile prerequisites and validation. Stable Mac packages now require
+Developer ID signing and Apple acceptance. The Windows EXE enables the updater;
+the portable ZIP remains available. Stable feeds and binaries are uploaded to a
+draft before publication. Do not replace assets in an already published release;
+use a new version. No update feed is emitted for `latest-dev`.
+
 ## An authorized desktop release
 
 1. Inspect dirty files and current tags; preserve other work. Follow `AGENTS.md`
@@ -35,14 +44,15 @@ confuse pushing website source with publishing it to SourceForge web hosting.
    release can use `gh pr merge --merge --admin --match-head-commit SHA`.
    Push the authorized release and its `vX.Y.Z` tag. **Build Dune Legacy** in
    `.github/workflows/build.yml` gates publication on tests and Windows, Linux
-   and macOS success. Verify all six assets: ZIP, DMG, AppImage, DEB, RPM, tar.gz.
+   and macOS success. Verify the EXE, portable ZIP, DMG, Mac update ZIP, AppImage, DEB, RPM,
+   tar.gz and all signed update feeds.
 4. The release job updates version/download links in the separate website repo's
    `website/index.html` and `website/dune-city.html`, using `WEBSITE_DEPLOY_KEY`.
    Watch **Deploy to Droplet** there and check the live pages. Release prose is
    not guaranteed to be rewritten by version replacement; review it explicitly.
 5. A successful stable-tag build triggers **Sync SourceForge release** in
    `.github/workflows/sourceforge.yml`. Verify its success separately. It copies
-   the six existing assets without rebuilding, adds README and SHA256SUMS,
+   the user-facing packages without rebuilding (seven from 1.0.731), adds README and SHA256SUMS,
    reads uploads back to verify hashes, publishes `dunecity-vX.Y.Z`, advances
    SourceForge's `dunecity` branch and changes the three OS defaults.
 6. Report only destinations actually verified. Checksum/upload success, source

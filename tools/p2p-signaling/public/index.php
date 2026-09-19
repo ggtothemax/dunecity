@@ -51,7 +51,7 @@ const FIELD_RULES = [
     'spectate'     => '/^[01]$/D',
     'cancel'       => '/^[01]$/D',
     'request'      => '/^[0-9a-f]{64}$/D',
-    'action'       => '/^(list|approve|approve_spectator|decline|abort)$/D',
+    'action'       => '/^(list|approve|approve_spectator|decline|abort|request_play|cancel_play|play_status)$/D',
     'bye'          => '/^[01]$/D',
 ];
 

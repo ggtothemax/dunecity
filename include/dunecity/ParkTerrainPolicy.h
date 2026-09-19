@@ -59,6 +59,7 @@ public:
         return count ? after/count-before/count : 0;
     }
 private:
+    friend class CitySimulation; // Its live checkpoints preserve the last scanned source grid.
     bool inside(int x,int y) const { return x>=0 && y>=0 && x<width_ && y<height_; }
     int neighbours(int x,int y) const {
         return sources_.get(x-1,y)+sources_.get(x+1,y)

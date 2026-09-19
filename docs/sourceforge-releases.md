@@ -13,14 +13,23 @@ initially verified nine files, pushed the source refs and confirmed all three OS
 The setup below is retained for credential rotation or migration.
 
 On 2026-09-10 Stefan requested removal of the source archive. Current policy is
-**eight files: six packages, README with a tagged Git source link, SHA256SUMS**.
+six packages plus README and SHA256SUMS for historical releases; see the
+updated counts for updater-enabled releases below.
 The archive is excluded from future runs; source branch/tag mirroring continues.
 See [release-operations.md](release-operations.md) for the cross-repository checklist.
+
+## Updater-enabled releases
+
+From 1.0.731, mirror seven packages plus README and SHA256SUMS (nine files).
+The EXE is the Windows default and the portable ZIP is retained. Historical
+backfills before 1.0.731 still use six packages. Update feeds and the Mac update
+ZIP are served from GitHub Releases; SourceForge mirrors the user-facing
+installers. See [desktop updates](desktop-updates.md).
 
 ## Published layout
 
 - Files: `dunelegacy` project, `dunecity/<version>/` directory.
-- Six unchanged GitHub desktop packages, `README.md`
+- Seven unchanged GitHub desktop packages from 1.0.731 (six for older tags), `README.md`
   release notes and `SHA256SUMS`.
 - Source: existing `ssh://USER@git.code.sf.net/p/dunelegacy/code` repository,
   dedicated `dunecity` branch and `dunecity-vX.Y.Z` tags.

@@ -125,3 +125,12 @@ test('ICE gathering completion does not publish an empty address or close a conn
   assert.equal(c.sent.length,before);assert.equal(c.closed(),0);assert.equal(c.errors.length,0);
   await c.t.send('still connected');c.t.disconnect();
 });
+
+test('failed RTC negotiation keeps a bounded reason instead of a silent disconnect',()=>{
+  const c=connection();
+  c.pc.connectionState='failed'; c.pc.iceConnectionState='failed';
+  c.pc.onconnectionstatechange();
+  assert.equal(c.closed(),1); assert.equal(c.errors.length,1);
+  assert.match(String(c.errors[0]),/WebRTC failed; ICE failed/);
+  assert.equal(c.handlers.size,0);
+});

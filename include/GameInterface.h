@@ -112,6 +112,7 @@ public:
 private:
     void removeOldContainer();
     void drawCityStatsOverlay();
+    void updateJoinRequestButton();
 
 
     ObjectInterface*    pObjectContainer;       ///< The container holding information about the currently selected unit/structure
@@ -134,6 +135,8 @@ private:
 
     ChatManager         chatManager;            ///< Manages chat manages shown overlayed with the main map
     TextButton          feedbackButton;
+    TextButton          joinRequestButton;
+    bool                joinRequestFlash = false;
     TextButton          autoRepairButton;
     TextButton movementPathsButton;
     TextButton          landValueOverlayButton;

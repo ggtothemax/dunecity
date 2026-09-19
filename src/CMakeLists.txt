@@ -616,6 +616,8 @@ if(APPLE)
     )
 endif()
 
+include(${CMAKE_SOURCE_DIR}/cmake/DesktopUpdater.cmake)
+
 # Compiler options
 target_compile_options(dunecity
     PRIVATE
@@ -865,6 +867,13 @@ if(WIN32)
     install(TARGETS dunecity
         RUNTIME DESTINATION .
     )
+    # vcpkg app-local deployment copies its DLLs but not the MSVC runtime.
+    # Bundle the redistributable runtime beside the game so a clean Windows
+    # machine does not need Visual Studio or a separate VC++ installer.
+    if(MSVC)
+        set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION ".")
+        include(InstallRequiredSystemLibraries)
+    endif()
     # Install vcpkg DLLs for Windows
     if(CMAKE_BUILD_TYPE STREQUAL "Release" OR NOT CMAKE_BUILD_TYPE)
         install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/Release/
@@ -882,10 +891,21 @@ elseif(APPLE)
     # invokes the install rules in a staging tree, so BundleUtilities copies
     # every non-system dylib into Contents/Frameworks and rewrites its load
     # commands before the final signature is applied.
-    set(DUNECITY_MACOS_DEPENDENCY_DIRS "")
+    set(DUNECITY_MACOS_DEPENDENCY_DIRS "${dunecity_sparkle_SOURCE_DIR}")
     if(DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
         list(APPEND DUNECITY_MACOS_DEPENDENCY_DIRS
             "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib")
+    endif()
+
+    # Homebrew SDL2 may be sdl2-compat, which dlopens SDL3 instead of linking
+    # it. BundleUtilities cannot discover that runtime-only dependency.
+    find_library(DUNECITY_MACOS_SDL3_LIBRARY NAMES SDL3)
+    if(DUNECITY_MACOS_SDL3_LIBRARY)
+        get_filename_component(_sdl3_real "${DUNECITY_MACOS_SDL3_LIBRARY}" REALPATH)
+        get_filename_component(_sdl3_libdir "${_sdl3_real}" DIRECTORY)
+        find_file(DUNECITY_MACOS_SDL3_LICENSE NAMES LICENSE.txt
+            HINTS "${_sdl3_libdir}/.." "${_sdl3_libdir}/../share/licenses/SDL3"
+            NO_DEFAULT_PATH)
     endif()
 
     # Re-sign last because dependency fixup changes the executable and copied
@@ -894,12 +914,44 @@ elseif(APPLE)
     install(CODE "
         include(BundleUtilities)
         set(BU_CHMOD_BUNDLE_ITEMS ON)
+        set(BU_COPY_FULL_FRAMEWORK_CONTENTS ON)
+        set(_runtime_libraries \"\")
+        execute_process(COMMAND /usr/bin/strings \"$<TARGET_FILE:SDL2::SDL2>\"
+            OUTPUT_VARIABLE _sdl2_strings RESULT_VARIABLE _sdl2_result)
+        if(NOT _sdl2_result EQUAL 0)
+            message(FATAL_ERROR \"Could not inspect SDL2 runtime requirements\")
+        endif()
+        if(_sdl2_strings MATCHES \"SDL2COMPAT_DEBUG_LOGGING\")
+            if(NOT EXISTS \"${DUNECITY_MACOS_SDL3_LIBRARY}\" OR NOT EXISTS \"${DUNECITY_MACOS_SDL3_LICENSE}\")
+                message(FATAL_ERROR \"sdl2-compat requires SDL3 and its license for packaging\")
+            endif()
+            set(_sdl3_bundle \"\${CMAKE_INSTALL_PREFIX}/dunecity.app/Contents/Frameworks/libSDL3.dylib\")
+            file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/dunecity.app/Contents/Frameworks\")
+            configure_file(\"${DUNECITY_MACOS_SDL3_LIBRARY}\" \"\${_sdl3_bundle}\" COPYONLY)
+            list(APPEND _runtime_libraries \"\${_sdl3_bundle}\")
+            file(MAKE_DIRECTORY \"\${CMAKE_INSTALL_PREFIX}/dunecity.app/Contents/Resources/licenses\")
+            configure_file(\"${DUNECITY_MACOS_SDL3_LICENSE}\"
+                \"\${CMAKE_INSTALL_PREFIX}/dunecity.app/Contents/Resources/licenses/SDL3-LICENSE.txt\" COPYONLY)
+        endif()
         message(STATUS \"Bundling macOS runtime dependencies...\")
         fixup_bundle(
             \"\${CMAKE_INSTALL_PREFIX}/dunecity.app\"
-            \"\"
+            \"\${_runtime_libraries}\"
             \"${DUNECITY_MACOS_DEPENDENCY_DIRS}\"
         )
+        # BundleUtilities flattens framework-root executable symlinks. Restore
+        # Sparkle's complete, already portable framework before signing, keeping
+        # the game's rewritten dependency paths and the bundled game dylibs.
+        if(EXISTS \"${dunecity_sparkle_SOURCE_DIR}/Sparkle.framework\")
+            file(REMOVE_RECURSE \"\${CMAKE_INSTALL_PREFIX}/dunecity.app/Contents/Frameworks/Sparkle.framework\")
+            execute_process(COMMAND /usr/bin/ditto
+                \"${dunecity_sparkle_SOURCE_DIR}/Sparkle.framework\"
+                \"\${CMAKE_INSTALL_PREFIX}/dunecity.app/Contents/Frameworks/Sparkle.framework\"
+                RESULT_VARIABLE _sparkle_copy_result)
+            if(NOT _sparkle_copy_result EQUAL 0)
+                message(FATAL_ERROR \"Could not preserve the Sparkle framework\")
+            endif()
+        endif()
         message(STATUS \"Re-codesigning installed dunecity.app...\")
         execute_process(
             COMMAND codesign --force --deep --sign - \"\${CMAKE_INSTALL_PREFIX}/dunecity.app\"

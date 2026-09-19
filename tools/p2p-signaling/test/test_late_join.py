@@ -136,6 +136,58 @@ class LateJoinTests(SignalingTestCase):
         self.assertEqual(403,self.signal(watcher.fields['session'],int(second.fields['peer']),'offer',make_sdp(":".join(["AA"]*32))).status)
         self.assertEqual('match',self.poll(h.fields['session']).fields['phase'])
 
+    def spectator(self, a, h, name='Watcher'):
+        r=self.request(a,name,gameProtocol=9,spectate=1)
+        self.assertEqual(200,r.status)
+        request=self.manage(h).multi['request'][0].split('|')[0]
+        self.assertEqual(200,self.manage(h,'approve_spectator',request).status)
+        approved=self.status(r.fields['request'],gameProtocol=9)
+        watcher=self.session(approved.fields['grant'],name,gameProtocol=9)
+        self.assertEqual(200,watcher.status)
+        return watcher
+
+    def test_spectator_can_request_cancel_and_be_declined_without_leaving(self):
+        a,h=self.running(gameProtocol=9)
+        watcher=self.spectator(a,h)
+        before=self.poll(h.fields['session'])
+        self.assertEqual('pending',self.manage(watcher,'request_play').fields['playRequest'])
+        queue=self.manage(h).multi['request']
+        self.assertEqual(1,len(queue))
+        request,name,role=queue[0].split('|')
+        self.assertEqual(('Watcher','player'),(bytes.fromhex(name).decode(),role))
+        # Repeated clicks are idempotent and cannot create another queued identity.
+        self.assertEqual('pending',self.manage(watcher,'request_play').fields['playRequest'])
+        self.assertEqual(queue,self.manage(h).multi['request'])
+        self.assertEqual(200,self.manage(h,'decline',request).status)
+        self.assertEqual('declined',self.manage(watcher,'play_status').fields['playRequest'])
+        after=self.poll(watcher.fields['session'])
+        self.assertEqual('match',after.fields['phase'])
+        self.assertTrue(any(row.startswith(watcher.fields['peer']+'|') and row.endswith('|1') for row in after.multi['peer']))
+        self.assertNotIn('request',self.manage(h).multi)
+        self.assertEqual('pending',self.manage(watcher,'request_play').fields['playRequest'])
+        request=self.manage(h).multi['request'][0].split('|')[0]
+        self.assertEqual('cancelled',self.manage(watcher,'cancel_play').fields['playRequest'])
+        self.assertEqual(409,self.manage(h,'approve',request).status)
+        self.assertEqual(403,self.manage(h,'request_play').status)
+        self.assertEqual(403,self.manage(watcher,'approve',request).status)
+
+    def test_promotion_retains_authenticated_peer_and_adds_controller_only_after_approval(self):
+        a,h=self.running(gameProtocol=9,maxPeers=2)
+        watcher=self.spectator(a,h)
+        self.assertEqual('pending',self.manage(watcher,'request_play').fields['playRequest'])
+        request=self.manage(h).multi['request'][0].split('|')[0]
+        self.assertEqual(409,self.manage(h,'approve_spectator',request).status)
+        self.assertEqual(200,self.manage(h,'approve',request).status)
+        self.assertEqual('approved',self.manage(watcher,'play_status').fields['playRequest'])
+        self.assertEqual(200,self.manage(h,'approve',request).status)
+        poll=self.poll(watcher.fields['session'])
+        self.assertEqual('lobby',poll.fields['phase'])
+        self.assertTrue(any(row.startswith(watcher.fields['peer']+'|') and row.endswith('|0') for row in poll.multi['peer']))
+        self.assertEqual(409,self.manage(watcher,'request_play').status)
+        self.assertEqual(200,self.manage(h,'abort',request).status)
+        self.assertEqual('match',self.poll(h.fields['session']).fields['phase'])
+        self.assertNotEqual(200,self.poll(watcher.fields['session']).status)
+
     def test_old_protocol_hosts_keep_original_queue_and_decline(self):
         a,h=self.running(gameProtocol=6)
         r=self.request(a,gameProtocol=6)

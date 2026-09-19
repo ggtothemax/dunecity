@@ -118,7 +118,11 @@ UnitBase::UnitBase(InputStream& stream) : ObjectBase(stream) {
         Sint32 y = stream.readSint32();
         pathList.emplace_back(x,y);
     }
-    cachedPathDestination = resolvePathDestination();
+    // Objects load in ID order. Resolving a forward target here would clear
+    // its ObjectPointer before that target has been constructed.
+    cachedPathDestination = destination;
+    if(currentGame->getObjectManager().getObject(target.getObjectID()) != nullptr)
+        cachedPathDestination = resolvePathDestination();
     cachedPathRevision = (currentGameMap != nullptr) ? currentGameMap->getPathingRevision() : 0;
     
     // Stuck detection fields are transient (not saved) - they reset on load
@@ -129,10 +133,12 @@ UnitBase::UnitBase(InputStream& stream) : ObjectBase(stream) {
 
     deviationTimer = stream.readSint32();
 
-    if(findTargetTimer < 0) {
+    // A spectator restores the pending work queues as well as the saved
+    // units. Keep their negative queued-work sentinels until that work runs.
+    if(findTargetTimer < 0 && !currentGame->isSpectating()) {
         findTargetTimer = 0;
     }
-    if(recalculatePathTimer < 0) {
+    if(recalculatePathTimer < 0 && !currentGame->isSpectating()) {
         recalculatePathTimer = 0;
     }
 }

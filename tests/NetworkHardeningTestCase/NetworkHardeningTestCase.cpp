@@ -28,6 +28,7 @@
 #include <Network/NetworkPacketPolicy.h>
 #include <Network/NetworkPacketTypes.h>
 #include <Network/PathBudgetSync.h>
+#include <Network/ObserverStreamPolicy.h>
 #include <mod/ModTransferValidation.h>
 
 #include <enet/enet.h>
@@ -38,6 +39,24 @@
 #include <list>
 #include <string>
 #include <vector>
+
+TEST_CASE("Spectator checkpoint window accepts cumulative progress without trusting unsent offsets", "[network][spectator]") {
+    using namespace ObserverStreamPolicy;
+    const auto total=5*chunkBytes+17;
+    CHECK(canSendChunk(0,3*chunkBytes,total));
+    CHECK_FALSE(canSendChunk(0,4*chunkBytes,total));
+    CHECK(validChunkAck(0,4*chunkBytes,total,chunkBytes));
+    CHECK(canSendChunk(chunkBytes,4*chunkBytes,total));
+    CHECK(validChunkAck(chunkBytes,4*chunkBytes,total,4*chunkBytes));
+    CHECK_FALSE(validChunkAck(chunkBytes,4*chunkBytes,total,chunkBytes));
+    CHECK_FALSE(validChunkAck(chunkBytes,4*chunkBytes,total,0));
+    CHECK_FALSE(validChunkAck(chunkBytes,4*chunkBytes,total,5*chunkBytes));
+    CHECK_FALSE(validChunkAck(0,4*chunkBytes,total,chunkBytes+1));
+    CHECK_FALSE(validChunkAck(0,~std::uint32_t(0),total,chunkBytes));
+    CHECK(validChunkAck(5*chunkBytes,total,total,total));
+    CHECK_FALSE(canSendChunk(total,total,total));
+    CHECK_FALSE(canSendChunk(chunkBytes,0,total));
+}
 
 using NetworkPacketPolicy::LocalRole;
 using NetworkPacketPolicy::PacketContext;

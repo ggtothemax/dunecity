@@ -63,6 +63,9 @@ public:
     void init(int width, int height);
     void load(InputStream& stream);
     void save(OutputStream& stream) const;
+    // Exact live checkpoint supplement; ordinary disk saves still reconcile on load.
+    void saveObserverRuntime(OutputStream& stream) const;
+    void loadObserverRuntime(InputStream& stream);
     void reconcileLoadedMapState(uint32_t gameCycleCount);
     void advancePhase(uint32_t gameCycleCount);
 

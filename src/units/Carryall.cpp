@@ -23,6 +23,7 @@
 #include <FileClasses/SFXManager.h>
 #include <House.h>
 #include <Map.h>
+#include <SpatialGrid.h>
 #include <Game.h>
 #include <SoundPlayer.h>
 
@@ -429,6 +430,9 @@ void Carryall::engageTarget()
         if(newLocation != location) {
             unassignFromMap(location);
             assignToMap(newLocation);
+            if(auto* spatialGrid = currentGame->getSpatialGrid()) {
+                spatialGrid->move(*this, getGridHandle(), location, newLocation);
+            }
             location = newLocation;
         }
         

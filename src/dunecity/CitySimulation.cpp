@@ -1,4 +1,6 @@
 #include <stdexcept>
+#include <limits>
+#include <type_traits>
 #include <players/AIDecisionLog.h>
 #include <dunecity/CitySimulation.h>
 #include <dunecity/CityConstants.h>
@@ -21,6 +23,15 @@ namespace DuneCity {
 
 CitySimulation::CitySimulation() = default;
 CitySimulation::~CitySimulation() = default;
+
+const HouseCityState& CitySimulation::getHouseState(int houseID) const {
+    if (houseID < 0 || houseID >= kMaxCityHouses) houseID = 0;
+    return houseState_[houseID];
+}
+HouseCityState& CitySimulation::getHouseStateMut(int houseID) {
+    if (houseID < 0 || houseID >= kMaxCityHouses) houseID = 0;
+    return houseState_[houseID];
+}
 
 void CitySimulation::setCityTax(int16_t v) {
     if (v < kMinTaxRate) v = kMinTaxRate;
@@ -152,6 +163,59 @@ void CitySimulation::save(OutputStream& stream) const {
         stream.writeBool(milestones_[i]);
     }
     saveCrimeUnrest(stream,crimeUnrestProgress_);
+}
+
+void CitySimulation::saveObserverRuntime(OutputStream& stream) const {
+    stream.writeSint32(mapWidth_); stream.writeSint32(mapHeight_);
+    stream.writeUint32(lastBudgetTick_); stream.writeBool(pendingGrowthPhase_);
+    stream.writeBool(effectsEnabled_);
+    for(int h=0;h<kMaxCityHouses;++h) {
+        stream.writeSint32(houseState_[h].taxBaseEighths);
+        stream.writeUint8(houseState_[h].civicDemandBlocked);
+        const auto& status=environmentStatus_[h];
+        stream.writeSint32(status.averageLandValue); stream.writeSint32(status.averagePollution);
+        stream.writeSint32(status.averageCrime); stream.writeSint32(status.averageTraffic);
+        stream.writeSint32(status.sampledStructures);
+    }
+    const auto layer=[&](const auto& map) {
+        const int bs=map.getBlockSize();
+        for(int y=0;y<(mapHeight_+bs-1)/bs;++y)
+            for(int x=0;x<(mapWidth_+bs-1)/bs;++x) stream.writeSint32(map.get(x,y));
+    };
+    layer(powerGridMap_); layer(trafficDensityMap_); layer(pollutionDensityMap_);
+    layer(landValueMap_); layer(hostileLandValuePenaltyMap_); layer(crimeRateMap_);
+    layer(policeCoverageMap_); layer(crimeBeforePoliceMap_); layer(populationDensityMap_);
+    layer(growthRateMap_); layer(parkTerrain_.sources_);
+}
+
+void CitySimulation::loadObserverRuntime(InputStream& stream) {
+    if(stream.readSint32()!=mapWidth_ || stream.readSint32()!=mapHeight_)
+        throw std::runtime_error("Invalid spectator city dimensions");
+    lastBudgetTick_=stream.readUint32(); pendingGrowthPhase_=stream.readBool();
+    effectsEnabled_=stream.readBool();
+    for(int h=0;h<kMaxCityHouses;++h) {
+        houseState_[h].taxBaseEighths=stream.readSint32();
+        houseState_[h].civicDemandBlocked=stream.readUint8();
+        auto& status=environmentStatus_[h];
+        status.averageLandValue=stream.readSint32(); status.averagePollution=stream.readSint32();
+        status.averageCrime=stream.readSint32(); status.averageTraffic=stream.readSint32();
+        status.sampledStructures=stream.readSint32();
+    }
+    const auto layer=[&](auto& map) {
+        const int bs=map.getBlockSize();
+        using Value=std::decay_t<decltype(map.get(0,0))>;
+        map.init(mapWidth_,mapHeight_,bs);
+        for(int y=0;y<(mapHeight_+bs-1)/bs;++y) for(int x=0;x<(mapWidth_+bs-1)/bs;++x) {
+            const auto value=stream.readSint32();
+            if(value<std::numeric_limits<Value>::min() || value>std::numeric_limits<Value>::max())
+                throw std::runtime_error("Invalid spectator city layer value");
+            map.set(x,y,static_cast<Value>(value));
+        }
+    };
+    layer(powerGridMap_); layer(trafficDensityMap_); layer(pollutionDensityMap_);
+    layer(landValueMap_); layer(hostileLandValuePenaltyMap_); layer(crimeRateMap_);
+    layer(policeCoverageMap_); layer(crimeBeforePoliceMap_); layer(populationDensityMap_);
+    layer(growthRateMap_); layer(parkTerrain_.sources_);
 }
 
 // --- HouseCityState self-serializing impls ---

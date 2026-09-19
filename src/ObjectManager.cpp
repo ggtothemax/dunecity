@@ -49,7 +49,9 @@ void ObjectManager::load(InputStream& stream) {
 
         if(auto* spatialGrid = currentGame->getSpatialGrid()) {
             const Coord loc = pObject->getLocation();
-            if(loc.isValid()) {
+            // Cargo and units inside repair yards retain their last location,
+            // but were removed from the live targeting index when deactivated.
+            if(loc.isValid() && pObject->isActive()) {
                 spatialGrid->registerObject(*pObject, loc, pObject->getGridHandle());
             }
         }

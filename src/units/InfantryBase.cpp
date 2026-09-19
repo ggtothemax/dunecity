@@ -22,6 +22,7 @@
 #include <House.h>
 #include <Game.h>
 #include <Map.h>
+#include <SpatialGrid.h>
 #include <SoundPlayer.h>
 #include <ScreenBorder.h>
 
@@ -440,6 +441,9 @@ void InfantryBase::move() {
                 unassignFromMap(location);
                 oldLocation = location;
                 location = nextSpot;
+                if(auto* spatialGrid = currentGame->getSpatialGrid()) {
+                    spatialGrid->move(*this, getGridHandle(), oldLocation, location);
+                }
 
                 currentGameMap->viewMap(owner->getHouseID(), location, getViewRange());
             }

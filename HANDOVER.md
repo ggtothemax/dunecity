@@ -1,3 +1,455 @@
+## 2026-09-19 — Fix packaged SDL3 startup failure (unreleased 732)
+
+Stefan's 731 installer failed at startup with "Failed loading SDL3 library."
+Homebrew's SDL2 target resolves to sdl2-compat, which dlopens libSDL3.dylib.
+BundleUtilities sees linked libraries only, so 731 omitted SDL3 even though its
+signatures, notarization and static dependency checks passed. Do not recommend
+the 731 package. The previous validation was insufficient to establish launch.
+
+Mac install rules now detect the compatibility library, require SDL3 and its
+license, copy it beside SDL2 as libSDL3.dylib and include it in dependency fixup
+and signing. Added --check-desktop-runtime before profile/game initialization:
+it initializes SDL video/timers, renders a hidden window and reports the loaded
+SDL paths. scripts/verify-macos-runtime.py rejects missing SDL3, external SDL
+libraries and startup/render failures. The signing pipeline checks the hardened
+runtime app before Apple submission; the DMG verifier runs the same check from
+the mounted package. The new verifier correctly rejects the broken 731 package.
+Also corrected the DMG dependency parser to ignore universal-binary headers.
+
+Native dependency audits/build, all eight CTest suites and Emscripten build pass.
+The installed, Developer ID signed and final mounted packages pass runtime checks.
+Launched the final ZIP's app with an isolated profile; native screenshot shows
+v1.0.732 and the rendered main menu/first-run welcome dialog. This establishes
+launch and rendering, not an end-to-end gameplay or updater test. The temporary
+test process was stopped afterward. Existing installs/profiles were not replaced.
+
+Apple accepted app 5800889c-1175-4955-bb70-9e31bd123429 and DMG
+a4c2b5de-c8e9-49fb-be76-b2b335633eb7; both stapled and Gatekeeper accepted.
+Task work/notarization-732 contains the final ZIP, DMG and acceptance evidence.
+DMG SHA256: cab6635ffebb4c88b461e84e6a32449a824b16a04eb309f0697930649319cc9b
+ZIP SHA256: 15ef90d5e8f418763b7454247b58924a360a2b8cc9beabd2ff52ae7d8c7532db
+The identical DMG is on BOTH Macs at Desktop/DuneCity-1.0.732-macOS.dmg.
+On the Air (macOS 26.5.2), SHA256, stapler, Gatekeeper, strict deep app signature
+and the packaged SDL initialization/render probe pass (dummy video/audio driver
+for the remote probe; no user game/profile opened). All four SDL libraries,
+including SDL3, load from the mounted app. No push, tag or publication occurred.
+Real old-to-new updater tests remain separate work.
+
+## 2026-09-19 — Updater edition 731 signed and notarized on the mini
+
+Stefan completed the mini credential shortcut. DuneCityNotarization in the
+dedicated DuneCity-Signing keychain now authenticates successfully; no further
+Mac credential setup is pending. Native dependency audits, version check and
+incremental build pass; a fresh cmake install produced the portable bundle.
+
+The first real packaging run exposed two script-only validation bugs, now fixed:
+file(1) descriptions of bundled data can contain non-UTF-8 bytes, and otool emits
+an absolute filename header for each slice of a universal binary. Detection now
+checks the Mach-O marker as bytes and inspects only indented dependency lines.
+The full signing/notarization run then succeeded without manual intervention.
+
+Apple accepted the app submission 5ecdeea2-e3f3-41f5-a84e-11eb4cc30916 and the
+DMG submission 1efa22f4-29fc-46a5-ad7f-5ab7d6c2bb7e. Both are stapled and pass
+Gatekeeper as Notarized Developer ID. Extracting the final ZIP independently
+passes strict deep signature verification, ticket validation and Gatekeeper.
+The final DMG also passes scripts/verify-macos-dmg.sh. Output and submission
+evidence live in this task's work/notarization-731 directory:
+
+- DuneCity-1.0.731-macOS.dmg SHA256:
+  9f56cf3bc7f8dde3d9bcb49fcbbd13206437ca50af167e81e06f108ee09fb002
+- DuneCity-1.0.731-macOS.zip SHA256:
+  e2ffa0d08d8b1868c36f2939c210bcab57f5b0f351916c88d04beefcc0047727
+
+The local update-feeds subfolder contains the signed Mac manifest and appcast.
+Both Ed25519 signatures and the final archive size/hash were independently
+verified using only the committed public key. Their future release URL has not
+been published. No push, release, application replacement or Air transfer took
+place. Real old-to-new updater/relaunch tests on each OS remain outstanding;
+successful package notarization does not establish those runtime results.
+
+## 2026-09-19 — Cross-platform desktop updater (unreleased 731)
+
+Implemented main-menu update checks, Install/Later confirmation, signed Ed25519
+metadata and native Sparkle (Mac) / WinSparkle (Windows EXE) integration. Linux
+AppImages verify the download and atomically replace the original with a retained
+backup before relaunch. DEB/RPM users receive manual package-update guidance;
+no package repository was provisioned. Updates do not run during a match or
+replace the separate saves/settings directory. Browser/Android builds exclude
+the updater. See docs/desktop-updates.md for behavior, trust and recovery limits.
+
+Stable-release CI now prepares notarized Mac DMG/ZIP, Windows EXE/ZIP and signed
+platform feeds; it uploads to a draft before publication. Existing published
+releases cannot be overwritten. SourceForge adds the Windows EXE from 731 while
+preserving older backfill layouts. No push, tag, CI run or publication occurred.
+The initial updater edition still requires a manual install on each machine.
+
+The encrypted update-signing key and its password are outside Git, under the
+mini's protected Library/Application Support/DuneCity Signing/updates directory.
+Only the public key is tracked. Back up those protected files securely.
+Apple signing identity is already installed, but the mini's dedicated keychain
+still lacks the DuneCityNotarization credential profile (verified this session).
+Stefan has been asked to run Desktop/DuneCity-Automatic-Updates-Setup.command on
+the mini. The Air's existing login-keychain profile does not configure the mini.
+Never print key/password contents. The new 731 DMG is a local ad-hoc test build,
+not a newly Developer ID signed/notarized release.
+
+Validation: native build and dependency audits pass; all eight CTest suites pass.
+After the final no-thread compilation guards, menu/security suites pass again
+and the Emscripten build passes. Signed-feed tests and nine SourceForge tests
+pass. The HTTPS AppImage fixture passes success, corruption, truncation,
+tampered signature, downgrade, wrong platform and untrusted TLS cases. On this
+Mac it exercises the production POSIX replacement path, not Linux runtime launch.
+Windows adapters cross-compile with MinGW; a dummy CPack/NSIS fixture validates
+installer syntax only. Native Mac bundle installation and DMG portability checks
+pass; Sparkle initializes and reaches its unpublished-feed error UI. The rendered
+640-pixel update confirmation was inspected. Evidence is under this task's work/
+directory (updater-* logs/artifacts). Dummy Windows fixtures are not game builds.
+
+Before public release: provision mini notarization credentials and validate the
+new signed/notarized packages; perform real old-to-new upgrades on Mac, Windows
+and Linux, including relaunch, retained user data and multiplayer compatibility.
+Windows Authenticode is not provisioned. Older Mac compatibility remains untested:
+local Homebrew dependencies produce newer minimum-OS warnings. The running 730
+Chrome/native game was left untouched; no 731 build was transferred to the Air.
+
+## 2026-09-19 — Developer ID signing and first notarization verified
+
+Stefan renewed his individual Developer Program membership through September 20,
+2027 (team 34X7AYJZ93). Developer ID Application certificate was matched to the
+mini-generated CSR and installed. Certificate expiry is February 1, 2027 (G1),
+separate from membership renewal. Encrypted key/archive material stays outside
+git in the mini's protected Library/Application Support/DuneCity Signing folder;
+the Air has only the public certificate. Never print passwords or key contents.
+A dedicated DuneCity-Signing keychain also holds the identity for codesign.
+
+After Stefan approved the mini's codesign prompt, the staged 1.0.730 bundle and
+all 30 Mach-O files were Developer ID signed with hardened runtime and secure
+timestamps. cmake --install bundled portable dylibs first; strict deep signature
+verification passed on both Macs. The running game/build bundle was unchanged.
+
+The signed ZIP is in session work/notarization-730 and on the Air under
+Documents/projects/outputs/DuneCity-730-Notarization. SHA256:
+8b06f0342bcc3a5745b7d8275dbb8b434d0170c854a659e416c003b95e5f409c.
+Stefan ran the credential setup and submission shortcuts in the Air's local
+Terminal using Keychain profile DuneCityNotarization. Apple accepted submission
+561fcf03-1554-4322-a9d3-93eeeaeab542 on September 19, 2026 with no issues.
+The Air login keychain remains locked over SSH; use the local Terminal shortcut
+for future authenticated submissions. Retries reuse the recorded submission ID.
+
+DuneCity-1.0.730-notarized.zip contains the stapled app. Ticket validation,
+strict deep signature verification and Gatekeeper assessment passed on the Air,
+and again on the mini after copying and extracting the final archive.
+Gatekeeper reports source=Notarized Developer ID. Final ZIP SHA256:
+32c3fe23378079ee1cb8c18db9a8af74735481b19b188bb422ddc3ffe48153f0.
+The final ZIP and submission.json/status.json/apple-log.json are on both Macs in
+the folders above. Mini extracted verification copy is under
+session work/notarization-730/verified/dunecity.app. Local signing/notarization
+setup is working; automated release signing remains separate work.
+No game push, public release, CI secret upload or CI signing change occurred.
+
+## 2026-09-19 — Visible play approvals and shared control (unreleased 730)
+
+Stefan confirmed the live Air promotion worked. The host approved Replace
+Harkonnen, which removed its AI; this was the selected controller slot, not a
+failed shared join. Shared house / Multiple players per house already supports
+joining alongside an existing human or AI (two controllers per house).
+
+Code 894f6fe9 adds a persistent map-screen button on both host and requester while
+a play request awaits approval. Its text pulses white/gold without hiding the
+click target. The host clicks it to approve/decline; requests no longer force a
+dialog over active play. The requester clicks for request options, sees declined
+or failed status, and the notice clears after promotion or cancellation. The
+approval dialog defaults to sharing when available and explicitly labels AI
+replacement. No simulation, wire-format or service changes.
+
+Validation: all seven CTest suites, native dependency audits/build, and a real
+three-peer city promotion probe pass. The probe checks both notices, host click
+entry, decline/retry, default sharing, retained AI, notice removal and equal state
+at cycle 1800. Native rendered captures inspected in session
+work/join-notice-promote/{host-pending,requester-pending,host-approval}.png.
+The current live Chrome/Air match is intentionally left running on its existing
+code; refreshed binaries take effect on next launch. No game push or release.
+The pinned Emscripten build also passes. The Air fast-forwarded to 894f6fe9;
+its native rebuild, before/after dependency audits and strict deep codesign
+verification pass. Desktop/DuneCity-730-Test.app still points to that rebuilt
+build-714 bundle. Both sides must relaunch/reload for the new UI; the current
+match was not restarted.
+
+## 2026-09-19 — Disconnect after map appears: spatial lookup drift (unreleased 730)
+
+Stefan's Air loaded the map, then disconnected on the next spectator fingerprint.
+The same failure reproduced in an automated native viewer of the Chrome host.
+The extended native Twin Cities probe reproduced it at cycle 60200: matching RNG,
+counts and house state, but launcher 980 chose a different target after loading.
+The checkpoint's ordinary object bytes round-tripped exactly after preserving
+queued-work timer sentinels; resetting those alone did not fix the disconnect.
+
+The targeting spatial grid was stale for aircraft, carryall pickup adjustments
+and infantry movement. These paths now update it like ordinary ground movement.
+Loading excludes inactive cargo/repair-yard units that retain their old location.
+Cell query results use stable object-ID order: reversing a populated checkpoint's
+cell entries previously changed four units' target choices with no other changes.
+Spectator loads retain negative target/path timer sentinels for restored queues.
+No save or wire format changes; both endpoints need the matching simulation build.
+
+Regression coverage: JOIN_FAST_WARMUP, JOIN_SEED and JOIN_CHECK_SPATIAL in the
+real-peer fixture reproduce battles efficiently and check each active unit's grid
+cell plus target-choice invariance under reversed cell insertion order. The check
+caught carryall 13's pickup movement at cycle 127 before its correction. The final
+seed 118705914 Twin Cities run joined at 60147, matched through 63000 (seed
+1f8fb888, 699 objects, digest 8fbb2992f2d692a7/ebccff888fc2a4b8), then verified the
+host continued after viewer departure. Three-peer city promotion matched cycle
+1800 (seed 7292527d, 51 objects). All seven CTest suites, native dependency audits,
+native build and pinned Emscripten build pass. Evidence: session work/aged-*;
+the successful extended run is aged-all-grid, promotion is aged-fix-promotion.
+
+The earlier live service update is already deployed (website PR8 / 01ebe6a).
+This game fix is committed as f835d748 and has not been pushed or released. The
+Air fast-forwarded to that commit and rebuilt locally; dependency audits, all
+seven CTest suites and codesign verification pass. Desktop/DuneCity-730-Test.app
+still points to its build-714 bundle. The fresh Chrome host is running in tab
+1889836980, Codex Mini 730, Twin Cities, room FAQA-S97J-GHGA (temporary). The
+user has been asked to open the Desktop test app, join, then Request to Play.
+His own stable join and promotion remain unverified; automated promotion is not
+confirmation of his session. No initial setup help is currently needed.
+
+Live follow-up: the Air launched updated 730 (PID 26400), was admitted to the
+fresh host and advanced past cycle 13800 with no spectator mismatch/disconnect
+in its current log. A separate native viewer also followed this Chrome host
+from cycle 7755 through 8974 without mismatch, then was deliberately stopped.
+The host Options menu still showed Join requests (0); Stefan's Request to Play
+has not arrived yet. Host was left running, with the temporary console hook
+removed. The restart-resistant Air capture remains in session
+work/air-live-monitor.log for the next live attempt.
+
+## 2026-09-19 — Live Request to Play needs the matching service update
+
+Stefan's Air successfully spectates but clicking Request to Play closes its menu
+without a request appearing on the Chrome host. The live service still has 729's
+action allowlist. A read-only play_status probe using the host's own session
+returned HTTP 400, bad_request, "The 'action' field is missing or not valid."
+The host's normal queue polling returns HTTP 200 with an empty queue. No host
+approval occurred; do not claim the player was promoted or ask him to keep retrying.
+
+The website checkout /Users/stefan/Documents/projects/dunelegacy.com now has local
+branch fix/spectator-play-requests-730 with the candidate service packaged from
+game commit 2697bf1f. Only p2p-service/{SOURCE.json,public/index.php,src/LateJoin.php}
+change. All 190 real-HTTP service tests, the atomic installer/config-preservation
+test and website security/artifact checks pass.
+
+Stefan explicitly approved deployment. Website PR8 merged as 01ebe6a; production
+deployment 35432271746 succeeded and installed manifest
+c83e70232a0a96cb7a422fb3d7749ad99f96a699eb7ef19833d70bda808c0593. Live health is OK.
+The host's authenticated play_status probe now returns the expected HTTP 403,
+"Only a spectator can request to play," rather than rejecting the action syntax.
+The host and Air continued running across deployment. A fresh Request to Play
+click is still needed after the earlier rejection; then approve through the UI.
+The live host is Chrome tab 1889836980; verify its current state before acting.
+No client rebuild is needed. The website checkout is clean on main at 01ebe6a.
+
+## 2026-09-19 — Slow spectator checkpoint transfer (unreleased 730)
+
+The Air's native 730 joined the mini's Chrome 730 Twin Cities host but disconnected
+while loading. A bounded temporary browser trace captured 4,816,896 acknowledged
+bytes of a 6,144,474-byte snapshot before the host closed the stream. Individual
+chunk acknowledgements often took 200–300 ms; stop-and-wait delivery exhausted
+the 1,500-cycle catch-up history before loading finished. No manual pause is needed.
+
+Snapshot sends now allow four 48 KiB chunks in flight. Cumulative acknowledgements
+must advance within sent data and land at a chunk boundary or the exact end.
+The global 64 KiB/update allowance, 8 MiB snapshot cap, bounded history and timeouts
+are unchanged. The wire format remains compatible with the Air's existing 730.
+Host logs record snapshot start/load and expired-transfer byte/cycle frontiers.
+
+The real WebRTC probe accepts JOIN_SNAPSHOT_POLL_MS and JOIN_VERIFY_CYCLE. With
+300 ms receiver polling and a 3,000-cycle target, the old ObserverStream object
+reproduced a disconnect after about 40 seconds; the fixed peers matched at cycle
+3,000 (seed 4d1cbac9, 225 objects, digest 858fbdebd8b01bf3/f1e24626c740fa65), then
+the spectator left without stopping the host. Unit coverage rejects duplicate,
+backward, unsent, unaligned and pre-header ACKs. Seven CTest suites, native build,
+before/after dependency audits and the pinned browser build pass.
+
+Evidence: session work/twin-slow-old-3000, twin-slow-fixed, snapshot-window-*.
+The old 1,800-cycle probe target could stop the host just before history eviction;
+the longer target is necessary for this regression. No release or push occurred.
+
+Live retest: rebuilt Chrome host Codex Mini 730, Twin Cities, room
+X3E3-EPHC-MHXG (temporary; do not assume it remains live). Stefan's existing Air
+process successfully loaded the snapshot and continued city simulation, with a
+reported direct RTT of 182 ms. Stefan confirmed "Yes, the map loaded." Its log is
+retained in session work/air-window-fixed.log. The Air checkout also fast-forwarded
+to 8df2eae6 and rebuilt locally; dependency audits, seven suites and bundle signature
+verification passed. Its Desktop/DuneCity-730-Test.app shortcut still points to
+the local build. Controller promotion in this live Air session remains untested.
+
+## 2026-09-19 — Twin Cities live spectator checkpoint fixes (unreleased 730)
+
+Stefan hosted Twin Cities in downloaded 729 as ggtothemax. Both the downloaded
+729 native client and production browser were admitted, then disconnected before
+map loading. No manual pause is required for a spectator; controller promotion
+uses the existing automatic synchronization pause. The user's running host was
+not changed. The valid 256x256 map remains unchanged.
+
+The local production-code probe reproduced a 5,290,427-byte observer envelope,
+above the old 5 MiB limit. The observer envelope is now bounded at 8 MiB on both
+endpoints; the 4 MiB embedded save and 48 KiB chunk limits remain unchanged.
+Rejection logs now include envelope size or checkpoint preparation errors.
+
+After admission, populated city checkpoints exposed additional divergence:
+- Ordinary save reconciliation ran an extra city effects/growth pass on only
+  the viewer. Observer runtime version 2 now restores the exact phase, derived
+  tax/civic state and city grids; viewers skip ordinary save reconciliation.
+- Restored zone occupancy needs its dynamic power draw registered without growth.
+- Reconfiguring unchanged mixed human/AI controllers changed unit rally logic.
+  Viewers keep the saved roster, and the supplement restores the live house AI
+  flags, including values changed by earlier controller promotion.
+- UnitBase resolved targets while objects were still loading in ID order. A
+  forward reference became NONE_ID. The failing checkpoint showed carryall 27's
+  target 216 replaced by 0xffffffff before the first replay tick. Unit loading
+  now defers resolving targets that have not been constructed yet. This also
+  preserves forward targets in ordinary saves without changing the file format.
+
+The Twin Cities probe supports --twin-cities --city --solo and JOIN_AT_CYCLE=1400
+for later checkpoints. JOIN_TRACE=1 retains per-peer state every 200 cycles.
+City runtime tests cover partial grid blocks, derived values, map-size mismatch
+and truncation. Stream mismatch logs now print expected and actual fingerprints.
+Early and later native joins matched through cycle 1800 and spectator departure
+left the host running. The prior three-peer city promotion regression also passed.
+Chrome/native Twin Cities ran without mismatch through more than 4700 host cycles
+before final house-flag preservation was added. Reloading that browser was refused
+while its old Player identity was still retained; no second successful join from
+that run is claimed. The final source passes all seven CTest suites, native
+and pinned-Emscripten builds, before/after native dependency audits and version
+consistency checks. The final later native join matches cycle 1800, seed 2c041e17,
+215 objects, digest 6180964237499f3f/1b997b15b2862830. Final three-peer promotion
+matches cycle 1800, seed 1700292b, 51 objects. Final Chrome/native Twin Cities
+spectating visibly runs beyond host cycle 2095 without a mismatch.
+
+Evidence lives in /Users/stefan/Documents/Codex/2026-09-19/i-h/work/:
+twin-controller-fixed, twin-later-join (failure), twin-later-object (target bytes),
+twin-target-fixed (passing later join), twin-browser-final (passing browser),
+twin-regression-promotion, and twin-final-* (final build and verification).
+No release, push, PR, installed-app replacement or service deployment occurred.
+Continue's original mouse-click freeze remains unreproduced. Full Access, native
+build dependencies, Emscripten and Chrome control are working on the mini. Apple
+signing/notarization still needs the user's Developer enrollment/signing identity.
+
+## 2026-09-19 — Mac mini spectator failure reproduced and fixed; candidate remains unreleased
+
+Work now runs locally on Stefan's Mac mini with Full Access and a connected
+Chrome extension. Checkout: `/Users/stefan/Documents/projects/dunecity-campaign-controls`.
+Native Homebrew dependencies and the pinned Emscripten 4.0.14 SDK are installed;
+native and browser candidate 1.0.730 builds succeed. Do not use the laptop UI.
+
+The reported released-729 native/browser spectator failure was reproduced using
+the downloaded 729 DMG and the production 729 browser. Download SHA-256:
+`70ce731928825498c582dbaef116995aab26d130924efc3d3d309321d324c224`.
+The map is valid: Ergsun-Odenkirk intentionally has Player1,2,3,5. The menu counted
+four houses but scanned only Player1..4 for teams, leaving the fourth team's
+selection blank (-1). The runtime converted it to 255, so spectator checkpoint
+validation rejected it before map loading. CustomGamePlayers now scans the full
+supported slot range. The actual-map menu regression failed before the fix and
+passes after it. Observer checkpoint refusal also logs the policy reason.
+No map, save format, checkpoint limits or simulation/path budgets were changed.
+
+Both released-client directions work when Team4 is selected manually for that
+fourth house: production browser host/downloaded native spectator and downloaded
+native host/production browser spectator. This isolates the menu bug without
+rebuilding either release client. The temporary public test room was closed.
+No installed app, quarantine state, production website or service was modified.
+
+A separate real-peer promotion race is fixed: prepare now waits for same-roster
+readiness across independent channels before ACK (bounded 30 seconds, no replay
+extension). Changed readiness reports refresh our own report without echoing
+identical ones, recovering reports ignored before an authenticated role change.
+Regression tests cover delayed readiness, replay, timeout, premature commit and
+conflicting roster. Two native three-peer city promotion runs matched at cycle
+1800. Chrome candidate 730 joined two native candidate peers, kept spectating
+after decline, retried, and became a Harkonnen controller with build controls.
+Original peers matched at cycle 9431, seed 1b565295, 84 objects,
+digest da2616c82add0d95/1041afe9dcdd63c3. The browser probe now compares 300 ticks
+after its promotion checkpoint, allowing manual interaction before verification.
+Protocol-9 behavior is documented in docs/late-join-protocol.md.
+
+Continue remains an investigation, not a claimed fix. Stefan confirmed the
+original action was a mouse click. The exact transferred `cities 3.dls` loads at
+329538 and runs past the laptop's paused cycle 329556 on the mini using mouse-click
+Continue in downloaded 729. The original save remains untouched; testing uses an
+isolated profile. With diagnostics enabled, candidate 730 now records actual
+pause transitions and their source (Options/Mentat/feedback/skip/Space/repeat),
+plus resume events. This will identify a future unexpected pause without changing
+pause behavior. Do not infer the cause was keyboard input.
+
+Evidence is under `/Users/stefan/Documents/Codex/2026-09-19/i-h/work/`:
+`sparse-teams-before.log`, `sparse-teams-tests.log`,
+`promote-refresh-city.log`, `promote-refresh-city2.log`,
+`browser-promote-verified.log` and its Host/Partner logs and digests.
+Final build/test logs use the `final-` prefix. Native/browser final builds and
+all seven CTest suites pass, with clean before/after native dependency audits.
+The pause diagnostic was verified in candidate 730: an intentional Space pause
+recorded source=space, menu_open=0, cycle=330855. That candidate run used keyboard
+Continue after native automation mouse clicks did not activate its menu; the
+released-729 Continue reproduction above used mouse clicks. 190 real-HTTP service
+tests also passed on this mini.
+
+Release remains pending: no push, PR, tag or deployment. Apple signing/notarization
+still needs Stefan's Apple Developer enrollment and signing identity (none found
+on either Mac). Never bypass Gatekeeper. Earlier isolated remote test directories
+listed below have not been touched by this local test pass.
+
+## 2026-09-19 — Unreleased 1.0.730 checkpoint; move interactive testing to Mac mini
+
+Stefan asks for browser/native testing on the Mac mini so agents do not control
+his laptop browser. Stop laptop UI interaction. SSH alias `claw` is reachable as
+`/Users/stefan`; Codex CLI 0.153.4 is installed. No Codex/ChatGPT desktop app was
+found in /Applications on the mini. An SSH project alone does not relocate this
+session's local computer-use tools. Prepare a separate checkout and explicit
+handover before resuming there; do not overwrite another agent's checkout.
+
+Current changes are NOT released. Candidate 730/protocol 9 adds spectator-first
+public running-game admission, an in-game request/cancel-to-play button, automatic
+host request popup, decline preserving observation, and promotion using the
+existing controller checkpoint barrier. An authenticated service roster change
+and host prepare packet are both required before a viewer becomes a controller.
+Promotion must discover original controllers, not just its previously known host.
+Native dependency audits and all seven CTest suites pass. The real three-peer
+promotion probe passes decline, retry, host popup and matching cycle-1800 state;
+190 real-HTTP service tests and 18 browser transport tests pass. Browser 730 has
+not been built or inspected yet; protocol documentation and final review remain.
+Evidence under ../outputs: spectator-730-promote3.log, spectator-730-tests2.log,
+spectator-730-service-all.log and spectator-730-web-transport.log.
+
+The user's actual installed 729/native and published 729/Brave spectator failure
+is UNRESOLVED, in both directions. Local Homebrew native host + Brave worked on
+the same Ergsun-Odenkirk map, but that does not verify the downloaded static-vcpkg
+app. A real public Brave room was created at Stefan's request: gg, Dune City,
+4P - 128x128 - Ergsun-Odenkirk, shared hard AI plus three hard AI opponents. The
+installed native ggtothemax was admitted, then reported direct connection lost
+before loading the map. Native evidence: ../outputs/spectator-730-installed-browser-host-failure.log.
+The host's Brave console later stopped accepting input for both Stefan and CUA;
+no host-side root cause was captured. Do not blame a firewall without evidence.
+The new rare failure diagnostics are not yet in published 729. The browser room
+was left running; do not claim its continuing health without checking.
+
+Continue's apparent freeze was a different observed state: the installed app
+rendered ~60 fps but paused at cycle 329556 after advancing 18 cycles from load,
+with no menu open. Pause origin remains unverified. Exact saved telemetry:
+~/Library/Application Support/Dune City/ai-decisions/1789796530698464-0/events.jsonl.
+Captured stack/log: ../outputs/spectator-730-installed-freeze.{txt,log}.
+No save files changed; no fix claimed. Current laptop app was restarted at the
+menu earlier and subsequently used by Stefan for the failed spectator attempt.
+
+Gatekeeper remains an unsigned-distribution issue: installed 729 is ad-hoc signed,
+no Apple signing identities were available on laptop or mini, and Stefan confirmed
+he has no Apple Developer account yet. No notarization/signing pipeline changes
+have been made. Do not remove quarantine or disable Gatekeeper. CUA selecting the
+mounted DMG previously launched the wrong copy and caused a warning; never use
+that path to attach the installed app.
+
+Owned isolated remote test directories still need cleanup after testing:
+/var/www/html/play-test-730-city and /var/www/data/dunecity-test-730-city.
+They currently serve protocol-8 staging; production has not been changed here.
+
 ## 2026-09-19 — Combined 1.0.729 published and verified
 
 PR 57 merged as 8416d26c; stable tag v1.0.729 points to that commit. All builds

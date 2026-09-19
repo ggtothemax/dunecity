@@ -208,17 +208,26 @@ MainMenu::MainMenu()
     } else {
         windowWidget.addWidget(&modVersionLabel, Point(12, getSize().y - 58), Point(220, 50));
     }
+#if defined(DUNECITY_DESKTOP_UPDATER)
+    updateButton.setKeyboardFocusVisible(false);
+    updateButton.setText(_("Check for updates"));
+    updateButton.setOnClick([this]() { onUpdate(); });
+    windowWidget.addWidget(&updateButton, Point(getSize().x-232, getSize().y-38), Point(220,28));
+    windowWidget.setWidgetGeometry(&modVersionLabel, Point(12,getSize().y-38), Point(180,28));
+    modVersionLabel.setAlignment(Alignment_Left);
+#endif
     if(canContinue) continueButton.setActive();
     else onlineButton.setActive();
 }
 
 void MainMenu::handleInput(SDL_Event& event)
 {
+    if (DesktopUpdater::instance().busy()) return;
     if(!pChildWindow && (event.type == SDL_KEYDOWN || event.type == SDL_MOUSEMOTION
                        || event.type == SDL_MOUSEBUTTONDOWN)) {
         const bool keyboard = event.type == SDL_KEYDOWN;
         for(auto* button : {&continueButton, &onlineButton, &campaignButton, &customButton,
-                            &loadButton, &optionsButton, &modesButton, &quitButton}) {
+                            &loadButton, &optionsButton, &modesButton, &quitButton, &updateButton}) {
             button->setKeyboardFocusVisible(keyboard);
             if(keyboard) button->handleMouseMovement(-1,-1,false);
         }
@@ -282,20 +291,10 @@ int MainMenu::showMenu()
     try {
         musicPlayer->changeMusic(MUSIC_MENU);
 
-        // Start version check in background (only once)
-        if(!bVersionCheckStarted) {
-            bVersionCheckStarted = true;
-
-            pVersionChecker = std::make_unique<VersionChecker>(settings.network.metaServer);
-            pVersionChecker->setOnVersionCheckComplete([this](const VersionInfo& info) {
-                if(info.updateAvailable && !bUpdateDialogShown) {
-                    latestVersion = info.latestVersion;
-                    downloadURL = info.downloadURL;
-                    // Show dialog in update() when safe (not during callback)
-                }
-            });
-            pVersionChecker->checkForUpdates();
-        }
+#if defined(DUNECITY_DESKTOP_UPDATER)
+        auto& updater = DesktopUpdater::instance();
+        if (updater.state() == DesktopUpdater::State::Idle) updater.check();
+#endif
 
         menuResult = MenuBase::showMenu();
     } catch(const std::exception& e) {
@@ -316,29 +315,34 @@ void MainMenu::update()
     refreshModVersionLabel();
     refreshContextButtons();
 
-    // Process version check results
-#ifndef __EMSCRIPTEN__
-    if(pVersionChecker) {
-        pVersionChecker->update();
+#if defined(DUNECITY_DESKTOP_UPDATER)
+    auto& updater = DesktopUpdater::instance();
+    updater.poll();
+    using State = DesktopUpdater::State;
+    const auto state = updater.state();
+    const char* label = state == State::Checking ? "Checking for updates..." :
+                        state == State::Installing ? "Installing update..." :
+                        state == State::Available ? "Update available" : "Check for updates";
+    if (updateButton.getText() != label) updateButton.setText(_(label));
+    updateButton.setEnabled(state != State::Checking && state != State::Installing);
+    // Native updater dialogs run their own event loop. Keep all game-entry
+    // actions disabled for that entire session, including keyboard activation.
+    for (auto* button : {&continueButton, &onlineButton, &campaignButton, &customButton,
+                         &loadButton, &optionsButton, &modesButton}) {
+        button->setEnabled(!updater.busy() && (button != &continueButton || canContinue));
+    }
+    if (state == State::Restart) { quit(); return; }
+    if (installationRequested && state != State::Installing && !pChildWindow) {
+        installationRequested = false;
+        if (state == State::Failed) openWindow(MsgBox::create(updater.message()));
+    }
+    if (manualUpdateCheck && state != State::Checking && state != State::Installing && !pChildWindow) {
+        manualUpdateCheck = false;
+        if (state == State::Current) openWindow(MsgBox::create(_("Dune City is up to date.")));
+        else if (state == State::Failed) openWindow(MsgBox::create(updater.message()));
+        else if (state == State::Available) onUpdate();
     }
 #endif
-
-    // Show update dialog if new version available and not already shown
-    if(!latestVersion.empty() && !bUpdateDialogShown && !pChildWindow) {
-        bUpdateDialogShown = true;
-
-        std::string message = _("A new version of Dune City is available!");
-        message += "\n\n";
-        message += _("Current: ");
-        message += VERSION;
-        message += "\n";
-        message += _("Latest: ");
-        message += latestVersion;
-        message += "\n\n";
-        message += _("Would you like to visit the download page?");
-
-        openWindow(QstBox::create(message, _("Download"), _("Later"), QSTBOX_BUTTON1));
-    }
 
     // First-launch "Enable city-sim mod?" prompt. Runs after the update
     // dialog so we don't stack two QstBoxes on top of each other.
@@ -366,11 +370,33 @@ void MainMenu::onChildWindowClose(Window* pChildWindow)
         return;
     }
 
-    if (pQstBox->getPressedButtonID() == QSTBOX_BUTTON1) {
-        // User clicked "Download" - open the download URL
-        if (!downloadURL.empty()) {
-            SDL_OpenURL(downloadURL.c_str());
+    if (updatePromptOpen) {
+        updatePromptOpen = false;
+        if (pQstBox->getPressedButtonID() == QSTBOX_BUTTON1) {
+            DesktopUpdater::instance().install();
+            installationRequested = true;
+            manualUpdateCheck = false;
         }
+    }
+}
+
+void MainMenu::onUpdate() {
+    auto& updater = DesktopUpdater::instance();
+    if (!updater.supported()) {
+#if defined(_WIN32)
+        openWindow(MsgBox::create(_("Install the Windows EXE edition once to enable in-game updates. Your saves and settings will be kept.")));
+#else
+        openWindow(MsgBox::create(_("Use the AppImage edition for in-game updates. For DEB/RPM or other installations, install the new package using your usual method.")));
+#endif
+        return;
+    }
+    if (updater.state() == DesktopUpdater::State::Available) {
+        updatePromptOpen = true;
+        openWindow(QstBox::create(_("Install Dune City ") + updater.version() +
+            _(" and restart?\n\nYour saves, settings and user mods will be kept."),
+            _("Install update"), _("Later"), QSTBOX_BUTTON2));
+    } else if (!updater.busy()) {
+        updater.check(); manualUpdateCheck = true;
     }
 }
 
@@ -453,7 +479,7 @@ void MainMenu::showFirstLaunchCityPromptIfNeeded()
     bFirstLaunchPromptChecked = true;
 
     // Don't compete with the version-update dialog.
-    if (bUpdateDialogShown || pChildWindow != nullptr) {
+    if (updatePromptOpen || DesktopUpdater::instance().busy() || pChildWindow != nullptr) {
         // Reschedule on next tick by un-flagging.
         bFirstLaunchPromptChecked = false;
         return;

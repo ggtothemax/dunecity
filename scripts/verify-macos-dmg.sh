@@ -72,7 +72,7 @@ while IFS= read -r BINARY; do
         continue
     fi
 
-    BAD_PATHS=$(otool -L "$BINARY" | tail -n +2 | awk '{print $1}' | \
+    BAD_PATHS=$(otool -L "$BINARY" | awk '/^\t/ {print $1}' | \
         grep -E '^(/Users/|/opt/homebrew/|/usr/local/)|vcpkg_installed' || true)
     if [[ -n "$BAD_PATHS" ]]; then
         NON_PORTABLE+="$BINARY:"$'\n'"$BAD_PATHS"$'\n'
@@ -84,5 +84,7 @@ if [[ -n "$NON_PORTABLE" ]]; then
     printf '%s' "$NON_PORTABLE" >&2
     exit 1
 fi
+
+python3 "$(dirname "$0")/verify-macos-runtime.py" "$APP_PATH"
 
 echo "Verified $EXPECTED_NAME: arm64, portable dylibs, valid bundle metadata and code signature."

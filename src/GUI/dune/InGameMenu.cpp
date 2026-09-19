@@ -44,7 +44,8 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     const bool onlineContinues = pNetworkManager && pNetworkManager->isRelaySession();
     const bool canSkip = currentGame->canSkipMission();
     const bool canJoin=pNetworkManager && pNetworkManager->isServer() && pNetworkManager->getDirectTransport() && pNetworkManager->getDirectTransport()->allowsLateJoin();
-    const int buttons = (canJoin ? 4 : 3) + (bMultiplayer ? 0 : 3) + (canSkip ? 1 : 0);
+    const bool canRequest=currentGame->isSpectating() && pNetworkManager->getDirectTransport();
+    const int buttons = ((canJoin || canRequest) ? 4 : 3) + (bMultiplayer ? 0 : 3) + (canSkip ? 1 : 0);
     const int width = std::min(440,getRendererWidth()-32);
     const int height = 92 + buttons*40 + (buttons-1)*6;
     sdl2::surface_ptr background{SDL_CreateRGBSurfaceWithFormat(0,width,height,32,SCREEN_FORMAT)};
@@ -78,6 +79,14 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     addButton(resumeButton,onlineContinues ? _("Back to Game") : _("Resume Game"),std::bind(&InGameMenu::onResume,this));
     if(canJoin) {
         gap(); addButton(joinRequestsButton,"Join requests ("+std::to_string(pNetworkManager->getDirectTransport()->joinRequests().size())+")",[this](){openWindow(JoinRequestsWindow::create());});
+    }
+    if(canRequest) {
+        auto* direct=pNetworkManager->getDirectTransport();
+        const bool pending=direct->playRequestState()=="pending";
+        gap(); addButton(joinRequestsButton,pending ? "Cancel request to play" : "Request to play",[this,pending]() {
+            auto* direct=pNetworkManager->getDirectTransport();
+            if(direct->requestToPlay(pending)) currentGame->resumeGame();
+        });
     }
     if(canSkip) {
         gap();addButton(skipMissionButton,_("Skip mission..."),std::bind(&InGameMenu::onSkipMission,this));

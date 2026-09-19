@@ -1877,7 +1877,9 @@ void CustomGamePlayers::extractMapInfo(INIFile* pMap)
         currentIndex++;
     }
 
-    for(int p = 0; (p < numHouses) && (currentIndex < numHouses); p++) {
+    // PlayerN sections may have gaps (Ergsun-Odenkirk uses 1, 2, 3, 5).
+    // Scan the same capacity used to count them, not just the visible row count.
+    for(int p = 0; (p < getCustomGameHouseCount()) && (currentIndex < numHouses); p++) {
         if(pMap->hasSection("Player" + std::to_string(p+1))) {
             std::string teamName = strToUpper(pMap->getStringValue("Player" + std::to_string(p+1),"Brain","Team " + std::to_string(currentIndex+p+1)));
             teamNames.push_back(teamName);

@@ -216,7 +216,7 @@ public:
     bool saveGame(const std::string& filename);
     void saveGame(OutputStream& stream);
     struct JoinSlot { int house, controller; std::string label; };
-    std::set<std::string> seenJoinRequests;
+    std::string lastPlayRequestState;
     std::string lastJoinStatus;
     std::vector<JoinSlot> availableJoinSlots() const;
     bool acceptJoinRequest(const std::string& request, const std::string& name, const JoinSlot& slot, bool spectator = false);
@@ -233,7 +233,7 @@ public:
     /**
         This method pauses the current game.
     */
-    void pauseGame();
+    void pauseGame(const char* source = "unspecified");
 
     /**
         This method resumes the current paused game.
@@ -298,6 +298,7 @@ public:
         It pauses the game and loads the in game menu.
     */
     void onOptions();
+    void onJoinRequests();
 
     /**
         This method is the callback method for the MENTAT button at the top of the screen.

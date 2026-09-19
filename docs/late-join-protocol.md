@@ -107,9 +107,17 @@ simulation command. Active-player loss retains the normal fail-closed behavior.
 
 After the host-to-viewer channel opens, the host captures an in-memory network
 checkpoint without pausing or reloading any player. Only the viewer loads it.
-The existing 4 MiB save and 5 MiB total-envelope limits apply. A supplementary
-network-only record preserves path/target request queues, unit movement caches,
-stuck detection, AI planning state, current path budget and command-buffer size.
+The save remains capped at 4 MiB; the spectator envelope is capped at 8 MiB
+on both endpoints, allowing the larger runtime supplement on 256x256 maps.
+The supplementary network-only record (version 2) preserves path/target request
+queues, unit movement caches, stuck detection, AI planning state, current path
+budget, command-buffer size, live house AI flags and the exact city simulation
+caches and phase state.
+Observers retain the saved controllers and rebuild zone power draw without the
+ordinary load-time city reconciliation, which would advance growth and effects
+an extra time relative to the running host. Unit loading also retains references
+to objects that appear later in the checkpoint; resolving them prematurely used
+to clear carryall targets.
 Ordinary disk-save format and its deliberate load-time resets are unchanged.
 
 The host then streams the canonical command set and path budget for each tick
@@ -131,7 +139,10 @@ These messages use the shared GamePayloadRouter and authenticated packets 21/22:
 | 15 | Host | Attributed forwarded chat |
 
 Every message carries the simulation epoch. Snapshot chunks and tick payloads are
-at most 48 KiB. Host catch-up history is bounded to 1,500 ticks and 4 MiB, with at
+at most 48 KiB. Snapshot delivery permits four unacknowledged chunks (192 KiB),
+with cumulative ACKs accepted only at sent chunk boundaries or the exact end.
+This avoids a full round trip per chunk without changing the receiver wire format.
+Host catch-up history is bounded to 1,500 ticks and 4 MiB, with at
 most 16 unconsumed ticks in flight per observer. Fair rotating delivery admits at
 most eight messages and 64 KiB per update across all observers. Transfer/ACK
 timeouts affect only the viewer; an idle, caught-up viewer does not time out merely
@@ -151,3 +162,82 @@ that original players advance during loading, compare at cycle 1,800, and remain
 identical after the viewer leaves. Service tests cover unchanged match phase,
 host-only viewer links, grants and old-protocol compatibility. Transport tests
 cover unready/congested viewers independently of player readiness and broadcasts.
+
+## Spectator-first entry (1.0.730, protocol 9; unreleased)
+
+Joining a running public game now enters as a spectator directly. In Options,
+the viewer can Request to play or cancel a pending request. The authenticated
+viewer session uses `/v1/p2p/join-requests` actions `request_play`, `cancel_play`
+and `play_status`; no new admission ticket or second connection is created.
+Both host and requester see a persistent flashing approval button on the game
+screen while a play request is pending. The host clicks it to review, approve or
+decline; it does not interrupt play with an automatic dialog. The requester can
+click their notice for request options. Declining leaves a visible status and
+permits a later request. Cancelling likewise preserves observation.
+The protocol-8 admission behavior described above remains for older clients.
+
+Approval selects an eligible controller slot and uses the existing checkpoint
+transaction. A viewer requires both an authenticated service roster change and
+the host's prepare packet before becoming a controller. It then discovers and
+connects to all original controllers. Other viewers remain excluded from the
+barrier. A declined request never grants gameplay authority.
+
+Shared house (Multiple players per house) enables a second controller alongside
+an existing human or AI, up to two controllers per house. The approval dialog
+prefers a share slot where available and distinguishes keeping the existing
+player from replacing/removing an AI. Choosing Replace still transfers that AI's
+house entirely to the new human.
+
+Start preparation fixes the expected roster but waits up to 30 seconds for the
+local mesh's readiness reports before acknowledging. Peer channels have no
+shared delivery ordering, so a host prepare may precede another controller's
+readiness. Replayed preparation cannot extend this deadline; a conflicting
+roster or premature commit is rejected. New or changed readiness reports elicit
+an updated local report, recovering reports that arrived before a spectator's
+authenticated role change. Identical reports do not produce reply loops.
+
+Custom-map player sections may have gaps, such as Player1, Player2, Player3 and
+Player5 in Ergsun-Odenkirk. Team initialization scans the same slot capacity as
+house counting, assigning every occupied house a valid default team. Previously
+the fourth house could retain -1, serialized as 255, causing the spectator
+checkpoint validator to reject it. The map and checkpoint limits are unchanged;
+checkpoint policy rejection now logs its reason on the host.
+
+The `promote --city` probe exercises decline, retry, persistent notices on both
+peers, opening the host dialog from the notice, default sharing, retaining the AI,
+clearing the notice after promotion and matching resumed simulation state.
+Set `JOIN_CAPTURE_UI=1` to save native rendered BMPs of both pending notices and
+the approval dialog in the probe output directory. With `--browser`, set the browser player
+name to Newcomer in Settings before joining. The original peers compare state
+300 ticks after the promotion checkpoint, allowing time for manual browser
+interaction. Create `browser-observed` only after verifying the browser view and
+successful promotion; native digests alone do not prove browser success.
+
+For the populated 256x256 regression, run
+`python3 tests/network/run-late-join-probe.py --mode spectate --city --twin-cities --solo`.
+Set `JOIN_AT_CYCLE=1400` to cover loading after production and carryall bookings;
+`JOIN_TRACE=1` retains per-peer state summaries every 200 cycles for diagnosis.
+
+For a battle in progress, use a reproducible seed and accelerated host warm-up:
+
+```sh
+JOIN_FAST_WARMUP=1 JOIN_CHECK_SPATIAL=1 JOIN_SEED=118705914 \
+JOIN_AT_CYCLE=60147 JOIN_VERIFY_CYCLE=63000 \
+python3 tests/network/run-late-join-probe.py --mode spectate --city --twin-cities --solo
+```
+
+Warm-up is restricted to a solo host and spectator-only modes. It runs without
+frame delays until the requested checkpoint, then resumes normal cadence once
+the spectator transfer begins. The viewer still deliberately stops reading for
+five seconds. Spatial checks verify moving units remain indexed at their current
+positions and that reversing cell insertion order leaves target selection
+unchanged. The final comparison also checks that the host continues after the
+viewer leaves. `JOIN_SEED` sets only the integration fixture's initial RNG seed.
+
+Aircraft, carryall pickup adjustments and infantry movement must update the
+spatial grid just as ordinary ground movement does. Checkpoint loads rebuild it
+from active objects, excluding cargo and units inside repair yards. Cell queries
+use object-ID order, so target ties do not depend on movement history. Spectator
+loads also preserve negative targeting/path timer sentinels alongside their
+restored work queues. These changes leave the save and spectator wire layouts
+unchanged; both peers need the matching simulation build.

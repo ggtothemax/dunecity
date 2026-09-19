@@ -45,15 +45,6 @@ static int localHouseID() {
 
 namespace DuneCity {
 
-const HouseCityState& CitySimulation::getHouseState(int houseID) const {
-    if (houseID < 0 || houseID >= kMaxCityHouses) houseID = 0;
-    return houseState_[houseID];
-}
-HouseCityState& CitySimulation::getHouseStateMut(int houseID) {
-    if (houseID < 0 || houseID >= kMaxCityHouses) houseID = 0;
-    return houseState_[houseID];
-}
-
 int CitySimulation::getResPop() const { return getHouseState(localHouseID()).resPop; }
 int CitySimulation::getComPop() const { return getHouseState(localHouseID()).comPop; }
 int CitySimulation::getIndPop() const { return getHouseState(localHouseID()).indPop; }

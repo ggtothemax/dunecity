@@ -1467,3 +1467,35 @@ TEST_CASE("Road access cannot move police coverage into another district", "[cit
     const auto disconnected=DuneCity::policeSource(map,24,5,2,2,1000,100,true);
     CHECK(disconnected.x==24); CHECK(disconnected.y==5); CHECK(disconnected.strength==500);
 }
+
+TEST_CASE("Spectator city runtime restores derived state and rejects invalid dimensions or truncation", "[city][spectator]") {
+    CitySimulation source;
+    source.init(23,17); // Include partial 2x2 and 3x3 cache blocks.
+    source.setCityEffectsEnabled(false);
+    source.getHouseStateMut(0).taxBaseEighths=123;
+    source.getHouseStateMut(0).civicDemandBlocked=5;
+    OMemoryStream saved;
+    source.saveObserverRuntime(saved);
+    CitySimulation restored;
+    restored.init(23,17);
+    SECTION("exact runtime survives without a growth or effects pass") {
+        IMemoryStream input(saved.getData(),saved.getDataLength());
+        restored.loadObserverRuntime(input);
+        REQUIRE(input.getRemainingLength()==0);
+        REQUIRE_FALSE(restored.areCityEffectsEnabled());
+        REQUIRE(restored.getHouseState(0).taxBaseEighths==123);
+        REQUIRE(restored.getHouseState(0).civicDemandBlocked==5);
+        OMemoryStream again;
+        restored.saveObserverRuntime(again);
+        REQUIRE(std::string(saved.getData(),saved.getDataLength())==std::string(again.getData(),again.getDataLength()));
+    }
+    SECTION("a different map cannot consume the cache payload") {
+        restored.init(24,17);
+        IMemoryStream input(saved.getData(),saved.getDataLength());
+        REQUIRE_THROWS(restored.loadObserverRuntime(input));
+    }
+    SECTION("a truncated layer cannot become a complete checkpoint") {
+        IMemoryStream input(saved.getData(),saved.getDataLength()-1);
+        REQUIRE_THROWS(restored.loadObserverRuntime(input));
+    }
+}

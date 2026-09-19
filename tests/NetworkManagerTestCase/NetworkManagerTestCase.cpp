@@ -29,7 +29,7 @@ static constexpr int kWireSendGameInfo  = 4;
 static constexpr int kWireClientStats   = 13;
 static constexpr int kWireKeepAlive     = 19;
 static constexpr int kWireCoopMission   = 20;
-static constexpr int kWireProtocolVersion = 8;
+static constexpr int kWireProtocolVersion = 9;
 
 TEST_CASE("NetworkManager: wire constants match the shipped protocol", "[network][protocol]") {
     REQUIRE(NETWORKPACKET_SENDGAMEINFO == kWireSendGameInfo);
@@ -38,7 +38,7 @@ TEST_CASE("NetworkManager: wire constants match the shipped protocol", "[network
     REQUIRE(NETWORKPACKET_COOP_MISSION == kWireCoopMission);
 }
 
-TEST_CASE("NetworkManager: passive spectator synchronization requires protocol 8", "[network][protocol]") {
+TEST_CASE("NetworkManager: spectator promotion requires protocol 9", "[network][protocol]") {
     REQUIRE(NETWORK_PROTOCOL_VERSION == kWireProtocolVersion);
     REQUIRE(NETWORKDISCONNECT_PROTOCOL_MISMATCH == 5);
 }

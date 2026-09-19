@@ -57,6 +57,8 @@ public:
     inline int getTeamID() const { return teamID; }
 
     inline bool isAI() const { return ai; }
+    // The live value can differ from the controller-list load default after promotion.
+    void restoreObserverAI(bool enabled) { ai = enabled; }
     bool isAutoRepairEnabled() const { return autoRepairEnabled; }
     void setAutoRepairEnabled(bool enabled) { autoRepairEnabled = enabled; }
     inline bool isAlive() const { return (teamID == 0) || !(((numStructures - numItem[Structure_Wall]) <= 0) && (((numUnits - numItem[Unit_Carryall] - numItem[Unit_ChemicalCarryall] - numItem[Unit_Harvester] - numItem[Unit_RebelHarvester] - numItem[Unit_Frigate] - numItem[Unit_Sandworm] - numItem[Unit_AmbientAirplane] - numItem[Unit_AmbientHelicopter]) <= 0))); }

@@ -56,12 +56,10 @@ public:
     ~CrossplayMenu() override;
 
     void update() override;
-    void onChildWindowClose(Window* window) override;
 
 private:
     enum class Stage {
         Choosing,       ///< nothing in flight
-        ChoosingJoinMode,
         WaitingForApproval,
         Requesting,     ///< waiting for the game service to answer
         Connecting,     ///< opening the game connection

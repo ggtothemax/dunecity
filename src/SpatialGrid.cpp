@@ -173,7 +173,14 @@ bool SpatialGrid::collectEntries(const Coord& cellCoord, std::vector<SpatialGrid
     }
 
     const auto& cell = getCellRef(cellCoord);
+    const auto begin = out.size();
     out.insert(out.end(), cell.begin(), cell.end());
+    // Movement changes insertion order, while a checkpoint rebuilds the grid
+    // in object-ID order. Targeting must see the same order in either case,
+    // including when several equally distant targets share a cell.
+    std::sort(out.begin() + begin, out.end(), [](const auto& a, const auto& b) {
+        return a.key.objectId < b.key.objectId;
+    });
     return true;
 }
 

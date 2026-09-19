@@ -70,6 +70,31 @@ trait LateJoinSignaling
         return $this->store->withLock(self::file($roomId), function(array $s) use($token,$action,$id,$now): array {
             if(!$s) throw new ServiceError(404,'room_not_found','That game has ended.');
             $who=self::authenticate($s,$token,$now);
+            if(in_array($action,['request_play','cancel_play','play_status'],true)) {
+                $peerId=(string)$who['peerId'];
+                if((int)$s['gameProtocol']<9 || $who['peerId']===(int)$s['hostPeerId'])
+                    throw new ServiceError(403,'forbidden','Only a spectator can request to play.');
+                $s=self::sweepJoinRequests($s,$now);
+                $found=null;
+                foreach($s['joinRequests'] as $key=>$r) if(($r['existingPeer']??0)===$who['peerId']) $found=$key;
+                if($action==='request_play') {
+                    if(!($s['peers'][$peerId]['spectator']??false) || !($s['allowLateJoin']??false)
+                        || $s['phase']!=='match' || !empty($s['joinWindow']))
+                        throw new ServiceError(409,'join_closed','This game is not accepting requests to play.');
+                    if($found===null || $s['joinRequests'][$found]['state']!=='pending') {
+                        if($found!==null) unset($s['joinRequests'][$found]);
+                        if(count($s['joinRequests'])>=8) throw new ServiceError(409,'join_busy','The host has too many requests waiting.');
+                        $found=Store::randomHex(32);
+                        $s['joinRequests'][$found]=['name'=>$s['peers'][$peerId]['name'],'spectator'=>false,
+                            'existingPeer'=>$who['peerId'],'state'=>'pending','createdAt'=>$now,'lastSeen'=>$now];
+                    }
+                }
+                if($found!==null) {
+                    $s['joinRequests'][$found]['lastSeen']=$now;
+                    if($action==='cancel_play' && $s['joinRequests'][$found]['state']==='pending') $s['joinRequests'][$found]['state']='cancelled';
+                }
+                return [$s,[['playRequest',$found===null ? 'none' : $s['joinRequests'][$found]['state']]]];
+            }
             if($who['peerId']!==(int)$s['hostPeerId']) throw new ServiceError(403,'forbidden','Only the host can manage join requests.');
             $s['peers'][(string)$who['peerId']]['lastSeen']=$now; $s['lastSeen']=$now;
             $s=self::sweepJoinRequests(self::expireGrants($s,$now),$now);
@@ -77,8 +102,19 @@ trait LateJoinSignaling
                 $r=$s['joinRequests'][$id]??null;
                 if(!$r || !($s['allowLateJoin']??false)) throw new ServiceError(409,'request_expired','That request is no longer available.');
                 if($r['state']==='approved') return [$s,[]];
-                if($r['state']!=='pending' || $s['phase']!=='match' || !empty($s['joinWindow']) || self::reservedSeats($s)>=(int)$s['maxPeers'])
+                if($r['state']!=='pending' || $s['phase']!=='match' || !empty($s['joinWindow']) || (empty($r['existingPeer']) && self::reservedSeats($s)>=(int)$s['maxPeers']))
                     throw new ServiceError(409,'join_busy','Another join is already being synchronized.');
+                if(!empty($r['existingPeer'])) {
+                    $peerId=(string)$r['existingPeer'];
+                    if($action!=='approve' || !isset($s['peers'][$peerId]) || !($s['peers'][$peerId]['spectator']??false)
+                        || $s['peers'][$peerId]['name']!==$r['name']) throw new ServiceError(409,'request_expired','That spectator has left.');
+                    $s['joinWindow']=$id; $s['phase']='lobby'; ++$s['epoch'];
+                    foreach($s['peers'] as &$p) $p['epoch']=$s['epoch']; unset($p);
+                    $s['peers'][$peerId]['spectator']=false;
+                    $s['peers'][$peerId]['lateRequest']=$id;
+                    $s['joinRequests'][$id]['state']='approved';
+                    return [$s,[]];
+                }
                 $s['joinRequests'][$id]['spectator']=$action==='approve_spectator' || ($r['spectator']??false);
                 // Protocol 8 observers are outside the controller roster. Admitting one must
                 // not invalidate player grants, reopen the lobby, or start a match barrier.
@@ -95,7 +131,8 @@ trait LateJoinSignaling
                 $s['joinRequests'][$id]['state']='approved'; $s['joinRequests'][$id]['grant']=$grant;
             } elseif($action==='decline') {
                 if(isset($s['joinRequests'][$id]) && $s['joinRequests'][$id]['state']==='pending') {
-                    if((int)$s['gameProtocol']>=7) $s['joinRequests'][$id]['spectator']=true;
+                    if(!empty($s['joinRequests'][$id]['existingPeer'])) $s['joinRequests'][$id]['state']='declined';
+                    elseif((int)$s['gameProtocol']>=7) $s['joinRequests'][$id]['spectator']=true;
                     else $s['joinRequests'][$id]['state']='declined';
                 }
             } elseif($action==='abort') {

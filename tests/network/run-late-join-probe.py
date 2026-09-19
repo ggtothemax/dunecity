@@ -18,9 +18,16 @@ parser.add_argument('--output-dir', type=Path)
 parser.add_argument('--endpoint', help='Explicit isolated HTTPS test service; never use the production lobby.')
 parser.add_argument('--browser',action='store_true',help='Use the browser game as Newcomer; connect using browser.json, then create browser-observed after inspection.')
 parser.add_argument('--stall',action='store_true',help='Leave the spectator unresponsive until its stream times out; the players must continue.')
+parser.add_argument('--solo',action='store_true',help='One native host, with no second active peer.')
+parser.add_argument('--city',action='store_true',help='Dune City, four-house Ergsun-Odenkirk, shared hard AI host.')
+parser.add_argument('--twin-cities',action='store_true',help='Use the two-house 256x256 Twin Cities map with --city.')
 parser.add_argument('--busy',action='store_true',help='Exercise moving armies and AI production while the observer catches up.')
-parser.add_argument('--mode', choices=['replace','share_ai','share_human','abort','spectate','reject_spectate'],default='replace')
+parser.add_argument('--mode', choices=['replace','share_ai','share_human','abort','spectate','reject_spectate','promote'],default='replace')
 args = parser.parse_args()
+if args.twin_cities and not args.city:
+    parser.error('--twin-cities requires --city')
+if os.environ.get('JOIN_FAST_WARMUP') and (not args.solo or args.mode not in ('spectate', 'reject_spectate')):
+    parser.error('JOIN_FAST_WARMUP requires --solo and a spectator-only mode')
 build = args.build_dir.resolve()
 out = args.output_dir.resolve() if args.output_dir else Path(tempfile.mkdtemp(prefix='dunecity-late-join-probe-'))
 out.mkdir(parents=True, exist_ok=True)
@@ -51,6 +58,8 @@ obj = out / 'late-join-probe-main.o'
 cc[cc.index('-o') + 1] = str(obj)
 cc[cc.index('-c') + 1] = str(source)
 map_path = root / 'data/maps/multiplayer/2P - 51x31 - 1v1 - Habbanya-Autumn.ini'
+if args.city: map_path = root / 'data/maps/multiplayer/4P - 128x128 - Ergsun-Odenkirk.ini'
+if args.twin_cities: map_path = root / 'data/maps/singleplayer/2P - 256x256 - Twin Cities.ini'
 cc.append('-fno-access-control')
 cc.append('-DPROBE_MAP_PATH="' + str(map_path) + '"')
 app = out / 'late-join-probe.app/Contents'
@@ -110,26 +119,31 @@ if args.browser and args.endpoint:
     from urllib.parse import quote
     (out/'browser.json').write_text(json.dumps({'url':args.endpoint.rsplit('/p2p',1)[0]+'/?relay='+quote(args.endpoint,safe='')}))
 try:
-    for role in (('Host','Partner') if args.browser else ('Host','Partner','Newcomer')):
+    originals=('Host',) if args.solo else ('Host','Partner')
+    roles=originals if args.browser else originals+('Newcomer',)
+    for role in roles:
         log=(out/(role+'.log')).open('w'); logs.append(log)
         env=dict(os.environ,DUNECITY_USERDIR=str(out/('profile-'+role)),SDL_VIDEODRIVER='dummy',SDL_AUDIODRIVER='dummy',JOIN_ROLE=role,JOIN_MODE=args.mode,JOIN_OUT=str(out),JOIN_ENDPOINT=args.endpoint or ('http://127.0.0.1:'+str(service.port)))
+        if args.solo: env['JOIN_SOLO']='1'
+        if args.city: env['JOIN_CITY']='1'
+        if args.twin_cities: env['JOIN_TWIN_CITIES']='1'
         if args.browser: env['JOIN_BROWSER']='1'
         if args.busy: env['JOIN_BUSY']='1'
         if args.stall: env['JOIN_STALL']='1'
         processes.append(subprocess.Popen([str(binary),'--window','--showlog'],cwd=out,env=env,stdout=log,stderr=subprocess.STDOUT))
-    deadline=time.monotonic()+(620 if args.browser else 170)
+    deadline=time.monotonic()+(620 if args.browser or os.environ.get('JOIN_FAST_WARMUP') else 170)
     while time.monotonic()<deadline:
-        compared=('Host','Partner') if args.mode=='abort' or args.browser or args.stall else ('Host','Partner','Newcomer')
+        compared=originals if args.mode=='abort' or args.browser or args.stall else roles
         if all((out/(role+'-digest')).exists() for role in compared) and (args.mode!='abort' or (out/'Newcomer-cancelled').exists()):
             values=[(out/(role+'-digest')).read_text() for role in compared]
             if len(set(values))!=1: raise RuntimeError('State mismatch: '+str(values))
             if args.browser and not (out/'browser-observed').exists(): time.sleep(.2); continue
             if args.mode in ('spectate','reject_spectate') and not args.browser:
-                after=[out/(role+'-after-leave') for role in ('Host','Partner')]
+                after=[out/(role+'-after-leave') for role in originals]
                 if not all(p.exists() for p in after): time.sleep(.2); continue
                 if len({p.read_text() for p in after})!=1: raise RuntimeError('State diverged after spectator left')
             (out/'done').write_text('yes'); break
-        if any(p.poll() is not None and not (i==2 and ((args.mode=='abort' and (out/'Newcomer-cancelled').exists()) or (args.mode in ('spectate','reject_spectate') and (out/'Newcomer-left').exists()))) for i,p in enumerate(processes)): raise RuntimeError('Probe process ended early; inspect logs in '+str(out))
+        if any(p.poll() is not None and not (roles[i]=='Newcomer' and ((args.mode=='abort' and (out/'Newcomer-cancelled').exists()) or (args.mode in ('spectate','reject_spectate') and (out/'Newcomer-left').exists()))) for i,p in enumerate(processes)): raise RuntimeError('Probe process ended early; inspect logs in '+str(out))
         time.sleep(.2)
     else: raise RuntimeError('Join probe timed out')
     for p in processes:

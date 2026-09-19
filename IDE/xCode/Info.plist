@@ -24,6 +24,15 @@
 	<string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.games</string>
+    <key>SUFeedURL</key>
+    <string>${DUNECITY_UPDATE_FEED_BASE}/appcast-${DUNECITY_UPDATE_PLATFORM}.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>${DUNECITY_UPDATE_PUBLIC_KEY}</string>
+    <key>SUEnableAutomaticChecks</key><false/>
+    <key>SUAutomaticallyUpdate</key><false/>
+    <key>SUAllowsAutomaticUpdates</key><false/>
+    <key>SUShowReleaseNotes</key><false/>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
 	<key>NSMainNibFile</key>
 	<string>SDLMain</string>
 	<key>NSPrincipalClass</key>

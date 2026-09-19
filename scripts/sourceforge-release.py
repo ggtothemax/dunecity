@@ -27,9 +27,13 @@ def version(tag):
 
 def expected_files(tag):
     v = version(tag)
-    return [f'DuneCity-{v}-Windows-x64.zip', f'DuneCity-{v}-macOS.dmg',
+    windows = 'exe' if tuple(map(int, v.split('.'))) >= (1, 0, 731) else 'zip'
+    files = [f'DuneCity-{v}-Windows-x64.{windows}', f'DuneCity-{v}-macOS.dmg',
             f'DuneCity-{v}-Linux-x86_64.AppImage', f'dunecity_{v}_amd64.deb',
             f'DuneCity-{v}-Linux-x64.rpm', f'DuneCity-{v}-Linux-x64.tar.gz']
+    if windows == 'exe':
+        files.append(f'DuneCity-{v}-Windows-x64.zip')
+    return files
 
 
 def digest(path):
@@ -79,7 +83,7 @@ def prepare(tag, folder):
         f'Source commit: `{commit}`\n')
     manifest = {p.name: digest(p) for p in sorted(folder.iterdir())}
     (folder/'SHA256SUMS').write_text(''.join(f'{sha}  {name}\n' for name, sha in manifest.items()))
-    print(f'Prepared {tag}: six packages, notes and checksums ({commit})')
+    print(f'Prepared {tag}: {len(expected_files(tag))} packages, notes and checksums ({commit})')
     return commit
 
 

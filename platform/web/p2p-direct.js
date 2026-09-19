@@ -226,7 +226,10 @@
         }
       };
       this.pc.onconnectionstatechange = () => {
-        if (["failed", "closed", "disconnected"].includes(this.pc.connectionState)) this.disconnect();
+        if (["failed", "closed", "disconnected"].includes(this.pc.connectionState)) {
+          const ice = ["new", "checking", "connected", "completed", "disconnected", "failed", "closed"].includes(this.pc.iceConnectionState) ? this.pc.iceConnectionState : "unknown";
+          this.fail(`WebRTC ${this.pc.connectionState}; ICE ${ice}`);
+        }
       };
       const unsubscribe = this.signalling.onMessage(this.onSignal);
       if (typeof unsubscribe === "function") this.unsubscribe = unsubscribe;

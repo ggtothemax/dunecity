@@ -380,3 +380,7 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
         set_tests_properties(menu_navigation_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
     endif()
 endif()
+
+if(NOT EMSCRIPTEN AND NOT ANDROID)
+    add_subdirectory(desktop-updater)
+endif()

@@ -39,6 +39,7 @@
 #include <GUI/dune/DuneStyle.h>
 
 #include <Menu/MainMenu.h>
+#include <misc/DesktopUpdater.h>
 #include <Menu/OptionsMenu.h>
 
 #include <misc/DiscordManager.h>
@@ -90,6 +91,7 @@
 
 #ifdef __APPLE__
 #include <misc/MacFunctions.h>
+#include <mach-o/dyld.h>
 #endif
 
 #ifdef __EMSCRIPTEN__
@@ -872,8 +874,34 @@ std::string getUserLanguage() {
 
 int main(int argc, char *argv[]) {
 #ifndef __EMSCRIPTEN__
-    // Packaging check: no SDL window, profile, or game session is created.
+    // Packaging checks run before opening a profile or game session.
     for(int index = 1; index < argc; ++index) {
+        if(std::strcmp(argv[index], "--check-desktop-runtime") == 0) {
+            if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
+                std::fprintf(stderr, "SDL initialization failed: %s\n", SDL_GetError());
+                return EXIT_FAILURE;
+            }
+            SDL_Window* window = SDL_CreateWindow("Dune City runtime check", 0, 0, 64, 64, SDL_WINDOW_HIDDEN);
+            SDL_Renderer* renderer = window ? SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE) : nullptr;
+            const bool ready = renderer && SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255) == 0
+                && SDL_RenderClear(renderer) == 0;
+            if(ready) SDL_RenderPresent(renderer);
+            else std::fprintf(stderr, "SDL rendering failed: %s\n", SDL_GetError());
+#ifdef __APPLE__
+            for(uint32_t i = 0; i < _dyld_image_count(); ++i) {
+                const char* path = _dyld_get_image_name(i);
+                const char* name = path ? std::strrchr(path, '/') : nullptr;
+                name = name ? name + 1 : path;
+                if(name && (std::strncmp(name, "libSDL", 6) == 0 || std::strncmp(name, "SDL", 3) == 0))
+                    std::printf("SDL runtime library: %s\n", path);
+            }
+#endif
+            if(renderer) SDL_DestroyRenderer(renderer);
+            if(window) SDL_DestroyWindow(window);
+            SDL_Quit();
+            if(ready) std::puts("Desktop runtime initialization and rendering passed");
+            return ready ? EXIT_SUCCESS : EXIT_FAILURE;
+        }
         if(std::strcmp(argv[index], "--check-relay-support") == 0) {
             const auto support = relayWebSocketSupport();
             const bool secure = support.available && support.reason.empty();
@@ -1664,5 +1692,6 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
+    DesktopUpdater::relaunchAfterShutdown();
     return EXIT_SUCCESS;
 }

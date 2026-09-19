@@ -16,7 +16,6 @@
  */
 
 #include <Menu/CrossplayMenu.h>
-#include <GUI/dune/JoinModeWindow.h>
 #include <mod/ModManager.h>
 #include <Menu/PlaySetup.h>
 #include <Menu/SinglePlayerMenu.h>
@@ -390,21 +389,10 @@ void CrossplayMenu::joinPublicGame() {
             setStatus(_("This game's mod files differ from your installed copy.")); return;
         }
     }
-    joiningAsSpectator=false;
-    if(game.running) {
-        stage=Stage::ChoosingJoinMode;
-        refreshControls();
-        openWindow(JoinModeWindow::create());
-    } else beginAdmission(false,true);
-}
-
-void CrossplayMenu::onChildWindowClose(Window* window) {
-    if(auto* choice=dynamic_cast<JoinModeWindow*>(window)) {
-        stage=Stage::Choosing;
-        joiningAsSpectator=choice->choice==JoinModeWindow::Choice::Spectate;
-        if(choice->choice!=JoinModeWindow::Choice::Cancel) beginAdmission(false,true);
-        else refreshControls();
-    }
+    // Running games always open in the passive view. A spectator can ask the
+    // host for a playing slot after the map has loaded.
+    joiningAsSpectator=game.running;
+    beginAdmission(false,true);
 }
 
 AdmissionRequest CrossplayMenu::lobbyRequest() const {
