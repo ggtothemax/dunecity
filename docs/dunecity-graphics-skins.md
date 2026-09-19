@@ -97,10 +97,14 @@ zones/<asset>/icon.png
 buildings/<asset>/icon.png
 ```
 
-Authored icon sprites should be 91x55 RGBA PNGs. Missing faction icons fall
-back safely to the derived Dune2 portrait or native SimCity portrait. These
-paths are reserved for the future `~dune2config DuneCity` **Icon Sprite** asset
-category.
+Authored icon sprites use the original 91x55 Dune II sidebar aspect. Missing
+faction icons fall back safely to the derived Dune2 portrait or native SimCity
+portrait. Oathkeeper's `~dune2config DuneCity` **Icon Sprite** lane stores its
+accepted Compact at `categories/icon_sprite/states/default`; synchronization
+installs that file as the package's `icon.png`. Native 91x55, 2x, 3x, 4x, and
+custom 91:55 sources are supported, and the renderer fits all of them into the
+same logical 91x55 UI rectangle with nearest-neighbor sampling. Without a new
+Icon Sprite Compact, synchronization preserves any older authored `icon.png`.
 
 ## Canonical-main integration
 

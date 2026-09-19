@@ -215,6 +215,25 @@ def _preserve_authored_icon(destination: Path, staged: Path) -> None:
         shutil.copy2(old_icon, new_icon)
 
 
+def _authored_icon_path(manifest: dict[str, Any], asset_root: Path) -> Path | None:
+    """Resolve Oathkeeper's unit-level Icon Sprite Compact, when authored."""
+
+    categories = manifest.get("categories")
+    icon_category = categories.get("icon_sprite") if isinstance(categories, dict) else None
+    states = icon_category.get("states") if isinstance(icon_category, dict) else None
+    default_state = states.get("default") if isinstance(states, dict) else None
+    return _processed_path(default_state, asset_root)
+
+
+def _install_authored_icon(manifest: dict[str, Any], asset_root: Path, staged: Path) -> bool:
+    icon = _authored_icon_path(manifest, asset_root)
+    if icon is None:
+        return False
+    staged.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(icon, staged / "icon.png")
+    return True
+
+
 def synchronize(
     source_root: Path,
     repo_root: Path,
@@ -232,7 +251,7 @@ def synchronize(
     if not (repo_root / "CMakeLists.txt").is_file() or not skin_root.is_dir():
         raise FileNotFoundError(f"Canonical DuneCity repository or skin root not found: {repo_root}")
 
-    candidates: list[tuple[PackagePlan, int]] = []
+    candidates: list[tuple[PackagePlan, dict[str, Any], int]] = []
     unsupported: list[str] = []
     matched = 0
     for unit_dir in sorted((path for path in units_root.iterdir() if path.is_dir()), key=lambda path: path.name):
@@ -260,7 +279,7 @@ def synchronize(
             print(f"[SYNC SKIP] {unit_dir.name}: no package-eligible {label}", flush=True)
             continue
         _assert_under(plan.destination, skin_root)
-        candidates.append((plan, len(packageable)))
+        candidates.append((plan, manifest, len(packageable)))
 
     if requested_unit and matched == 0:
         raise ValueError(f"No DuneCity unit matched {requested_unit!r}")
@@ -273,7 +292,7 @@ def synchronize(
         raise ValueError("No supported DuneCity units with accepted Compacts were found")
 
     if plan_only:
-        for plan, accepted_count in candidates:
+        for plan, _manifest, accepted_count in candidates:
             print(
                 f"[SYNC PLAN] {plan.slug}: {plan.kind}, house={plan.house_id}, accepted={accepted_count}, "
                 f"destination={plan.destination}",
@@ -281,8 +300,8 @@ def synchronize(
             )
         summary = {
             "packages": len(candidates),
-            "zones": sum(plan.kind == "zone" for plan, _count in candidates),
-            "buildings": sum(plan.kind == "building" for plan, _count in candidates),
+            "zones": sum(plan.kind == "zone" for plan, _manifest, _count in candidates),
+            "buildings": sum(plan.kind == "building" for plan, _manifest, _count in candidates),
             "unsupported": unsupported,
             "unit": requested_unit,
             "plan_only": True,
@@ -294,7 +313,7 @@ def synchronize(
     stage_root = Path(tempfile.mkdtemp(prefix=".skin-sync-", dir=skin_root))
     staged: list[tuple[PackagePlan, Path]] = []
     try:
-        for index, (plan, accepted_count) in enumerate(candidates, start=1):
+        for index, (plan, manifest, accepted_count) in enumerate(candidates, start=1):
             output = stage_root / "packages" / plan.kind / plan.slug
             print(
                 f"[SYNC {index}/{len(candidates)}] {plan.slug}: packaging {accepted_count} accepted Compact(s)",
@@ -304,7 +323,8 @@ def synchronize(
                 PACKAGER.package(plan.unit_dir, output, int(plan.item_id), plan.house_id)
             else:
                 PACKAGER.package_building(plan.unit_dir, output, str(plan.obj_pic), plan.house_id)
-            _preserve_authored_icon(plan.destination, output)
+            if not _install_authored_icon(manifest, asset_root, output):
+                _preserve_authored_icon(plan.destination, output)
             staged.append((plan, output))
 
         backups = stage_root / "backups"

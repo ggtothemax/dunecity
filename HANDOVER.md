@@ -1,3 +1,15 @@
+## 2026-09-18 — Authored Dune II-style DuneCity UI portraits
+
+Oathkeeper now owns a separate unit-level `Icon Sprite` lane for DuneCity
+buildings. Accepted portrait Compacts are stored at
+`categories/icon_sprite/states/default` in the bot manifest. The transactional
+skin synchronizer installs that asset as `icon.png` beside `zone.ini` or
+`building.ini`; when no new icon Compact exists, it preserves any older authored
+icon and otherwise leaves the engine's derived-Compact fallback intact. Icons
+retain the original Dune II 91:55 sidebar aspect and may be authored at native,
+2x, 3x, 4x, or another 91:55 size because the renderer fits them to the fixed
+91x55 construction/properties slot with nearest-neighbor sampling.
+
 ## 2026-09-24 — QuantBot builds an empty-market Starport for late tech
 
 User observed House IX locked because QuantBot skipped an empty CHOAM Starport.
@@ -1667,7 +1679,6 @@ at 640/854/1280 widths pass. Regression coverage includes skin wire round trips,
 unauthorized lobby changes, co-op/save skin retention, and real lobby/settings
 widgets. This is local native validation; release CI and public publication are
 tracked separately. Release notes: releases/desktop/1.0.735.md.
-
 ## 2026-09-18 — High-detail DuneCity Compact source contract
 
 Classic Dune II object sheets are indexed 8-bit art and use DuneLegacy's real

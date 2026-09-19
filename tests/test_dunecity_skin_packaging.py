@@ -130,6 +130,9 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
             zone_compact = zone / "categories" / "building_idle" / "states" / "d0_v0" / "processed.png"
             zone_compact.parent.mkdir(parents=True)
             Image.new("RGBA", (64, 64), (10, 20, 30, 255)).save(zone_compact)
+            zone_icon = zone / "categories" / "icon_sprite" / "states" / "default" / "processed.png"
+            zone_icon.parent.mkdir(parents=True)
+            Image.new("RGBA", (182, 110), (7, 8, 9, 255)).save(zone_icon)
             zone_manifest = {
                 "target_game": "dunecity",
                 "name": "DuneCity Atreides Residential Zone",
@@ -153,7 +156,14 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
                                 "assets": {"processed": {"file": zone_compact.relative_to(source).as_posix()}}
                             }
                         }
-                    }
+                    },
+                    "icon_sprite": {
+                        "states": {
+                            "default": {
+                                "assets": {"processed": {"file": zone_icon.relative_to(source).as_posix()}}
+                            }
+                        }
+                    },
                 },
             }
             (zone / "unit.json").write_text(json.dumps(zone_manifest), encoding="utf-8")
@@ -233,6 +243,9 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
             zone_ini.read(zone_output / "zone.ini", encoding="ascii")
             self.assertEqual(zone_ini.getint("Zone", "ItemID"), 20)
             self.assertEqual(zone_ini.getint("Zone", "HouseID"), 1)
+            with Image.open(zone_output / "icon.png") as image:
+                self.assertEqual(image.size, (182, 110))
+                self.assertEqual(image.getpixel((0, 0)), (7, 8, 9, 255))
             building_output = skin_root / "buildings" / building.name
             with Image.open(building_output / "frames" / "00_frame_0.png") as image:
                 self.assertEqual(image.size, (96, 96))
