@@ -1,3 +1,24 @@
+## 2026-09-21 — Online direct Campaign and explicit online lobby, local 1.0.740
+
+Corrects 739's offline default: Campaign starts online/public by default, then
+starts automatically through the normal acknowledged network handshake. Join
+Online -> Create Campaign retains the editable pregame lobby and Start button.
+Connectivity and entry route are separate choices. Direct campaigns keep their
+selected AI partner; the second controller can remain open for a later join.
+During connection/start the direct route displays progress instead of a roster.
+The complete city editor palette from 739 remains included.
+
+Also fixes Apache ingress: the packaged .htaccess omitted all content routes and
+admission/inspect, and its request limit rejected large Workshop manifests. The
+route allowlist and 524288-byte outer bound now match PHP; smaller signaling
+limits remain enforced by PHP. A regression checks every declared PHP route and
+the content bound. Public content/list returned Apache 404 during investigation.
+This service correction must be deployed before standalone public online tests.
+
+Native and browser builds pass. All eight CTest groups pass, including real menus
+at three sizes, both entry defaults, automatic-launch progress and retained AI.
+Local package/service preparation is in progress; no public deployment yet.
+
 ## 2026-09-20 — Complete city editor and direct solo campaigns, local 1.0.739
 
 Added Police Station, Stadium and Airport to the city-capable map editor palette,

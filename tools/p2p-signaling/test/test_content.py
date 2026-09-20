@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -225,3 +226,19 @@ class ContentTests(SignalingTestCase):
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
+
+
+class ApacheIngressTests(unittest.TestCase):
+    def test_apache_routes_every_php_endpoint_and_accepts_manifest_bound(self):
+        public = Path(__file__).resolve().parents[1] / 'public'
+        entry = (public / 'index.php').read_text()
+        apache = (public / '.htaccess').read_text()
+        pattern = re.search(r'^RewriteRule (\S+) index.php', apache, re.M)[1]
+        routes = " ".join(re.findall(r"const (?:CONTENT|ADMISSION|SIGNALING)_PATHS = \[(.*?)\];", entry, re.S))
+        for path in {"/v1/health", *re.findall(r"'(/v1/[^']+)'", routes)}:
+            self.assertRegex(path[1:], pattern, path)
+        for path in ('v1/content/delete', 'v1/content/blob/secret', 'config.php', 'src/Content.php'):
+            self.assertIsNone(re.fullmatch(pattern, path), path)
+        limit = int(re.search(r'^LimitRequestBody (\d+)', apache, re.M)[1])
+        content_limit = int(re.search(r'\$http->form\((\d+), Content::MAX_MANIFEST', entry)[1])
+        self.assertEqual(content_limit, limit)

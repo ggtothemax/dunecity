@@ -151,13 +151,14 @@ CrossplayMenu::CrossplayMenu() : MenuBase() {
     if(stage == Stage::Choosing) refreshPublicGames();
 }
 
-CrossplayMenu::CrossplayMenu(const GameInitSettings& game, bool publicGame, const ChangeEventList& players, bool allowLateJoin)
+CrossplayMenu::CrossplayMenu(const GameInitSettings& game, bool publicGame, const ChangeEventList& players, bool allowLateJoin, bool startImmediately)
     : CrossplayMenu() {
     directory.cancel();
     directoryPending = false;
     preparedGame = std::make_unique<GameInitSettings>(game);
     preparedPlayers = players;
     this->allowLateJoin = allowLateJoin;
+    this->startImmediately = startImmediately;
     hostingCoop = isCoopGameType(game.getGameType());
     visibilityChoice.setSelectedItem(publicGame ? 1 : 0);
     autoHostRequested = stage == Stage::Choosing;
@@ -729,7 +730,7 @@ void CrossplayMenu::update() {
     if(autoHostRequested) { autoHostRequested = false; beginAdmission(true); }
     if(preparedGame && stage == Stage::HostReady) {
         int result;
-        { CustomGamePlayers lobby(*preparedGame, true, false, nullptr, &preparedPlayers); result = lobby.showMenu(); }
+        { CustomGamePlayers lobby(*preparedGame, true, false, nullptr, &preparedPlayers, startImmediately); result = lobby.showMenu(); }
         teardownSession({});
         quit(result);
         return;
@@ -907,7 +908,7 @@ void CrossplayMenu::update() {
         roomCode = relay->roomCode();
         if(pendingHosting) {
             stage = Stage::HostReady;
-            setStatus(publicRoom
+            setStatus(startImmediately ? _("Starting campaign...") : publicRoom
                 ? _("Your public game is listed. Opening the lobby...")
                 : _("Your private game is open. Opening the lobby..."));
         } else {

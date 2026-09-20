@@ -158,11 +158,16 @@ int resolveSelectedColorSlot(int selectedColor, int selectedHouse) {
 }
 
 
-CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server, bool LANServer, CustomPlaySetup* newSetup, const ChangeEventList* initialPlayers)
+CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server, bool LANServer, CustomPlaySetup* newSetup, const ChangeEventList* initialPlayers, bool startImmediately)
  : MenuBase(), gameInitSettings(newGameInitSettings), bServer(server), bLANServer(LANServer),
    duneCitySkinControls(ModManager::instance().isCityModeActive()), startGameTime(0),
    bConfigMismatchDetected(false), bModDownloadInProgress(false), bWaitingForModAcks(false), brainEqHumanSlot(-1) {
     setup = newSetup;
+    // Only the main Campaign route skips the roster. Keep the normal content,
+    // readiness and acknowledged-start handshake for its online session.
+    this->startImmediately = startImmediately && server && !newSetup
+        && isCoopGameType(newGameInitSettings.getGameType());
+    automaticStartPending = this->startImmediately;
     if(isNetworkGameType(gameInitSettings.getGameType())) {
         bool publishBeforeSetup = false;
 #ifdef __EMSCRIPTEN__
@@ -666,6 +671,16 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         }
         shared.player2DropDown.setSelectedItem(0);
     }
+    if(this->startImmediately) {
+        for(const auto& house : fixedCoopHouses) {
+            if(house.houseID != gameInitSettings.getHouseID() || house.playerInfoList.size() < 2) continue;
+            const auto& partner = *std::next(house.playerInfoList.begin());
+            const int index = PlayerFactory::getIndexByPlayerClass(partner.playerClass);
+            auto& choices = houseInfo[0].player2DropDown;
+            for(unsigned i = 0; i < choices.getNumEntries(); ++i)
+                if(choices.getEntryIntData(i) == index) choices.setSelectedItem(i);
+        }
+    }
     onChangeHousesDropDownBoxes(false);
 
     checkPlayerBoxes();
@@ -750,6 +765,18 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         }
     }
 
+    if(this->startImmediately) {
+        // Show progress, never the editable pregame roster, while starting.
+        setWindowWidget(&launchWidget);
+        const int width = getSize().x, height = getSize().y;
+        launchTitle.setText(_("Starting campaign"));
+        launchStatus.setText(_("Preparing your online game..."));
+        cancelLaunch.setText(_("Back"));
+        cancelLaunch.setOnClick([this]() { onCancel(); });
+        launchWidget.addWidget(&launchTitle, Point(20, height/3), Point(width-40, 32));
+        launchWidget.addWidget(&launchStatus, Point(20, height/3+48), Point(width-40, 100));
+        launchWidget.addWidget(&cancelLaunch, Point(width/2-80, height-70), Point(160, 30));
+    }
 #ifdef __EMSCRIPTEN__
     // The opponent's connection state changes asynchronously; update()
     // refreshes the label.
@@ -859,6 +886,10 @@ void CustomGamePlayers::onChildWindowClose(Window* child) {
 }
 
 void CustomGamePlayers::update() {
+    if(automaticStartPending) {
+        automaticStartPending = false;
+        onNext();
+    }
 #ifdef __EMSCRIPTEN__
     updateOpponentLabel();
 #endif
@@ -1585,7 +1616,7 @@ void CustomGamePlayers::checkAllClientsReady() {
         bWaitingForModAcks = false;
         
         // Now actually start the game
-        unsigned int timeLeft = 3000;  // 3 seconds countdown
+        unsigned int timeLeft = startImmediately ? 1 : 3000;  // Lobby hosts keep their countdown.
         if(!pNetworkManager->sendStartGame(timeLeft)) {
             addInfoMessage("The match could not start because a player disconnected or was not ready.");
             return;
@@ -1967,6 +1998,7 @@ void CustomGamePlayers::onSendChatMessage()
 }
 
 void CustomGamePlayers::addInfoMessage(const std::string& message) {
+    if(startImmediately) launchStatus.setText(message);
     std::string text = chatTextView.getText();
     if(text.length() > 0) {
         text += "\n";

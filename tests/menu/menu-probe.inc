@@ -206,9 +206,11 @@ int runMenuProbe() {
     }
     {
         HouseChoiceMenu menu;
-        menuRequire(!HouseChoiceMenu::isOnline(), "Campaign entry must default to single player");
-        menuRequire(menu.hostCoopButton.getText() == _("Start Campaign"), "Single player campaign offers a lobby instead of launch");
+        menuRequire(HouseChoiceMenu::isOnline(), "Campaign entry must default to online");
+        menuRequire(menu.hostCoopButton.getText() == _("Start Campaign"), "Campaign offers a lobby instead of direct launch");
         menuRequire(HouseChoiceMenu::isPublicGame(), "Campaign should default to public");
+        menuRequire(menu.visibilityDropDown.isVisible() && menu.supportBotDropDown.isEnabled(),
+                    "Direct online campaign lost visibility or AI partner selection");
         menuCapture(menu,"campaign-default");
         menu.connectionDropDown.setSelectedItem(0);
         menuRequire(!HouseChoiceMenu::isOnline(), "Campaign cannot be switched offline");
@@ -224,7 +226,7 @@ int runMenuProbe() {
         HouseChoiceMenu::s_currentGameOptions.fogOfWar = !effectiveGameOptions.fogOfWar;
     }
     {
-        HouseChoiceMenu menu(true,true);
+        HouseChoiceMenu menu(true,true,true);
         menuRequire(HouseChoiceMenu::getStartLevel()==7,"Retry lost campaign level");
         menuRequire(HouseChoiceMenu::getGameOptions().fogOfWar != effectiveGameOptions.fogOfWar,"Retry lost game rules");
         menuRequire(HouseChoiceMenu::isOnline() && menu.hostCoopButton.getText() == _("Create Lobby"),
@@ -286,7 +288,32 @@ int runMenuProbe() {
         std::string scenarioData(static_cast<size_t>(SDL_RWsize(scenario.get())), '\0');
         SDL_RWread(scenario.get(), scenarioData.data(), 1, scenarioData.size());
         coop.setScenarioData(scenarioData);
+        {
+            CrossplayMenu direct(coop, true, {}, true, true);
+            menuRequire(direct.startImmediately && direct.allowLateJoin, "Direct campaign lost autostart or late joining");
+            CrossplayMenu online(coop, true);
+            menuRequire(!online.startImmediately, "Online Create Game bypasses the pregame lobby");
+        }
+        {
+            GameInitSettings withPartner = coop;
+            GameInitSettings::HouseInfo house(HOUSE_ATREIDES, 1);
+            house.addPlayerInfo({settings.general.playerName, HUMANPLAYERCLASS});
+            house.addPlayerInfo({"AI partner", "qBotSupportHard"});
+            withPartner.addHouseInfo(house);
+            CustomGamePlayers direct(withPartner, true, false, nullptr, nullptr, true);
+            menuRequire(direct.automaticStartPending && direct.startImmediately,
+                        "Direct campaign waits for a second Start click");
+            menuRequire(direct.launchTitle.getParent() == &direct.launchWidget,
+                        "Direct campaign displays the editable lobby");
+            direct.addAllPlayersToGameInitSettings();
+            bool partnerKept = false;
+            for(const auto& h : direct.gameInitSettings.getHouseInfoList())
+                for(const auto& p : h.playerInfoList) partnerKept |= p.playerClass == "qBotSupportHard";
+            menuRequire(partnerKept, "Direct online campaign discarded the chosen AI partner");
+            menuCapture(direct, "campaign-auto-start");
+        }
         CustomGamePlayers menu(coop,true);
+        menuRequire(!menu.automaticStartPending, "Pregame lobby starts without the host clicking Start");
         SDL_Event tab{}; tab.type=SDL_KEYDOWN; tab.key.keysym.sym=SDLK_TAB;
         // The host can start alone, with the second controller still open for a later join.
         menu.update();

@@ -113,10 +113,11 @@ void SinglePlayerMenu::onCampaign() {
     playCampaign();
 }
 
-void SinglePlayerMenu::playCampaign(bool online) {
+void SinglePlayerMenu::playCampaign(bool showLobby) {
+  bool online = true;
   bool keepRules = false;
   for(;;) {
-    int player = HouseChoiceMenu(online, keepRules).showMenu();
+    int player = HouseChoiceMenu(online, keepRules, showLobby).showMenu();
     keepRules = true;
 
     if(player < 0) {
@@ -141,7 +142,7 @@ void SinglePlayerMenu::playCampaign(bool online) {
         "qBotEasy", "qBotMedium", "qBotHard", "qBotBrutal", "qBotDefend", "CampaignAIPlayer"
     };
 
-    const bool supportSelected = (supportBotIndex > 0) && !HouseChoiceMenu::isOnline();
+    const bool supportSelected = (supportBotIndex > 0) && (!HouseChoiceMenu::isOnline() || !showLobby);
     const char* supportPlayerClass = supportSelected ? kSupportPlayerClasses[supportBotIndex] : nullptr;
     const char* enemyAIClass = kEnemyAIClasses[enemyAIIndex];
 
@@ -181,7 +182,7 @@ void SinglePlayerMenu::playCampaign(bool online) {
         std::string data(static_cast<size_t>(size), '\0');
         if(SDL_RWread(file.get(), data.data(), 1, data.size()) != data.size()) throw std::runtime_error("Could not read this campaign mission.");
         init.setScenarioData(data);
-        if(CrossplayMenu(init, HouseChoiceMenu::isPublicGame()).showMenu() == MENU_QUIT_GAME_FINISHED) return;
+        if(CrossplayMenu(init, HouseChoiceMenu::isPublicGame(), {}, true, !showLobby).showMenu() == MENU_QUIT_GAME_FINISHED) return;
         online = true;
     } else { startSinglePlayerGame(init); return; }
   }

@@ -53,7 +53,7 @@
 class CrossplayMenu : public MenuBase {
 public:
     CrossplayMenu();
-    CrossplayMenu(const GameInitSettings& game, bool publicGame, const ChangeEventList& players = {}, bool allowLateJoin = true);
+    CrossplayMenu(const GameInitSettings& game, bool publicGame, const ChangeEventList& players = {}, bool allowLateJoin = true, bool startImmediately = false);
     ~CrossplayMenu() override;
 
     void update() override;
@@ -109,6 +109,7 @@ private:
     bool joinPollPending = false;
     Uint32 nextJoinPoll = 0, joinRequestDeadline = 0;
     bool autoHostRequested = false;
+    bool startImmediately = false;
     DropDownBox modeFilter, modFilter;
     std::vector<ModInfo> availableMods;
     TextButton otherConnections;

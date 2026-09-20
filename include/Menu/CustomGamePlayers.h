@@ -51,7 +51,7 @@ class INIFile;
 class CustomGamePlayers : public MenuBase
 {
 public:
-    CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server = true, bool LANServer = true, CustomPlaySetup* setup = nullptr, const ChangeEventList* initialPlayers = nullptr);
+    CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server = true, bool LANServer = true, CustomPlaySetup* setup = nullptr, const ChangeEventList* initialPlayers = nullptr, bool startImmediately = false);
     virtual ~CustomGamePlayers();
     int showMenu() override;
 
@@ -82,6 +82,12 @@ private:
     void rebuildSetup(bool keepPlayers);
     CustomPlaySetup* setup = nullptr;
     bool restoringSetup = false;
+    bool startImmediately = false;
+    bool automaticStartPending = false;
+    StaticContainer launchWidget;
+    Label launchTitle;
+    TextView launchStatus;
+    TextButton cancelLaunch;
     HBox setupMapRow, setupModeRow;
     DropDownBox setupMap, setupMod, setupConnection, setupVisibility;
     Checkbox setupShared;
