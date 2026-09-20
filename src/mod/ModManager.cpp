@@ -76,7 +76,11 @@ std::filesystem::path findBundledModPath(const std::string& modName) {
     };
 
     for(const auto& candidate : candidates) {
-        if(std::filesystem::is_regular_file(candidate / MOD_INI_FILE)) {
+        // DuneCity configuration is generated from the engine defaults. Its
+        // bundled directory contains graphics only, so it has no mod.ini.
+        const bool citySkins = modName == DUNECITY_MOD_NAME
+            && std::filesystem::is_directory(candidate / "graphics_skins");
+        if(citySkins || std::filesystem::is_regular_file(candidate / MOD_INI_FILE)) {
             return std::filesystem::weakly_canonical(candidate);
         }
     }
@@ -1497,6 +1501,13 @@ bool ModManager::dunecityNeedsReseed() const {
     // flag set, reseed so it gets the correct metadata.
     if (!info.enablesCityMode) {
         SDL_Log("ModManager: Dunecity mod.ini missing 'Enables City Mode = true', needs reseed");
+        return true;
+    }
+
+    const auto bundledSkins = findBundledModPath(DUNECITY_MOD_NAME) / "graphics_skins";
+    if(std::filesystem::is_directory(bundledSkins)
+       && !std::filesystem::is_directory(std::filesystem::path(dunecityPath) / "graphics_skins")) {
+        SDL_Log("ModManager: Bundled DuneCity graphics skins are missing from the profile, needs reseed");
         return true;
     }
 
