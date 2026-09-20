@@ -1,88 +1,47 @@
-/*
- *  This file is part of Dune Legacy.
- *
- *  Dune Legacy is free software: you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation, either version 2 of the License, or
- *  (at your option) any later version.
- *
- *  Dune Legacy is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- *
- *  You should have received a copy of the GNU General Public License
- *  along with Dune Legacy.  If not, see <http://www.gnu.org/licenses/>.
- */
-
 #ifndef MODEDITORMENU_H
 #define MODEDITORMENU_H
 
 #include "MenuBase.h"
 #include <GUI/StaticContainer.h>
-#include <GUI/VBox.h>
-#include <GUI/HBox.h>
 #include <GUI/TextButton.h>
 #include <GUI/TextBox.h>
+#include <GUI/DropDownBox.h>
 #include <GUI/Label.h>
-#include <GUI/Spacer.h>
-
+#include <FileClasses/INIFile.h>
+#include <array>
+#include <memory>
 #include <string>
+#include <vector>
 
-/**
- * Simple menu for editing mod name/version and showing file locations
- */
+/** Edit a working copy. Immutable content revisions are created only by Save. */
 class ModEditorMenu final : public MenuBase {
 public:
     explicit ModEditorMenu(const std::string& modName);
-    virtual ~ModEditorMenu();
-
-    ModEditorMenu(const ModEditorMenu&) = delete;
-    ModEditorMenu(ModEditorMenu&&) = delete;
-    ModEditorMenu& operator=(const ModEditorMenu&) = delete;
-    ModEditorMenu& operator=(ModEditorMenu&&) = delete;
-
+    ~ModEditorMenu() override;
+    void quit(int returnVal = MENU_QUIT_DEFAULT) override;
+    void onChildWindowClose(Window* child) override;
 private:
-    void onSave();
-    void onCancel();
-    void loadModInfo();
-    void saveModInfo();
-    
-    std::string modName;
-    std::string modPath;
-
-    // Main layout
+    enum class ValueType { Boolean, Integer, Number, Text };
+    void chooseFile();
+    void chooseSection();
+    void chooseKey();
+    void loadSections();
+    void loadKeys();
+    void loadValue();
+    bool applyValue();
+    void save(bool share);
+    std::string modName, modPath;
+    std::array<std::unique_ptr<INIFile>, 3> documents;
+    std::array<bool, 3> changed{{false,false,false}};
+    std::vector<std::string> sections, keys;
+    int fileIndex = 0, sectionIndex = -1, keyIndex = -1;
+    ValueType valueType = ValueType::Text;
+    bool changingSelection = false, modified = false, discardPrompt = false;
+    int pendingReturn = MENU_QUIT_DEFAULT;
     StaticContainer windowWidget;
-    VBox mainVBox;
-    Label titleLabel;
-    
-    // Mod Info
-    HBox nameRow;
-    Label displayNameLabel;
-    TextBox displayNameTextBox;
-    
-    HBox versionRow;
-    Label versionLabel;
-    TextBox versionTextBox;
-    
-    // Instructions
-    Label instructionsLabel1;
-    Label instructionsLabel2;
-    Label instructionsLabel3;
-    Label pathLabel;
-    
-    // Files info
-    Label filesLabel;
-    Label objectDataLabel;
-    Label quantBotLabel;
-    Label gameOptionsLabel;
-    
-    // Bottom buttons
-    HBox buttonHBox;
-    TextButton saveButton;
-    TextButton cancelButton;
-    
-    bool modified;
+    Label titleLabel, nameLabel, authorLabel, descriptionLabel, fileLabel, sectionLabel, keyLabel, valueLabel, hintLabel, statusLabel;
+    TextBox nameText, authorText, descriptionText, valueText;
+    DropDownBox fileChoice, sectionChoice, keyChoice;
+    TextButton saveButton, shareButton, backButton;
 };
-
-#endif // MODEDITORMENU_H
+#endif

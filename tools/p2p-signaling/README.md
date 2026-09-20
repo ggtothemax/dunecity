@@ -248,3 +248,109 @@ A failed write leaves the previous grant and seat state intact. The index reserv
 helps locate rooms; it cannot authorize a join. Public listing reads current room policy and
 occupancy, so a stale or interrupted cache update cannot publish a room made private or consume
 capacity. Reaping rechecks expiry under the same lock used for deletion.
+
+## Workshop maps and mods
+
+The same deployment now provides independent content distribution at `/v1/content/*`.
+A player can browse, download and share without joining a game. These routes distribute
+immutable authored files; they do not transport simulation packets or running-game checkpoints.
+HTTPS, the origin allowlist and POST-only rules apply. Content errors use
+`status=error`, `code=<fixed-token>` and **`message=<hex-encoded UTF-8>`**. Existing admission
+and signaling envelopes remain unchanged.
+
+Every manifest has this exact ASCII representation, including its final newline:
+
+```text
+DUNEWORKSHOP1
+kind=map
+id=0123456789abcdef0123456789abcdef
+name=5368617265642064756e6573
+base=
+mod=
+file=<64-lowercase-hex-sha256>,<decimal-byte-length>,6d61702e696e69
+```
+
+- `kind` is `map` or `mod`; `id` is a permanent 32-lowercase-hex item identity.
+- `name` is a hex-encoded UTF-8 display name (1–128 bytes). Same names do not imply same item.
+- `base` is a hex-encoded portable mod folder name (up to 64 bytes) or empty. It identifies
+  engine heritage, not a floating downloadable dependency. Mods contain their complete files.
+- `mod` is an exact committed mod manifest SHA-256 for a map, or empty; mods require empty.
+- `file` lines repeat in raw path byte order. Paths are hex-encoded portable ASCII relative
+  paths, up to 240 bytes; traversal, reserved device names, case collisions and file/directory
+  conflicts are rejected. Directory spellings must use consistent case.
+- A map contains exactly `map.ini`, up to 1 MiB. A mod has up to 4,096 files, at most 128 MiB
+  each and 2 GiB total. Manifest bytes are limited to **255 KiB** so a hex-encoded manifest
+  plus response envelope fits the client's 512 KiB HTTP response budget.
+- The revision identity is SHA-256 of the exact raw manifest. A display version is allocated
+  separately at commit, starting at 1 and increasing for each new revision of that item.
+  Deduplicating the same manifest never increments it; file blobs deduplicate across revisions.
+
+All fields below are URL-encoded form fields. Success replies begin `status=ok`.
+
+| POST route | Fields | Success fields |
+| --- | --- | --- |
+| `/v1/content/list` | Optional `kind=map\|mod`, `cursor=0` | Repeated `item=kind,id,version,hash,namehex,basehex,modhash`; `next=<offset>` or `0` at end |
+| `/v1/content/begin` | `manifest=<hex>`, `hash=<sha256>`, `owner=<64hex>`; optional `source=host\|manual`, `promoted=0\|1` | `upload=<64hex>`; if already published, `version=<number>`, `hash=<sha256>` instead |
+| `/v1/content/chunk` | `upload`, `file=<sha256>`, `offset=<bytes>`, `data=<hex>` (at most 64 KiB decoded) | `next=<contiguous-byte-count>` |
+| `/v1/content/commit` | `upload` | `version=<number>`, `hash=<sha256>` |
+| `/v1/content/manifest` | `hash=<manifest-sha256>` | `version=<number>`, `manifest=<hex>` |
+| `/v1/content/blob` | `hash=<manifest-sha256>`, `file=<file-sha256>`, `offset`, optional `count` (1–65536) | `data=<hex>`; shorter at EOF |
+
+The catalog lists every committed revision, 50 per page, in publication order. Empty `next=0`
+terminates pagination. Metadata (`source` and `promoted`) defaults to manual/1 and does not alter
+immutable file identity. Chunk offsets are contiguous; an exact replay is accepted, differing or
+overlapping data is refused. Empty files need no chunk. A commit is idempotent for the lifetime
+of its upload receipt; after expiry, repeat `begin` to recover the existing version by hash.
+
+The client generates and persists an unpredictable owner capability, independent of player name.
+Only its hash is retained on the server. The first successful commit binds the item's owner;
+changed revisions require the same capability. Concurrent first publishers recheck ownership
+under the commit lock. To edit another person's item, save a copy with a new item ID and owner.
+Anyone can identify an already committed exact manifest without changing ownership.
+
+Storage is under `state_dir/content`, outside the webroot, with private directories/files.
+A stable lock protects owner checks, quota accounting and monotonic revision allocation. The
+server verifies every complete file hash before publishing the manifest; reads require membership
+in a committed manifest. It rejects symlinked payload files. Blobs and metadata are published by
+atomic replacement, and incomplete snapshots never appear in the catalog.
+
+`content_quota_bytes` defaults to 20 GiB. Quota accounting includes immutable blobs and retained
+upload reservations; immutable physical sizes are reconciled before new reservations so interrupted
+commits cannot evade accounting. Bounds also include 10,000 revisions, 65,536 blob files, 256 upload
+receipts and 8 active uploads per address. Uploads/receipts expire after 24 hours and are reclaimed
+on subsequent content requests. Expiry never removes a committed revision. Keep regular backups
+of the entire content directory, including `index.json` (ownership and numbering). There is no
+public deletion endpoint; operators manage retention explicitly rather than breaking pinned saves.
+
+Content has separate per-minute ingress allowances (4,096 per address, 16,384 service-wide), begin
+allowances (32/256) and commit allowances (64/256). HTTP 429 means retry after the current minute.
+These do not consume gameplay signaling allowances. The webserver/PHP request-body limit must
+permit at least 512 KiB URL-encoded requests (`post_max_size=1M` or more).
+
+`POST /v1/admission/inspect` accepts the normal compatibility claims plus `room`. Possession of
+the current invitation code permits discovery of `room`, `contentHash` and `running=0|1`, with
+normal game-version/protocol checks, before the client has downloaded that content. It returns
+no grant and reserves no seat. Actual join/admission still checks the exact content hash.
+
+Run the content tests alongside the existing service suites:
+
+```sh
+python3 tools/p2p-signaling/test/test_content.py
+```
+
+These exercise real concurrent PHP workers: hashes, chunk replay, partial uploads, unsafe paths,
+case collisions, immutable versions, owner races, dependency closure, blob membership, large
+manifest bounds, pagination, quota expiry, symlink refusal, and private-code inspection.
+
+For a native client/server wire smoke test after configuring the CMake build, run:
+
+```sh
+python3 tools/p2p-signaling/test/test_client_smoke.py
+```
+
+It compiles the production Workshop store/client, SHA-256 implementation and bounded curl
+transport into a small harness, starts the real PHP service, and uses two temporary profiles.
+The harness verifies resumed uploads, duplicate large atlas blobs, exact mod dependencies,
+map revision history, corrupt-cache repair, and owner rejection. No game window opens and no
+normal user profile is touched. `--binary` runs a previously compiled harness; `--build-dir`
+selects another configured native build. C++17, pkg-config, SDL2, curl and PHP are required.

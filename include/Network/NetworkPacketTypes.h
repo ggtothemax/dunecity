@@ -59,7 +59,7 @@
 // Version 2: Added simMsAvg to NETWORKPACKET_CLIENTSTATS (5 fields instead of 4)
 // Version 3: Added mod transfer packets (MOD_INFO, MOD_REQUEST, MOD_CHUNK, MOD_COMPLETE)
 // Version 4: Fixed nine-house deterministic state and versioned visibility storage
-#define NETWORK_PROTOCOL_VERSION            9
+#define NETWORK_PROTOCOL_VERSION            10
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

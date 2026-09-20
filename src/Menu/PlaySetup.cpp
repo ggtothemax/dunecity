@@ -4,6 +4,7 @@
 #include <Menu/CrossplayMenu.h>
 #include <Menu/MenuBase.h>
 #include <FileClasses/GFXManager.h>
+#include <FileClasses/INIFile.h>
 #include <FileClasses/TextManager.h>
 #include <GUI/MsgBox.h>
 #include <GUI/dune/LoadSaveWindow.h>
@@ -12,6 +13,7 @@
 #include <misc/fnkdat.h>
 #include <misc/string_util.h>
 #include <mod/ModManager.h>
+#include <Network/WorkshopGameContent.h>
 #include <globals.h>
 #include <sand.h>
 #include <algorithm>
@@ -86,13 +88,14 @@ public:
             if(replay) startReplay(path);
             else {
                 GameInitSettings::HouseInfoList houses;
-                const auto saved = readSetup(path, houses);
+                auto saved = readSetup(path, houses);
+                WorkshopGameContent::resolveMod(saved);
                 if(isNetworkGameType(saved.getGameType())) {
                     auto& mods = ModManager::instance();
-                    if(!mods.setActiveMod(saved.getModName())) throw std::runtime_error("Install this save's mod before hosting it.");
+
                     GameInitSettings init(getBasename(path), readCompleteFile(path), settings.general.playerName + "'s saved game");
+                    init.configureCoopSave(saved, houses);
                     if(isCoopGameType(saved.getGameType())) {
-                        init.configureCoopSave(saved, houses);
                         init.enableCoop(true, settings.general.playerName + "'s co-op campaign");
                     }
                     CrossplayMenu(init, true).showMenu();
@@ -115,7 +118,7 @@ std::string recentGame() {
             GameInitSettings::HouseInfoList houses;
             const auto saved = readSetup(dir + file, houses);
             if(!isNetworkGameType(saved.getGameType())
-               && std::any_of(installed.begin(), installed.end(), [&](const auto& mod) { return mod.name == saved.getModName(); })) return dir + file;
+               && (!saved.getModRevisionHash().empty() || std::any_of(installed.begin(), installed.end(), [&](const auto& mod) { return mod.name == saved.getModName(); }))) return dir + file;
         } catch(const std::exception&) { /* Skip corrupt, newer or unavailable saves. */ }
     }
     return {};
@@ -140,7 +143,7 @@ void playCustomGame(bool online) {
     setup.sharedHouse = false;
     for(size_t i = 0; i < setup.mods.size(); ++i)
         if(setup.mods[i].name == ModManager::instance().getActiveModName()) setup.mod = static_cast<int>(i);
-    if(setup.maps.empty()) { PlayError(_("No custom maps found. Create a map in Extras > Map Editor, then return here.")).showMenu(); return; }
+    if(setup.maps.empty()) { PlayError(_("No custom maps found. Create a map in Workshop > Map Editor, then return here.")).showMenu(); return; }
     bool chooseMap = true;
     for(;;) {
         if(chooseMap) {
@@ -156,6 +159,24 @@ void playCustomGame(bool online) {
         }
         const auto path = setup.maps[setup.map];
         GameInitSettings init(getBasename(path, true), readCompleteFile(path), setup.sharedHouse, setup.rules);
+        // A downloaded map's sidecar pins the authored dependency. A changed working map
+        // is captured as a new revision instead of silently reusing stale metadata.
+        if(existsFile(path + ".workshop.ini")) {
+            try {
+                const auto selectedMod = mods.getActiveModName();
+                if(WorkshopGameContent::applyMapDependency(path, init)) {
+                    if(selectedMod != mods.getActiveModName()) {
+                        setup.rules = effectiveGameOptions = mods.loadEffectiveGameOptions(settings.gameOptions);
+                        init.setGameOptions(setup.rules);
+                    }
+                    // Keep the setup picker honest after loading the map's exact dependency.
+                    const auto active = mods.getActiveModName();
+                    auto entry = std::find_if(setup.mods.begin(), setup.mods.end(), [&](const ModInfo& info) { return info.name == active; });
+                    if(entry == setup.mods.end()) { setup.mods.push_back(mods.getModInfo(active)); setup.mod = static_cast<int>(setup.mods.size() - 1); }
+                    else setup.mod = static_cast<int>(entry - setup.mods.begin());
+                }
+            } catch(const std::exception& error) { PlayError(error.what()).showMenu(); chooseMap = true; continue; }
+        }
         int result;
         {
             CustomGamePlayers menu(init, true, false, &setup);
@@ -165,6 +186,8 @@ void playCustomGame(bool online) {
         if(result == MENU_SETUP_MAP || result == MENU_QUIT_DEFAULT) { chooseMap = true; continue; }
         if(result != MENU_SETUP_HOST) return;
         GameInitSettings networkInit(getBasename(path, true), readCompleteFile(path), settings.general.playerName + "'s custom game", setup.sharedHouse, setup.rules);
+        networkInit.setModRevision(init.getModRevisionHash(), init.getModRevisionVersion());
+        networkInit.setMapRevision(init.getMapRevisionHash(), init.getMapRevisionVersion(), init.getMapRevisionManifest());
         if(CrossplayMenu(networkInit, setup.publicGame, setup.players, setup.allowJoinAfterStart).showMenu() == MENU_QUIT_GAME_FINISHED) return;
     }
 }

@@ -85,7 +85,7 @@ private:
     */
     bool onRadarClick(Coord worldPosition, bool bRightMouseButton, bool bDrag);
 
-    void onSave();
+    void onSave(bool share = false);
 
     void onLoad();
 
@@ -137,6 +137,8 @@ private:
     SymbolButton        newButton;
     SymbolButton        loadButton;
     SymbolButton        saveButton;
+    TextButton          shareButton;
+    bool                shareAfterSave = false;
     SymbolButton        undoButton;
     SymbolButton        redoButton;
     SymbolButton        playersButton;

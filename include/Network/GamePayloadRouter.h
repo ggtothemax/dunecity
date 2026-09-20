@@ -105,6 +105,7 @@ public:
     virtual std::string& gameVersion() = 0;
     virtual std::string& quantBotConfigHash() = 0;
     virtual std::string& objectDataHash() = 0;
+    virtual std::string& modRevisionHash() = 0;
 
     /// Ends the session with this peer, using a NETWORKDISCONNECT_* cause.
     virtual void disconnectWithCause(int cause) = 0;

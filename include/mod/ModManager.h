@@ -68,8 +68,9 @@ public:
      * \return Mod name (e.g., "vanilla")
      */
     std::string getActiveModName() const;
+    std::string getContentBase(const std::string& name) const;
     bool isTornieContentActive() const {
-        return getActiveModName() == "Tornie";
+        return getContentBase(getActiveModName()) == "Tornie";
     }
     const CustomHouseInfo& getActiveCustomHouseInfo() const;
     const CustomHouseInfo& getCustomHouseInfo(int house) const;
@@ -263,7 +264,7 @@ public:
     /**
      * Write mod.ini metadata for a mod.
      */
-    void writeModInfo(const std::string& modPath, const ModInfo& info) const;
+    bool writeModInfo(const std::string& modPath, const ModInfo& info) const;
     
 private:
     ModManager();
@@ -323,6 +324,7 @@ private:
     
     std::string modsBasePath;        ///< Base path for mods directory
     std::string activeMod;
+    std::string activeContentBase; // Capability identity, refreshed on activation; no per-tile filesystem reads.
     CustomHouseInfo activeCustomHouse;           ///< Active mod's campaign custom house
     CustomHouseInfo activeGuestCustomHouse;      ///< Tornie guest custom house for custom games
     std::vector<ModMentatInfo> activeMentats;     ///< Mentat overrides owned by the active mod

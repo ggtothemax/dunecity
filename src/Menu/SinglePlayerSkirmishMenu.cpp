@@ -26,6 +26,7 @@
 #include <GUI/dune/GameOptionsWindow.h>
 
 #include <GameInitSettings.h>
+#include <Network/WorkshopGameContent.h>
 #include <sand.h>
 #include <Menu/CustomGamePlayers.h>
 #include <Network/NetworkManager.h>
@@ -355,9 +356,7 @@ void SinglePlayerSkirmishMenu::onLoadCoop(bool sharedSave) {
 void SinglePlayerSkirmishMenu::hostCoopGame(GameInitSettings init) {
     const bool ownNetwork = !pNetworkManager;
     try {
-        if(init.getModName() != ModManager::instance().getActiveModName()
-           && !ModManager::instance().setActiveMod(init.getModName()))
-            throw std::runtime_error("Install the saved campaign's mod before hosting it.");
+        WorkshopGameContent::resolveMod(init);
         init.enableCoop(campaignCoop, settings.general.playerName + (campaignCoop ? "'s Campaign Co-op" : "'s Mission Co-op"));
         if(init.getGameType() != GameType::LoadCoop) {
             auto file = pFileManager->openCampaignFile(init.getFilename());

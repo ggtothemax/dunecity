@@ -132,7 +132,7 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         Point(viewControlsRight - viewButtonWidth, viewControlsY),
         Point(viewButtonWidth, viewButtonHeight));
     const bool showViewControls = ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "Dune2R";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Dune2R";
     dune2rZoomButton.setVisible(showViewControls);
     dune2rVisualButton.setVisible(showViewControls);
 
@@ -299,7 +299,7 @@ GameInterface::~GameInterface() {
 void GameInterface::draw(Point position) {
     updateJoinRequestButton();
     const bool dune2rActive = ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "Dune2R";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Dune2R";
     dune2rZoomButton.setVisible(dune2rActive);
     dune2rVisualButton.setVisible(dune2rActive);
     if(dune2rActive) {

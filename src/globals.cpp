@@ -232,13 +232,13 @@ bool isTornieGuestHouseColorSlot(int colorSlot) {
 bool isTornieRebelsColorSlot(int colorSlot) {
     if(!ModManager::instance().isInitialized()) return colorSlot == HOUSE_REBELS;
     const std::string activeMod = ModManager::instance().getActiveModName();
-    return activeMod == "Tornie" && colorSlot == HOUSE_REBELS;
+    return ModManager::instance().getContentBase(activeMod) == "Tornie" && colorSlot == HOUSE_REBELS;
 }
 
 bool isVanillaRebelsColorSlot(int colorSlot) {
     return colorSlot == HOUSE_REBELS
         && ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "vanilla";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "vanilla";
 }
 
 int getHouseColorPaletteIndexFromSlot(int colorSlot) {
@@ -247,7 +247,7 @@ int getHouseColorPaletteIndexFromSlot(int colorSlot) {
     }
 
     const bool tornieMainActive = ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "Tornie";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Tornie";
     if(tornieMainActive && colorSlot == HOUSECOLOR_CUSTOM_BRIGHT_YELLOW) {
         return PALCOLOR_NEUTRAL;
     }
@@ -270,7 +270,7 @@ int getHouseColorPaletteIndexFromSlot(int colorSlot) {
 bool isDuneCityHouseColorSlot(int colorSlot) {
     return colorSlot >= HOUSE_HARKONNEN && colorSlot <= HOUSE_REBELS
         && ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "dunecity";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "dunecity";
 }
 
 SDL_Color getHouseColorSDL(int colorSlot, int shadeOffset) {
@@ -324,7 +324,7 @@ void applyCustomPaletteRuntimeHouseRamps() {
     static const Uint8 rebelsGreyRamp[8] = { 82, 72, 62, 52, 42, 34, 27, 20 };
     const bool tornieMainActive =
         ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "Tornie";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Tornie";
     const bool tornieHouseColorsActive =
         tornieMainActive
         && customPaletteLoaded

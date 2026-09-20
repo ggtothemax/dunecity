@@ -16,6 +16,7 @@
  */
 
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
 #include <mod/ModPayloadIntegrity.h>
 #include <mod/ModTransferValidation.h>
 #include <mod/Dune2RAssetManager.h>
@@ -282,6 +283,7 @@ bool ModManager::isInitialized() const {
 ModManager::~ModManager() = default;
 
 void ModManager::initialize() {
+    activeContentBase.clear();
     // Get mods base path in user config directory
     char tmp[FILENAME_MAX];
     if (fnkdat("mods", tmp, FILENAME_MAX, FNKDAT_USER | FNKDAT_CREAT) < 0) {
@@ -339,14 +341,16 @@ void ModManager::initialize() {
     }
 
     try {
+        activeContentBase = getContentBase(activeMod);
         const ModInfo activeInfo = readModIni(getModPath(activeMod));
         activeCustomHouse = activeInfo.customHouse;
-        activeGuestCustomHouse = makeTornieGuestCustomHouse(activeMod);
+        activeGuestCustomHouse = makeTornieGuestCustomHouse(getContentBase(activeMod));
         activeMentats = activeInfo.mentats;
     } catch(const std::exception& e) {
         SDL_Log("ModManager: Active mod '%s' metadata is invalid, falling back to vanilla: %s",
                 activeMod.c_str(), e.what());
         activeMod = VANILLA_MOD_NAME;
+        activeContentBase = VANILLA_MOD_NAME;
         activeCustomHouse = {};
         activeGuestCustomHouse = {};
         activeMentats.clear();
@@ -458,15 +462,18 @@ bool ModManager::setActiveMod(const std::string& name) {
     }
     
     const std::string previousMod = activeMod;
+    const std::string previousContentBase = activeContentBase;
     const CustomHouseInfo previousCustomHouse = activeCustomHouse;
     const CustomHouseInfo previousGuestCustomHouse = activeGuestCustomHouse;
     const std::vector<ModMentatInfo> previousMentats = activeMentats;
 
     try {
         activeMod = name;
+        activeContentBase.clear();
+        activeContentBase = getContentBase(activeMod);
         const ModInfo activeInfo = readModIni(getModPath(activeMod));
         activeCustomHouse = activeInfo.customHouse;
-        activeGuestCustomHouse = makeTornieGuestCustomHouse(activeMod);
+        activeGuestCustomHouse = makeTornieGuestCustomHouse(getContentBase(activeMod));
         activeMentats = activeInfo.mentats;
         checksumsDirty = true;
         resetHouseVisualHouseMapping();
@@ -487,6 +494,7 @@ bool ModManager::setActiveMod(const std::string& name) {
         SDL_Log("ModManager: Activation of '%s' failed, restoring '%s': %s",
                 name.c_str(), previousMod.c_str(), e.what());
         activeMod = previousMod;
+        activeContentBase = previousContentBase;
         activeCustomHouse = previousCustomHouse;
         activeGuestCustomHouse = previousGuestCustomHouse;
         activeMentats = previousMentats;
@@ -584,6 +592,17 @@ ModInfo ModManager::getModInfo(const std::string& name) const {
     if(info.description.empty()) info.description = "";
     if(info.gameVersion.empty()) info.gameVersion = "";
     
+    const auto revisionPath = std::filesystem::path(modPath) / "workshop-revision.ini";
+    if(std::filesystem::exists(revisionPath)) {
+        INIFile revision(revisionPath.string());
+        info.revisionVersion = std::max(0, revision.getIntValue("Workshop", "Version", 0));
+        const auto hash = revision.getStringValue("Workshop", "Hash", "");
+        if(hash.size() == 64 && hash.find_first_not_of("0123456789abcdef") == std::string::npos) {
+            std::ifstream version(Workshop::store().root() / "revisions" / hash / "version");
+            unsigned canonical = 0;
+            if(version >> canonical) info.revisionVersion = canonical;
+        }
+    }
     return info;
 }
 
@@ -990,48 +1009,29 @@ bool ModManager::createMod(const std::string& name, const std::string& baseMod) 
     SDL_Log("ModManager::createMod - newModPath: %s", newModPath.c_str());
     SDL_Log("ModManager::createMod - baseModPath: %s", baseModPath.c_str());
     
-    // Create mod directory
-    if (!createDir(newModPath)) {
-        SDL_Log("ModManager: Failed to create directory for mod '%s'", name.c_str());
+    const std::filesystem::path stage = newModPath + ".stage-" + Workshop::newID();
+    try {
+        // Capture first: every copied asset, campaign, palette and rule is hash checked.
+        const auto base = Workshop::saveMod(baseMod);
+        std::filesystem::copy(base.directory, stage, std::filesystem::copy_options::recursive);
+        ModInfo info = getModInfo(baseMod);
+        info.description = "Custom mod based on " + info.displayName;
+        info.name = name;
+        info.displayName = name;
+        info.author = "User";
+        info.baseMod = getContentBase(baseMod);
+        info.gameVersion = VERSION;
+        if(!writeModInfo(stage.string(), info)) throw std::runtime_error("Cannot write copied mod metadata");
+        // The new item gets a new permanent identity when first saved; no ownership is copied.
+        std::filesystem::rename(stage, newModPath);
+        Workshop::saveMod(name);
+        return true;
+    } catch(const std::exception& e) {
+        std::error_code ignored;
+        std::filesystem::remove_all(stage, ignored);
+        SDL_Log("ModManager: Cannot create mod: %s", e.what());
         return false;
     }
-    
-    // Copy files from base mod
-    const char* filesToCopy[] = {
-        OBJECT_DATA_FILE,
-        QUANTBOT_CONFIG_FILE,
-        GAME_OPTIONS_FILE
-    };
-    
-    for (const char* file : filesToCopy) {
-        std::string srcPath = baseModPath + "/" + file;
-        std::string dstPath = newModPath + "/" + file;
-        
-        SDL_Log("ModManager::createMod - copying %s -> %s (exists: %d)", 
-                srcPath.c_str(), dstPath.c_str(), existsFile(srcPath) ? 1 : 0);
-        
-        if (existsFile(srcPath)) {
-            if (copyFile(srcPath, dstPath)) {
-                SDL_Log("ModManager::createMod - copied %s successfully", file);
-            } else {
-                SDL_Log("ModManager::createMod - FAILED to copy %s", file);
-            }
-        } else {
-            SDL_Log("ModManager::createMod - source file %s does not exist!", srcPath.c_str());
-        }
-    }
-    
-    // Create mod.ini
-    ModInfo info;
-    info.name = name;
-    info.displayName = name;
-    info.author = "User";
-    info.description = "Custom mod based on " + baseMod;
-    info.gameVersion = VERSION;
-    writeModInfo(newModPath, info);
-    
-    SDL_Log("ModManager: Created mod '%s' from '%s'", name.c_str(), baseMod.c_str());
-    return true;
 }
 
 bool ModManager::deleteMod(const std::string& name) {
@@ -1220,6 +1220,23 @@ bool ModManager::saveReceivedMod(const std::string& modName, const std::string& 
             SDL_Log("ModManager: Received mod checksum mismatch (staged=%s, expected=%s)",
                     stagedChecksum.c_str(), expectedChecksum.c_str());
             return fail("Received mod failed checksum verification");
+        }
+    }
+
+    if(modName.rfind("ws-", 0) == 0) {
+        try {
+            INIFile meta((stagedPath / "workshop-revision.ini").string());
+            const auto hash = meta.getStringValue("Workshop", "Hash", "");
+            if(modName != "ws-" + hash || !meta.getBoolValue("Workshop", "Immutable", false))
+                return fail("Received revision identity does not match its installed name");
+            const auto revision = Workshop::store().importRevision(
+                Workshop::unhex(meta.getStringValue("Workshop", "Manifest", "")), hash,
+                meta.getIntValue("Workshop", "Version", 0), stagedPath);
+            if(revision.kind != "mod") return fail("Received revision is not a mod");
+            Workshop::store().verifyDirectory(revision, stagedPath);
+        } catch(const std::exception& error) {
+            SDL_Log("ModManager: Workshop verification failed: %s", error.what());
+            return fail("Received mod failed complete revision verification");
         }
     }
 
@@ -1674,31 +1691,17 @@ ModInfo ModManager::readModIni(const std::string& modPath) const {
         while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\n' || s.back() == '\r')) s.pop_back();
     };
 
-    std::string line;
-    while (std::getline(file, line)) {
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '#' || line[0] == ';' || line[0] == '[') continue;
-        
-        size_t equalsPos = line.find('=');
-        if (equalsPos == std::string::npos) continue;
-        
-        std::string key = line.substr(0, equalsPos);
-        std::string value = line.substr(equalsPos + 1);
-        
-        trim(key);
-        trim(value);
-        
-        if (key == "Display Name") info.displayName = value;
-        else if (key == "Author") info.author = value;
-        else if (key == "Description") info.description = value;
-        else if (key == "Version") info.version = value;
-        else if (key == "Game Version") info.gameVersion = value;
-        else if (key == "Enables City Mode") {
-            info.enablesCityMode = (value == "true" || value == "1" || value == "yes");
-        }
-    }
-    
+    // Use the shared parser so quoted values and other sections cannot override metadata.
+    INIFile metadata(iniPath);
+    info.displayName = metadata.getStringValue("Mod", "Display Name", "");
+    info.author = metadata.getStringValue("Mod", "Author", "");
+    info.description = metadata.getStringValue("Mod", "Description", "");
+    info.version = metadata.getStringValue("Mod", "Version", "");
+    info.baseMod = metadata.getStringValue("Mod", "Base Mod", "");
+    info.gameVersion = metadata.getStringValue("Mod", "Game Version", "");
+    info.enablesCityMode = metadata.getBoolValue("Mod", "Enables City Mode", false);
     file.close();
+    std::string line;
 
     info.mentats.resize(NUM_HOUSE_COLOR_SLOTS);
     std::vector<bool> requestedMentatEnabled(NUM_HOUSE_COLOR_SLOTS, false);
@@ -1878,24 +1881,49 @@ ModInfo ModManager::readModIni(const std::string& modPath) const {
     return info;
 }
 
-void ModManager::writeModInfo(const std::string& modPath, const ModInfo& info) const {
-    std::string iniPath = modPath + "/" + MOD_INI_FILE;
-    
-    std::ofstream file(iniPath);
-    if (!file.is_open()) {
-        SDL_Log("ModManager: Failed to write mod.ini to %s", iniPath.c_str());
-        return;
+bool ModManager::writeModInfo(const std::string& modPath, const ModInfo& info) const {
+    const auto path = std::filesystem::path(modPath) / MOD_INI_FILE;
+    const auto temp = (path.parent_path() / ".mod-metadata-writing").string();
+    try {
+        INIFile ini = std::filesystem::exists(path) ? INIFile(path.string()) : INIFile(false, "Mod metadata");
+        ini.setStringValue("Mod", "Display Name", info.displayName);
+        ini.setStringValue("Mod", "Author", info.author);
+        ini.setStringValue("Mod", "Description", info.description);
+        ini.setStringValue("Mod", "Version", info.version);
+        ini.setStringValue("Mod", "Game Version", info.gameVersion);
+        ini.setStringValue("Mod", "Base Mod", info.baseMod);
+        ini.setBoolValue("Mod", "Enables City Mode", info.enablesCityMode);
+        if(!ini.saveChangesTo(temp)) throw std::runtime_error("Cannot finish writing mod metadata");
+        Workshop::replaceFile(temp, path);
+        return true;
+    } catch(const std::exception& e) {
+        SDL_Log("ModManager: Cannot save metadata: %s", e.what());
+        std::error_code ignored; std::filesystem::remove(temp, ignored);
+        return false;
     }
-    
-    file << "[Mod]\n";
-    file << "Display Name = " << info.displayName << "\n";
-    file << "Author = " << info.author << "\n";
-    file << "Description = " << info.description << "\n";
-    file << "Version = " << info.version << "\n";
-    file << "Game Version = " << info.gameVersion << "\n";
-    file << "Enables City Mode = " << (info.enablesCityMode ? "true" : "false") << "\n";
+}
 
-    file.close();
+std::string ModManager::getContentBase(const std::string& name) const {
+    if(name == activeMod && !activeContentBase.empty()) return activeContentBase;
+    if(!isValidModName(name)) return name;
+    const auto path = std::filesystem::path(getModPath(name));
+    if(name.rfind("ws-", 0) == 0) {
+        // This sidecar is excluded from package hashing. It may locate a verified
+        // manifest but must never supply simulation capabilities itself.
+        INIFile meta((path / "workshop-revision.ini").string());
+        const auto hash = meta.getStringValue("Workshop", "Hash", "");
+        if(hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string::npos
+           || name != "ws-" + hash || !meta.getBoolValue("Workshop", "Immutable", false))
+            throw std::runtime_error("Invalid immutable mod identity.");
+        const auto revision = Workshop::store().get(hash);
+        if(revision.kind != "mod") throw std::runtime_error("The selected revision is not a mod.");
+        return revision.base;
+    }
+    try {
+        const auto info = readModIni(path.string());
+        return info.baseMod.empty() ? name : info.baseMod;
+    } catch(...) { return name; }
+
 }
 
 std::string ModManager::getInstallConfigPath() const {

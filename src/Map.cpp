@@ -39,7 +39,7 @@
 namespace {
 
 bool isTornieModActive() {
-    return ModManager::instance().isInitialized() && ModManager::instance().getActiveModName() == "Tornie";
+    return ModManager::instance().isInitialized() && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Tornie";
 }
 
 } // namespace

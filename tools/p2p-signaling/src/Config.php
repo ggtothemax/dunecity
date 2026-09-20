@@ -154,6 +154,8 @@ final class Config
             'max_signal_payload_bytes' => $maxSignal,
             'analytics_enabled'        => (bool)($raw['analytics_enabled'] ?? true),
             'log_enabled'              => (bool)($raw['log_enabled'] ?? true),
+            'content_quota_bytes'      => max(1048576, min(1099511627776,
+                (int)($raw['content_quota_bytes'] ?? 21474836480))),
         ];
     }
 

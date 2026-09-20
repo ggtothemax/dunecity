@@ -112,6 +112,27 @@ final class Signaling
      * actually free. Capacity counts seated peers *and* live grants, so a room cannot be
      * oversubscribed by issuing grants faster than they are redeemed.
      */
+    /** Code possession permits discovering pinned content before fetching it; it grants no seat. */
+    public function inspectRoom(string $roomId, string $rawCode, array $spec): array
+    {
+        $code = Store::normalizeRoomCode($rawCode);
+        $now = $this->store->now();
+        $result = $this->store->withLock(self::file($roomId), function (array $state) use ($code, $spec, $now): array {
+            if ($state === []) return [null, ['error' => 'room_not_found']];
+            $state = self::expireGrants(self::expire($state, $now), $now);
+            if (($state['closed'] ?? false) || $code === null || (string)$state['code'] !== $code)
+                return [$state, ['error' => 'room_not_found']];
+            if ((string)$state['appVersion'] !== (string)$spec['appVersion'])
+                return [$state, ['error' => 'version_mismatch', 'hostVersion' => $state['appVersion'], 'clientVersion' => $spec['appVersion']]];
+            if ((int)$state['gameProtocol'] !== (int)$spec['gameProtocol'])
+                return [$state, ['error' => 'content_mismatch']];
+            return [$state, ['code' => $state['code'], 'contentHash' => $state['contentHash'],
+                'running' => $state['phase'] !== 'lobby' || $state['everStarted'] === true]];
+        });
+        self::refuse($result);
+        return $result;
+    }
+
     public function issueClientGrant(string $roomId, string $rawCode, array $spec): array
     {
         $code = Store::normalizeRoomCode($rawCode);

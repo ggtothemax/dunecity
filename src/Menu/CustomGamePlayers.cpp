@@ -34,6 +34,7 @@
 #include <players/PlayerFactory.h>
 #include <players/QuantBotConfig.h>
 #include <mod/ModManager.h>
+#include <Network/WorkshopGameContent.h>
 
 #include <misc/fnkdat.h>
 #include <misc/FileSystem.h>
@@ -158,9 +159,22 @@ int resolveSelectedColorSlot(int selectedColor, int selectedHouse) {
 
 CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server, bool LANServer, CustomPlaySetup* newSetup, const ChangeEventList* initialPlayers)
  : MenuBase(), gameInitSettings(newGameInitSettings), bServer(server), bLANServer(LANServer),
-   duneCitySkinControls(newGameInitSettings.getModName() == "dunecity"), startGameTime(0),
+   duneCitySkinControls(ModManager::instance().isCityModeActive()), startGameTime(0),
    bConfigMismatchDetected(false), bModDownloadInProgress(false), bWaitingForModAcks(false), brainEqHumanSlot(-1) {
     setup = newSetup;
+    if(isNetworkGameType(gameInitSettings.getGameType())) {
+        if(bServer) WorkshopGameContent::pin(gameInitSettings, false, !pNetworkManager || !pNetworkManager->isRelaySession());
+        else if(pNetworkManager && pNetworkManager->supportsModTransfer()) {
+            try { WorkshopGameContent::resolveMod(gameInitSettings, false); }
+            catch(const std::exception&) {
+                // The following MOD_INFO packet starts a bounded host transfer. Until
+                // its complete manifest verifies, no readiness acknowledgment is sent.
+                bModDownloadInProgress = true;
+                waitingForModInstall = true;
+            }
+        } else WorkshopGameContent::resolveMod(gameInitSettings);
+        duneCitySkinControls = ModManager::instance().isCityModeActive();
+    }
     const bool compactPlayers = getRendererWidth() < 800;
 
     // set up window
@@ -172,7 +186,8 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
 
     windowWidget.addWidget(&mainVBox, Point(24,23), Point(getRendererWidth() - 48, getRendererHeight() - 32));
 
-    captionLabel.setText(getBasename(gameInitSettings.getFilename(), true));
+    captionLabel.setText(getBasename(gameInitSettings.getFilename(), true)
+        + (gameInitSettings.getMapRevisionVersion() ? " v" + std::to_string(gameInitSettings.getMapRevisionVersion()) : ""));
     captionLabel.setAlignment(Alignment_HCenter);
     captionHBox.addWidget(&captionLabel, 1.0);
     copyCodeButton.setText(_("Copy code"));
@@ -193,7 +208,8 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         setupBrowseMaps.setOnClick([this]() { onCancel(); });
         setupMapRow.addWidget(&setupBrowseMaps, 110);
         setupMapRow.addWidget(Label::create(_("Mod")), 40);
-        for(size_t i = 0; i < setup->mods.size(); ++i) setupMod.addEntry(setup->mods[i].displayName, static_cast<int>(i));
+        for(size_t i = 0; i < setup->mods.size(); ++i) setupMod.addEntry(setup->mods[i].selectionLabel(), static_cast<int>(i));
+        setupMod.setEnabled(gameInitSettings.getMapRevisionHash().empty());
         setupMod.setSelectedItem(setup->mod);
         setupMod.setOnSelectionChange([this](bool interactive) { if(interactive) { setup->mod = setupMod.getSelectedIndex(); rebuildSetup(false); } });
         setupMapRow.addWidget(&setupMod, 155);
@@ -298,7 +314,7 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
     mapPropertyValuesVBox.addWidget(&mapPropertyLicense);
     mapPropertyNamesVBox.addWidget(Label::create(_("Mod") + ":"));
     ModInfo activeModInfo = ModManager::instance().getModInfo(ModManager::instance().getActiveModName());
-    mapPropertyMod.setText(activeModInfo.displayName);
+    mapPropertyMod.setText(activeModInfo.displayName + (gameInitSettings.getModRevisionVersion() ? " v" + std::to_string(gameInitSettings.getModRevisionVersion()) : ""));
     mapPropertyCity.setText(activeModInfo.enablesCityMode ? _("On") : _("Off"));
     mapPropertyValuesVBox.addWidget(&mapPropertyMod);
     mapPropertyNamesVBox.addWidget(Label::create(_("City sim") + ":"));
@@ -749,6 +765,18 @@ CustomGamePlayers::~CustomGamePlayers()
 
 int CustomGamePlayers::showMenu() {
     const int result = MenuBase::showMenu();
+    if(rebuildAfterModTransfer) {
+        // House availability, sprites and map preview all depend on the installed mod.
+        // Rebuild after the network callback returns, replay the host's buffered setup,
+        // and only then acknowledge readiness.
+        CustomGamePlayers restored(gameInitSettings, false);
+        restored.onReceiveChangeEventList(delayedModChanges);
+        if(pNetworkManager) {
+            pNetworkManager->sendConfigHash(getQuantBotConfig().getConfigHash(), getObjectDataHash(), VERSIONSTRING);
+            pNetworkManager->sendModAck(true, ModManager::instance().getEffectiveChecksums().combined);
+        }
+        return restored.showMenu();
+    }
     if(setup && result == MENU_QUIT_DEFAULT) {
         setup->players = getChangeEventList();
         return MENU_SETUP_MAP;
@@ -789,6 +817,10 @@ void CustomGamePlayers::update() {
         
         if(SDL_GetTicks() >= startGameTime) {
             startGameTime = 0;
+            if(!WorkshopGameContent::matches(gameInitSettings)) {
+                onConfigMismatch(_("The selected mod revision changed. Reopen the lobby to share the updated version."));
+                return;
+            }
 
             pNetworkManager->setOnPeerDisconnected(std::function<void (const std::string&, bool, int)>());
             pNetworkManager->setGetChangeEventListForNewPlayerCallback(std::function<ChangeEventList (const std::string&)>());
@@ -849,6 +881,17 @@ LobbyAuthorization::SeatSnapshot CustomGamePlayers::makeSeatSnapshot() const {
 void CustomGamePlayers::onReceiveChangeEventList(const std::string& senderName,
                                                  const ChangeEventList& changeEventList)
 {
+    if(!bServer && waitingForModInstall) {
+        // Keep the authoritative events, not the incomplete pre-download widgets.
+        if(delayedModChanges.changeEventList.size() + changeEventList.changeEventList.size() > 4096) {
+            onConfigMismatch(_("Too many lobby changes arrived while receiving the mod."));
+            return;
+        }
+        delayedModChanges.changeEventList.insert(delayedModChanges.changeEventList.end(),
+            changeEventList.changeEventList.begin(), changeEventList.changeEventList.end());
+        return;
+    }
+
     // On the host a non-empty sender is a remote client, and everything it asks for has to be
     // something its own widgets could have produced: it may claim a seat for itself and change
     // the house it occupies, nothing else. The whole transaction is judged first, so a list
@@ -1132,7 +1175,26 @@ void CustomGamePlayers::onReceiveModInfo(const std::string& modName, const std::
     
     hostModName = modName;
     hostModChecksum = modChecksum;
-    
+    if(!gameInitSettings.getModRevisionHash().empty()) {
+        if(modName != "ws-" + gameInitSettings.getModRevisionHash()) {
+            onConfigMismatch(_("The host announced a different mod from the selected revision."));
+            if(pNetworkManager) pNetworkManager->sendModAck(false, "");
+            return;
+        }
+        if(!WorkshopGameContent::matches(gameInitSettings)) {
+            if(pNetworkManager && pNetworkManager->supportsModTransfer()) {
+                bModDownloadInProgress = true;
+                addInfoMessage(_("Receiving the exact mod version from the host..."));
+                pNetworkManager->requestModDownload(modName);
+            } else {
+                onConfigMismatch(_("The downloaded mod does not match the host's exact revision."));
+                if(pNetworkManager) pNetworkManager->sendModAck(false, "");
+            }
+            return;
+        }
+    }
+    bModDownloadInProgress = false;
+
     // Compare with our local mod
     std::string localModName = ModManager::instance().getActiveModName();
     std::string localChecksum = ModManager::instance().getEffectiveChecksums().combined;
@@ -1141,10 +1203,12 @@ void CustomGamePlayers::onReceiveModInfo(const std::string& modName, const std::
     
     if(modName == localModName && modChecksum == localChecksum) {
         SDL_Log("CLIENT: Mod checksums match!");
-        addInfoMessage("Mod verified: " + modName);
+        addInfoMessage(_("Mod verified: ") + ModManager::instance().getModInfo(modName).displayName
+            + (gameInitSettings.getModRevisionVersion() ? " v" + std::to_string(gameInitSettings.getModRevisionVersion()) : ""));
         
         // Send ACK to host - checksums match, ready to start
         if(pNetworkManager != nullptr) {
+            pNetworkManager->sendConfigHash(getQuantBotConfig().getConfigHash(), getObjectDataHash(), VERSIONSTRING);
             pNetworkManager->sendModAck(true, localChecksum);
         }
         return;
@@ -1179,6 +1243,7 @@ void CustomGamePlayers::onReceiveModInfo(const std::string& modName, const std::
                 addInfoMessage("Switched to mod: " + modName);
                 
                 if(pNetworkManager != nullptr) {
+                    pNetworkManager->sendConfigHash(getQuantBotConfig().getConfigHash(), getObjectDataHash(), VERSIONSTRING);
                     pNetworkManager->sendModAck(true, newChecksum);
                 }
                 return;
@@ -1247,6 +1312,7 @@ void CustomGamePlayers::onModDownloadComplete(bool success, const std::string& d
         
         // Set mismatch flag to prevent game start
         bConfigMismatchDetected = true;
+        if(pNetworkManager) pNetworkManager->sendModAck(false, "");
         return;
     }
     
@@ -1268,7 +1334,12 @@ void CustomGamePlayers::onModDownloadComplete(bool success, const std::string& d
         SDL_Log("CLIENT: Mod '%s' saved successfully", hostModName.c_str());
         
         // Switch to the new mod
-        if(ModManager::instance().setActiveMod(hostModName)) {
+        const bool activated = gameInitSettings.getModRevisionHash().empty()
+            ? ModManager::instance().setActiveMod(hostModName)
+            : (hostModName == "ws-" + gameInitSettings.getModRevisionHash()
+               && Workshop::activateModRevision(gameInitSettings.getModRevisionHash())
+               && WorkshopGameContent::matches(gameInitSettings));
+        if(activated) {
             // Reload effective game options
             effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
             
@@ -1284,8 +1355,14 @@ void CustomGamePlayers::onModDownloadComplete(bool success, const std::string& d
             SDL_Log("CLIENT: Switched to mod '%s', new checksum: %s", hostModName.c_str(), newChecksum.c_str());
 
             if(newChecksum == hostModChecksum) {
+                if(waitingForModInstall) {
+                    rebuildAfterModTransfer = true;
+                    quit();
+                    return;
+                }
                 addInfoMessage("Mod '" + hostModName + "' synced successfully!");
                 if(pNetworkManager != nullptr) {
+                    pNetworkManager->sendConfigHash(getQuantBotConfig().getConfigHash(), getObjectDataHash(), VERSIONSTRING);
                     pNetworkManager->sendModAck(true, newChecksum);
                 }
             } else {
@@ -1406,6 +1483,14 @@ void CustomGamePlayers::checkAllClientsReady() {
     }
     
     if(allReady) {
+        std::string contentError;
+        const auto content = pNetworkManager->checkRelayContent(getQuantBotConfig().getConfigHash(),
+            getObjectDataHash(), VERSIONSTRING, contentError);
+        if(content != NetworkManager::ContentCheck::Match) {
+            if(content == NetworkManager::ContentCheck::Mismatch) onConfigMismatch(contentError);
+            else addInfoMessage(contentError);
+            return;
+        }
         SDL_Log("HOST: All %zu clients ready! Starting game...", connectedPlayers.size());
         addInfoMessage("All clients synced - starting game!");
         bWaitingForModAcks = false;
@@ -1499,6 +1584,10 @@ void CustomGamePlayers::updateDiscordGameStarting() {
 
 void CustomGamePlayers::onNext()
 {
+    if(!WorkshopGameContent::matches(gameInitSettings)) {
+        onConfigMismatch(_("The selected mod revision changed. Reopen the lobby to share the updated version."));
+        return;
+    }
     if(setup && setup->online) {
         bool hasOpenSeat = false;
         for(int i = 0; i < numHouses; ++i) {
@@ -2238,6 +2327,11 @@ void CustomGamePlayers::onPeerDisconnected(const std::string& playername, bool b
 }
 
 void CustomGamePlayers::onStartGame(unsigned int timeLeft) {
+    if(bModDownloadInProgress) return;
+    if(!WorkshopGameContent::matches(gameInitSettings)) {
+        onConfigMismatch(_("The required mod revision changed before the game started."));
+        return;
+    }
     // Don't start if there was a config mismatch
     if(bConfigMismatchDetected) {
         SDL_Log("Ignoring STARTGAME packet - config mismatch already detected");

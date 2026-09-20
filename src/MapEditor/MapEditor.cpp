@@ -1,3 +1,5 @@
+#include <mod/Workshop.h>
+#include <mod/ModManager.h>
 /*
  *  This file is part of Dune Legacy.
  *
@@ -828,7 +830,18 @@ void MapEditor::saveMap(const std::string& filepath) {
         }
     }
 
-    loadedINIFile->saveChangesTo(filepath, getMapVersion() < 2);
+    bool forkShared = false;
+    if(std::filesystem::exists(filepath + ".workshop.ini")) {
+        INIFile previous(filepath + ".workshop.ini");
+        forkShared = previous.getBoolValue("Workshop", "Immutable", false);
+    }
+    if(forkShared || loadedINIFile->getStringValue("Workshop", "ID", "").empty())
+        loadedINIFile->setStringValue("Workshop", "ID", Workshop::newID());
+    const std::string stagedPath = filepath + ".saving";
+    if(!loadedINIFile->saveChangesTo(stagedPath, getMapVersion() < 2))
+        throw std::runtime_error("The map could not be saved. Check the destination and free disk space.");
+    Workshop::replaceFile(stagedPath, filepath);
+    Workshop::saveMap(filepath, ModManager::instance().getActiveModName());
 
     lastSaveName = filepath;
     bChangedSinceLastSave = false;

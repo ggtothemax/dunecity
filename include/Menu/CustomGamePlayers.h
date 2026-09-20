@@ -200,6 +200,8 @@ private:
     bool                    bConfigMismatchDetected;
     std::string             hostModName;                ///< The mod name sent by the host
     std::string             hostModChecksum;            ///< The mod checksum sent by the host
+    bool waitingForModInstall = false, rebuildAfterModTransfer = false;
+    ChangeEventList delayedModChanges;
     bool                    bModDownloadInProgress;     ///< Whether mod download is in progress
     std::set<std::string>   clientsAckedMod;            ///< Clients that have acknowledged mod sync (host only)
     bool                    bWaitingForModAcks;         ///< Whether host is waiting for mod ACKs

@@ -14,6 +14,8 @@
 #include <FileClasses/TextManager.h>
 #include <globals.h>
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
+#include <GUI/MsgBox.h>
 #include <sand.h>
 
 #include <algorithm>
@@ -126,13 +128,15 @@ Dune2REditorMenu::Dune2REditorMenu() {
     const int originX = (getRendererWidth() - panelWidth) / 2;
     const int originY = (getRendererHeight() - panelHeight) / 2;
 
-    titleLabel.setText(_("DUNE2R EDITOR"));
+    titleLabel.setText(_("Dune2R Asset Editor"));
     titleLabel.setTextFontSize(22);
     titleLabel.setAlignment(Alignment_HCenter);
     windowWidget.addWidget(&titleLabel, Point(originX + 10, originY + 10),
                            Point(panelWidth - 20, 30));
 
-    introLabel.setText(_("Choose how each packaged unit animation slot is rendered."));
+    introLabel.setText(ModManager::instance().getModInfo(ModManager::instance().getActiveModName()).displayName
+        + " - " + _("Choose how packaged sprite animations are rendered."));
+    introLabel.setTextFontSize(13);
     introLabel.setAlignment(Alignment_HCenter);
     windowWidget.addWidget(&introLabel, Point(originX + 20, originY + 42),
                            Point(panelWidth - 40, 22));
@@ -177,7 +181,7 @@ Dune2REditorMenu::Dune2REditorMenu() {
     statusLabel.setTextFontSize(13);
     statusLabel.setAlignment(static_cast<Alignment_Enum>(Alignment_Left | Alignment_Top));
     windowWidget.addWidget(&statusLabel, Point(originX + 28, originY + 267),
-                           Point(panelWidth - 56, 72));
+                           Point(panelWidth - 56, 58));
 
     applyButton.setText(_("APPLY"));
     applyButton.setOnClick(std::bind(&Dune2REditorMenu::onApply, this));
@@ -189,6 +193,12 @@ Dune2REditorMenu::Dune2REditorMenu() {
     assetsButton.setOnClick(std::bind(&Dune2REditorMenu::onAssets, this));
     backButton.setText(_("BACK"));
     backButton.setOnClick(std::bind(&Dune2REditorMenu::onBack, this));
+    saveVersionButton.setText(_("Save Version"));
+    saveVersionButton.setOnClick([this]() { onSaveVersion(false); });
+    shareButton.setText(_("Save & Share"));
+    shareButton.setOnClick([this]() { onSaveVersion(true); });
+    windowWidget.addWidget(&saveVersionButton, Point(originX + 25, originY + panelHeight - 80), Point(245,28));
+    windowWidget.addWidget(&shareButton, Point(originX + 284, originY + panelHeight - 80), Point(245,28));
     const int buttonY = originY + panelHeight - 42;
     windowWidget.addWidget(&assetsButton, Point(originX + 25, buttonY), Point(90, 28));
     windowWidget.addWidget(&reloadButton, Point(originX + 123, buttonY), Point(112, 28));
@@ -372,10 +382,12 @@ void Dune2REditorMenu::onApply() {
     if(unit == nullptr || direction < 0) {
         return;
     }
-    pGFXManager->setEnhancedUnitRenderMode(unit->itemID, unit->houseID,
-                                           selectedState(), direction,
-                                           selectedMode());
-    refreshStatus(_("Saved. This local rendering choice applies the next time that slot is drawn."));
+    if(!pGFXManager->setEnhancedUnitRenderMode(unit->itemID, unit->houseID,
+                                           selectedState(), direction, selectedMode())) {
+        openWindow(MsgBox::create(_("Could not save this animation setting.")));
+        return;
+    }
+    onSaveVersion(false);
 }
 
 void Dune2REditorMenu::onResetSlot() {
@@ -384,11 +396,13 @@ void Dune2REditorMenu::onResetSlot() {
     if(unit == nullptr || direction < 0) {
         return;
     }
-    pGFXManager->setEnhancedUnitRenderMode(unit->itemID, unit->houseID,
-                                           selectedState(), direction,
-                                           GFXManager::EnhancedRenderMode::FullAnimation);
+    if(!pGFXManager->setEnhancedUnitRenderMode(unit->itemID, unit->houseID,
+                                           selectedState(), direction, GFXManager::EnhancedRenderMode::FullAnimation)) {
+        openWindow(MsgBox::create(_("Could not save this animation setting.")));
+        return;
+    }
     refreshSelection();
-    refreshStatus(_("Restored the slot default: Full Animation."));
+    onSaveVersion(false);
 }
 
 void Dune2REditorMenu::onReloadMounts() {
@@ -402,6 +416,17 @@ void Dune2REditorMenu::onAssets() {
     menu.showMenu();
     pGFXManager->reloadEnhancedUnitMounts();
     rebuildUnitEntries();
+    onSaveVersion(false);
+}
+
+void Dune2REditorMenu::onSaveVersion(bool share) {
+    try {
+        const auto revision = Workshop::saveMod(ModManager::instance().getActiveModName());
+        refreshStatus(_("Saved mod version ") + std::to_string(revision.version));
+        if(share) Workshop::shareRevision(revision);
+    } catch(const std::exception& error) {
+        openWindow(MsgBox::create(std::string(_("Could not save or share assets: ")) + error.what()));
+    }
 }
 
 void Dune2REditorMenu::onBack() {

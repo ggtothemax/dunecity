@@ -48,6 +48,10 @@ return [
     // 0 disables the check; otherwise only this NETWORK_PROTOCOL_VERSION is admitted.
     'required_game_protocol' => 0,
 
+    // Immutable community maps/mods and active upload reservations; default 20 GiB.
+    // Uploads expire after 24 hours. Content lives inside state_dir/content, outside the webroot.
+    'content_quota_bytes' => 21474836480,
+
     'analytics_enabled' => true,
     'log_enabled' => true,
 ];

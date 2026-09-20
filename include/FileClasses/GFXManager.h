@@ -694,7 +694,7 @@ public:
     EnhancedRenderMode getEnhancedUnitRenderMode(int itemID, int house,
                                                  EnhancedUnitState state,
                                                  int direction);
-    void             setEnhancedUnitRenderMode(int itemID, int house,
+    bool             setEnhancedUnitRenderMode(int itemID, int house,
                                                EnhancedUnitState state,
                                                int direction,
                                                EnhancedRenderMode mode);

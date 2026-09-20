@@ -43,7 +43,7 @@
 #include <vector>
 #include <array>
 
-enum class AdmissionOperation { Room, Visibility, ChatEnter, ChatPoll, ChatSay, JoinRequest, JoinStatus };
+enum class AdmissionOperation { Inspect, Room, Visibility, ChatEnter, ChatPoll, ChatSay, JoinRequest, JoinStatus };
 struct LobbyChatMessage {
     std::uint64_t id = 0;
     std::string name;
@@ -70,6 +70,8 @@ struct AdmissionResponse {
     std::uint16_t protocol       = 0;
     std::string requestTicket, requestState;
     std::string   roomCode;
+    std::string contentHash;
+    bool running = false;
     std::string   grant;
     std::string   socketUrl;
     std::uint32_t grantExpiresMs = 0;
@@ -365,6 +367,14 @@ inline bool parseAdmissionResponse(const std::string& body, AdmissionResponse& o
             } else if(key == "requestState") {
                 if(!out.requestState.empty() || (value!="pending" && value!="approved" && value!="declined" && value!="cancelled" && value!="expired" && value!="joined")) { error="Invalid join request status."; return false; }
                 out.requestState=value;
+            } else if(key == "contentHash") {
+                if(!out.contentHash.empty() || value.size() != 64 || !RoomRelay::isLowercaseHex(value)) {
+                    error = "Invalid shared mod hash."; return false;
+                }
+                out.contentHash = value;
+            } else if(key == "running") {
+                if(value != "0" && value != "1") { error = "Invalid room state."; return false; }
+                out.running = value == "1";
             } else if(key == "room") {
                 if(sawRoom) { error = "The game service repeated its room code."; return false; }
                 sawRoom = true;
@@ -429,6 +439,12 @@ inline bool parseAdmissionResponse(const std::string& body, AdmissionResponse& o
     }
     if((!out.waitingNames.empty() && !out.hasPresence) || out.waitingNames.size()>out.onlineCount) {
         error="The online player list is malformed."; return false;
+    }
+    if(operation == AdmissionOperation::Inspect) {
+        if(!RoomRelay::isAcceptableRoomCode(out.roomCode) || out.contentHash.empty()) {
+            error = "The host has not shared its required mod version."; return false;
+        }
+        return true;
     }
     if(operation==AdmissionOperation::JoinRequest || operation==AdmissionOperation::JoinStatus) {
         if(out.requestState.empty() || (operation==AdmissionOperation::JoinRequest && out.requestTicket.empty())) { error="Incomplete join request answer."; return false; }

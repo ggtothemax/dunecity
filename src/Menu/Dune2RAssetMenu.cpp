@@ -14,6 +14,7 @@
 #include <FileClasses/TextManager.h>
 #include <globals.h>
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
 #include <sand.h>
 
 #include <algorithm>
@@ -50,7 +51,7 @@ Dune2RAssetMenu::Dune2RAssetMenu() {
     windowWidget.addWidget(&titleLabel, Point(originX + 10, originY + 12),
                            Point(panelWidth - 20, 30));
 
-    introLabel.setText(_("Optional art is stored in app data and survives game updates."));
+    introLabel.setText(_("Download verified optional art into the selected working mod."));
     introLabel.setAlignment(Alignment_HCenter);
     windowWidget.addWidget(&introLabel, Point(originX + 20, originY + 48),
                            Point(panelWidth - 40, 24));
@@ -86,7 +87,7 @@ Dune2RAssetMenu::Dune2RAssetMenu() {
 
     try {
         assetManager = std::make_unique<Dune2RAssetManager>(
-            ModManager::instance().getModPath("Dune2R"));
+            ModManager::instance().getModPath(ModManager::instance().getActiveModName()));
         populatePacks();
     } catch(const std::exception& error) {
         statusLabel.setText(std::string(_("Asset catalog error: ")) + error.what());
@@ -258,6 +259,12 @@ void Dune2RAssetMenu::update() {
         progressBar.setProgress(100.0);
         progressBar.setText(_("Installed and verified"));
         pGFXManager->reloadEnhancedUnitMounts();
+        try {
+            const auto revision = Workshop::saveMod(ModManager::instance().getActiveModName());
+            statusLabel.setText(_("Assets installed. Saved mod version ") + std::to_string(revision.version));
+        } catch(const std::exception& error) {
+            statusLabel.setText(std::string(_("Assets installed, but version save failed: ")) + error.what());
+        }
     } else {
         progressBar.setText(_("Download paused; retry to resume"));
     }

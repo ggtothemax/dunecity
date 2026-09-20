@@ -1,3 +1,34 @@
+## 2026-09-20 — Workshop and exact content revisions, local 1.0.736
+
+Workshop now contains Map Editor, Mod Editor, Asset Editors and Community Maps &
+Mods; Extras contains replay/help/credits. Mod selection remains in game setup.
+The real mod editor stages typed rule/stat/AI and metadata edits. Full mod copies
+retain assets/campaigns/house metadata; Dune2R render settings are now authored
+per mod. Map saves capture numbered immutable revisions with exact mod dependencies.
+
+Workshop storage uses SHA-256 manifests and full verified snapshots. The PHP
+signaling service has standalone content list/upload/download routes, atomic
+version allocation, owner capabilities, chunk verification and quotas. Online
+hosting publishes before admission; LAN captures and queues publication while
+retaining bounded peer transfer. MOD4 settings pin original map/mod revisions;
+protocol10 and save9840 retain older save parsing. Engine capabilities survive
+hash-specific installed folder names. See docs/workshop.md for storage and flows.
+
+This is a local source/build change, not a public service deployment or release.
+The production PHP service needs deployment before the new community API works
+there. Claude CLI was unavailable (not logged in); Hermes supplied a protocol
+review. Available coding agents handled UI, service, and network integration.
+Validation: native Release app rebuilt as 1.0.736, version consistency and Ninja
+header-dependency audit passed. All eight CTest groups pass, including the real
+menu probe at 640/854/1280 widths, new immutable-storage tests, MOD4/legacy wire
+checks, and offline LAN import/tamper checks. Workshop/Extras/editor/community
+screens were visually inspected. PHP content 12 and signaling 167 tests pass;
+service-agent late-join 19/activity 7 tests also passed. The real C++ bounded-HTTP
+client/PHP integration passes interrupted resume, duplicate large assets,
+dependency closure, idempotent versioning, cache repair and ownership rejection.
+Browser/Windows/Android device builds and live two-device play were not run in
+this turn. Public deployment, push, tag and release remain separate actions.
+
 ## 2026-09-20 — Graphics skins integrated with current main, 1.0.735
 
 PR53 integrates canonical main 24eed049, including PR63 campaign dropdowns. Preserve the new

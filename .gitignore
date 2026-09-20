@@ -23,6 +23,7 @@ dist/
 install/
 external/
 docs/*
+!docs/workshop.md
 !docs/index.html
 !docs/guide.html
 !docs/style.css

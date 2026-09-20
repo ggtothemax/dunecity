@@ -99,7 +99,8 @@ private:
     void onPeerDisconnected(const std::string& playerName, bool isHost, int cause);
 
     /// Fingerprint of the bundled content, as the relay and the lobby both understand it.
-    static std::string contentFingerprint();
+    std::string contentFingerprint() const;
+    mutable std::string fingerprintMod, fingerprintHash;
 
     std::unique_ptr<GameInitSettings> preparedGame;
     ChangeEventList preparedPlayers;
@@ -117,6 +118,8 @@ private:
     Stage       stage = Stage::Choosing;
     bool        hostingCoop = false;
     bool        pendingHosting = false;
+    bool inspectingCode = false, codeInspected = false;
+    std::string inspectedCode;
     std::string roomCode;
     std::string statusText;
     std::unique_ptr<GameInitSettings> pendingGameInfo;

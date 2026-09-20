@@ -17,6 +17,7 @@
 
 #include <Menu/CrossplayMenu.h>
 #include <mod/ModManager.h>
+#include <Network/WorkshopGameContent.h>
 #include <Menu/PlaySetup.h>
 #include <Menu/SinglePlayerMenu.h>
 #include <Menu/MultiPlayerMenu.h>
@@ -49,14 +50,6 @@
 
 namespace {
 
-/// A run of exactly 16 lowercase hex characters, which is what the content checksums are.
-bool isChecksumToken(const std::string& value) {
-    if(value.size() != 16) {
-        return false;
-    }
-    return RoomRelay::isLowercaseHex(value);
-}
-
 std::string trimmed(const std::string& text) {
     const std::size_t first = text.find_first_not_of(" \t");
     if(first == std::string::npos) {
@@ -68,20 +61,18 @@ std::string trimmed(const std::string& text) {
 
 } // namespace
 
-std::string CrossplayMenu::contentFingerprint() {
-    // The relay compares this between the host and anybody joining, so a mismatched install is
-    // reported before a socket is opened. It is the same material the lobby exchanges in its own
-    // config check, which stays the authority.
-    const std::string quantBot = getQuantBotConfig().getConfigHash();
-    const std::string objectData = getObjectDataHash();
-    if(!isChecksumToken(quantBot) || !isChecksumToken(objectData)) {
-        // Something could not be hashed locally. An empty fingerprint is not a wildcard and must
-        // never be sent as one: callers treat it as "this install cannot be checked" and refuse
-        // to go online, because two installs that both failed to hash themselves would otherwise
-        // match each other and neither would have verified anything.
-        return std::string();
+std::string CrossplayMenu::contentFingerprint() const {
+    const auto active = ModManager::instance().getActiveModName();
+    if(fingerprintMod == active && !fingerprintHash.empty()) return fingerprintHash;
+    try {
+        fingerprintHash = Workshop::saveMod(active).hash;
+        fingerprintMod = active;
+        return fingerprintHash;
     }
-    return quantBot + objectData;
+    catch(const std::exception& error) {
+        SDL_Log("Could not fingerprint Workshop content: %s", error.what());
+        return {};
+    }
 }
 
 CrossplayMenu::CrossplayMenu() : MenuBase() {
@@ -233,9 +224,9 @@ void CrossplayMenu::refreshDirectory() {
     const int selectedMod = modFilter.getSelectedEntryIntData();
     for(const auto& game : allPublicGames) {
         if(selectedMod >= 0 && selectedMod < static_cast<int>(availableMods.size())) {
-            const auto& wanted=availableMods[selectedMod].name;
-            if(!game.modName.empty() ? game.modName != wanted
-                : wanted != ModManager::instance().getActiveModName() || (!game.contentHash.empty() && game.contentHash != contentFingerprint())) continue;
+            const auto& wanted = availableMods[selectedMod];
+            if(!game.modName.empty() ? (game.modName != wanted.name && game.modName != wanted.displayName)
+                : wanted.name != ModManager::instance().getActiveModName() || (!game.contentHash.empty() && game.contentHash != contentFingerprint())) continue;
         }
         if((filter == 1 && game.mode != "coop") || (filter == 2 && game.mode != "custom")) continue;
         std::string modLabel=game.modName;
@@ -378,19 +369,14 @@ void CrossplayMenu::joinPublicGame() {
     if(stage != Stage::Choosing || directoryPending || index < 0
        || static_cast<std::size_t>(index) >= publicGames.size()) return;
     const auto& game=publicGames[index];
-    if(!game.modName.empty()) {
-        auto found=std::find_if(availableMods.begin(),availableMods.end(),[&](const ModInfo& mod){return mod.name==game.modName;});
-        if(found==availableMods.end()) { setStatus(_("Install this game's mod before joining.")); return; }
-        auto& mods=ModManager::instance();
-        const auto previous=mods.getActiveModName();
-        if(!mods.setActiveMod(game.modName)) { setStatus(_("This game's mod could not be loaded.")); return; }
-        effectiveGameOptions=mods.loadEffectiveGameOptions(settings.gameOptions);
-        if(!game.contentHash.empty() && contentFingerprint()!=game.contentHash) {
-            mods.setActiveMod(previous);
-            effectiveGameOptions=mods.loadEffectiveGameOptions(settings.gameOptions);
-            setStatus(_("This game's mod files differ from your installed copy.")); return;
-        }
+    if(game.contentHash.size() != 64 || !RoomRelay::isLowercaseHex(game.contentHash)) {
+        setStatus(_("This host has not shared a verified mod revision.")); return;
     }
+    if(!Workshop::activateModRevision(game.contentHash)
+       && (!Workshop::downloadWithProgress(game.contentHash) || !Workshop::activateModRevision(game.contentHash))) {
+        setStatus(_("The game's exact mod version could not be downloaded.")); return;
+    }
+    effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     // Running games always open in the passive view. A spectator can ask the
     // host for a playing slot after the map has loaded.
     joiningAsSpectator=game.running;
@@ -571,6 +557,25 @@ void CrossplayMenu::beginAdmission(bool hosting, bool publicJoin) {
         return;
     }
 
+    if(!hosting && !publicJoin && (!codeInspected || inspectedCode != joinCodeTextBox.getText())) {
+        auto lookup = lobbyRequest();
+        lookup.operation = AdmissionOperation::Inspect;
+        lookup.hosting = false;
+        lookup.roomCode = joinCodeTextBox.getText();
+        inspectingCode = true;
+        codeInspected = false;
+        stage = Stage::Requesting;
+        setStatus(_("Checking this game's required mod version..."));
+        admission.begin(lookup);
+        refreshControls();
+        return;
+    }
+    if(hosting && preparedGame) {
+        try { WorkshopGameContent::pin(*preparedGame, true); }
+        catch(const std::exception& error) { setStatus(error.what()); return; }
+    }
+
+    fingerprintHash.clear(); // Admission re-verifies the entire package, not the discovery cache.
     // Fail closed. Going online without being able to describe our own content would ask the
     // game service to match us against a fingerprint we never computed, and would leave the
     // lobby with nothing to compare either.
@@ -597,7 +602,7 @@ void CrossplayMenu::beginAdmission(bool hosting, bool publicJoin) {
     if(hosting) {
         // Co-op is a two-player arrangement; a custom game uses the lobby's own limit.
         request.mode = hostingCoop ? "coop" : "custom";
-        request.modName = ModManager::instance().getActiveModName();
+        request.modName = Workshop::store().get(fingerprint).name;
         request.maxPeers = hostingCoop ? 2 : static_cast<std::uint8_t>(RoomRelay::Limits::kMaxPeersPerRoom);
         request.allowLateJoin = allowLateJoin;
         request.mapName = preparedGame ? preparedGame->getFilename() : "";
@@ -607,7 +612,7 @@ void CrossplayMenu::beginAdmission(bool hosting, bool publicJoin) {
                                       : joinCodeTextBox.getText();
     }
 
-    joiningRunning = !hosting && publicJoin && publicGames[publicGameList.getSelectedIndex()].running;
+    joiningRunning = !hosting && (publicJoin ? publicGames[publicGameList.getSelectedIndex()].running : joiningRunning);
     if(joiningRunning) { request.operation=AdmissionOperation::JoinRequest; request.displayName=settings.general.playerName; request.spectate=joiningAsSpectator; }
     pendingHosting = hosting;
     directory.cancel();
@@ -620,6 +625,7 @@ void CrossplayMenu::beginAdmission(bool hosting, bool publicJoin) {
 }
 
 void CrossplayMenu::openDirectSession() {
+    fingerprintHash.clear();
     // The fingerprint is recomputed rather than remembered: admission and the handshake must
     // describe the same install, and anything that changed in between has to be caught here.
     const std::string fingerprint = contentFingerprint();
@@ -787,6 +793,24 @@ void CrossplayMenu::update() {
     if(stage == Stage::Requesting) {
         switch(admission.status()) {
             case RoomAdmissionClient::Status::Succeeded:
+                if(inspectingCode) {
+                    const auto inspected = admission.response();
+                    admission.cancel();
+                    inspectingCode = false;
+                    stage = Stage::Choosing;
+                    if(!Workshop::activateModRevision(inspected.contentHash)
+                       && (!Workshop::downloadWithProgress(inspected.contentHash) || !Workshop::activateModRevision(inspected.contentHash))) {
+                        setStatus(_("The game's exact mod version could not be downloaded."));
+                        refreshControls(); return;
+                    }
+                    effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+                    inspectedCode = joinCodeTextBox.getText();
+                    codeInspected = true;
+                    joiningRunning = inspected.running;
+                    joiningAsSpectator = inspected.running;
+                    beginAdmission(false, false);
+                    return;
+                }
                 if(joiningRunning) {
                     joinTicket=admission.response().requestTicket;
                     admission.cancel(); stage=Stage::WaitingForApproval; nextJoinPoll=0; joinPollPending=false; joinRequestDeadline=SDL_GetTicks()+180000;
@@ -798,6 +822,7 @@ void CrossplayMenu::update() {
                 openDirectSession();
                 break;
             case RoomAdmissionClient::Status::Failed:
+                inspectingCode = false; codeInspected = false;
                 setStatus(admission.errorMessage());
                 // Compatibility failures need an acknowledged prompt, including replies from
                 // older services that group version and content mismatches together.
@@ -914,7 +939,10 @@ void CrossplayMenu::enterReceivedLobby(const GameInitSettings& gameInitSettings,
 
     setStatus(_("Joining the game..."));
 
-    auto pCustomGamePlayers = std::make_unique<CustomGamePlayers>(gameInitSettings, false);
+    auto verifiedSettings = gameInitSettings;
+    try { WorkshopGameContent::resolveMod(verifiedSettings); }
+    catch(const std::exception& error) { teardownSession(error.what()); return; }
+    auto pCustomGamePlayers = std::make_unique<CustomGamePlayers>(verifiedSettings, false);
     pCustomGamePlayers->onReceiveChangeEventList(changeEventList);
     SDL_Log("Online lobby: showing guest roster at %u ms", SDL_GetTicks());
     const int result = pCustomGamePlayers->showMenu();

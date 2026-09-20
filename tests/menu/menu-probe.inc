@@ -1,4 +1,5 @@
 #include <Network/NetworkManager.h>
+#include <fstream>
 // Test-only entry point, linked against the real menu objects by run-menu-probe.py.
 #include <Menu/HouseChoiceMenu.h>
 #include <Menu/CustomGamePlayers.h>
@@ -8,6 +9,8 @@
 #include <Menu/AboutMenu.h>
 #include <Menu/HowToPlayMenu.h>
 #include <Menu/ModMenu.h>
+#include <Menu/ModEditorMenu.h>
+#include <mod/Workshop.h>
 #include <Menu/DisplayMenu.h>
 #include <GUI/dune/GameOptionsWindow.h>
 #include <GUI/dune/JoinProgressWindow.h>
@@ -18,6 +21,9 @@
 #include <misc/FileSystem.h>
 #include <FileClasses/LoadSavePNG.h>
 #include <players/PlayerFactory.h>
+
+namespace Workshop { std::unique_ptr<MenuBase> createCommunityMenu(bool online); }
+std::unique_ptr<MenuBase> createExtrasMenu(bool workshop);
 
 void menuRequire(bool value, const char* message) {
     if(!value) { SDL_Log("MENU_PROBE_FAIL: %s", message); throw std::runtime_error(message); }
@@ -143,13 +149,15 @@ int runMenuProbe() {
         MainMenu menu;
         menuRequire(menu.campaignButton.isVisible() && menu.customButton.isVisible() && menu.onlineButton.isVisible(), "Home play actions missing");
         menuRequire(!menu.displayButton.isVisible(),"Duplicate Display entry remains");
+        menuRequire(menu.workshopButton.isVisible() && menu.workshopButton.getText()=="Workshop"
+            && menu.modesButton.getText()=="Extras", "Workshop and Extras destinations are not distinct");
         menuRequire(!menu.campaignButton.keyboardFocusVisible,"Home shows unsolicited keyboard focus");
         menuCapture(menu,"home");
         menu.canContinue=true; menu.refreshContextButtons();
         menuCapture(menu,"home-continue");
         menu.canContinue=false; menu.refreshContextButtons();
         SDL_Event tab{}; tab.type=SDL_KEYDOWN; tab.key.keysym.sym=SDLK_TAB;
-        std::vector<TextButton*> tabOrder{&menu.campaignButton,&menu.customButton,&menu.loadButton,&menu.optionsButton,&menu.modesButton,&menu.quitButton};
+        std::vector<TextButton*> tabOrder{&menu.campaignButton,&menu.customButton,&menu.loadButton,&menu.optionsButton,&menu.workshopButton,&menu.modesButton,&menu.quitButton};
 #if defined(DUNECITY_DESKTOP_UPDATER)
         tabOrder.push_back(&menu.updateButton);
 #endif
@@ -415,6 +423,12 @@ int runMenuProbe() {
         // Use the installed current mod; these are local, deterministic UI checks.
         menu.publicGames[1].modName="vanilla";
         menu.publicGameList.setSelectedItem(1);
+        menu.publicGames[1].contentHash=std::string(32, 'a');
+        menu.joinPublicGame();
+        menuRequire(menu.stage==CrossplayMenu::Stage::Choosing
+            && menu.statusText.find("verified mod revision")!=std::string::npos,
+            "Public join accepted an obsolete partial-content fingerprint");
+        menu.publicGames[1].contentHash=Workshop::saveMod("vanilla").hash;
         settings.network.directDevelopmentEndpoint="http://127.0.0.1:1";
         menu.joinPublicGame();
         menu.processChildWindowOpenCloses();
@@ -581,9 +595,220 @@ int runMenuProbe() {
         menuCapture(menu,"settings-dunecity-skin");
         ModManager::instance().setActiveMod("vanilla");
     }
+    for(const bool workshop : {true,false}) {
+        auto menu = createExtrasMenu(workshop);
+        auto* layout = dynamic_cast<StaticContainer*>(menu->getWindowWidget());
+        menuRequire(layout != nullptr, "Workshop/Extras has no menu layout");
+        std::vector<std::string> buttons, descriptions;
+        for(const auto& data : layout->containedWidgets) {
+            menuRequire(data.position.x>=0 && data.position.y>=0 && data.position.x+data.size.x<=menu->getSize().x
+                && data.position.y+data.size.y<=menu->getSize().y, "Workshop/Extras control extends outside the screen");
+            if(auto* button = dynamic_cast<TextButton*>(data.pWidget)) buttons.push_back(button->getText());
+            if(auto* label = dynamic_cast<Label*>(data.pWidget)) {
+                menuRequire(label->isVisible(), "Workshop supporting text is hidden");
+                if(label->getText() != "Workshop" && label->getText() != "Extras") descriptions.push_back(label->getText());
+            }
+        }
+        if(workshop) {
+            menuRequire(buttons==std::vector<std::string>{"Map Editor","Mod Editor","Asset Editors","Community Maps & Mods","Back"},
+                        "Workshop destinations changed or a mod activation destination remains");
+            menuRequire(descriptions.size()==4 && descriptions.back()=="Browse, download and share maps and mods with other players.",
+                        "Workshop supporting descriptions are missing");
+        } else menuRequire(buttons==std::vector<std::string>{"Replays","How to Play","About & Credits","Back"},
+                           "Extras contains editor or mod activation destinations");
+        menuCapture(*menu,workshop ? "workshop" : "extras");
+    }
     { AboutMenu menu;menuCapture(menu,"about"); }
     { HowToPlayMenu menu;menuCapture(menu,"help"); }
-    { ModMenu menu;menuCapture(menu,"mods"); }
+    {
+        ModMenu menu;
+        menuRequire(menu.titleLabel.getText()=="Mod Editor", "Legacy mod activation screen remains");
+        for(size_t i = 0; i < menu.mods.size(); ++i)
+            if(menu.mods[i].name == "vanilla") menu.modListBox.setSelectedItem(static_cast<int>(i));
+        menuRequire(!menu.editButton.isEnabled(), "Bundled mod can be edited without making a copy");
+        menuCapture(menu,"mod-projects");
+    }
+    { ModMenu menu(ModMenu::Purpose::MapEditor); menuCapture(menu,"map-working-mod"); }
+    { ModMenu menu(ModMenu::Purpose::AssetEditors); menuCapture(menu,"asset-working-mod"); }
+    {
+        const std::string draft = "Workshop UI Probe";
+        auto& manager = ModManager::instance();
+        std::filesystem::remove_all(manager.getModPath(draft));
+        menuRequire(manager.createMod(draft, "vanilla"), "Cannot create editor working copy");
+        const auto path = manager.getModPath(draft);
+        INIFile metadata(path + "/mod.ini");
+        metadata.setStringValue("Test Metadata", "Preserved", "yes");
+        menuRequire(metadata.saveChangesTo(path + "/mod.ini"), "Cannot write preservation fixture");
+        ModEditorMenu menu(draft);
+        menuRequire(menu.saveButton.isEnabled(), "Real mod editor did not load configuration");
+        const auto* titleGeometry = menu.windowWidget.getWidgetDataFromWidget(&menu.titleLabel);
+        const auto* nameGeometry = menu.windowWidget.getWidgetDataFromWidget(&menu.nameText);
+        menuRequire(titleGeometry && nameGeometry && titleGeometry->position.y >= 16
+            && titleGeometry->position.y+titleGeometry->size.y <= nameGeometry->position.y
+            && menu.titleLabel.getSize().y >= menu.titleLabel.getMinimumSize().y,
+            "Mod editor title is clipped or overlaps the first field");
+        menuCapture(menu,"mod-editor");
+        bool foundNumeric = false;
+        for(size_t section = 0; section < menu.sections.size() && !foundNumeric; ++section) {
+            menu.sectionChoice.setSelectedItem(static_cast<int>(section));
+            for(size_t key = 0; key < menu.keys.size(); ++key) {
+                menu.keyChoice.setSelectedItem(static_cast<int>(key));
+                if(menu.valueType != ModEditorMenu::ValueType::Integer) continue;
+                const std::string original = menu.valueText.getText();
+                menu.valueText.setText("nan");
+                menuRequire(!menu.applyValue(), "Mod editor accepted a non-finite numeric setting");
+                menu.closeChildWindow(); menu.processChildWindowOpenCloses();
+                menu.valueText.setText("1");
+                menuRequire(menu.applyValue(), "Mod editor rejected a valid integer");
+                INIFile disk(path + "/ObjectData.ini");
+                menuRequire(disk.getStringValue(menu.sections[section], menu.keys[key]) == original,
+                    "Editing a property wrote to disk before Save");
+                foundNumeric = true; break;
+            }
+        }
+        menuRequire(foundNumeric, "Mod editor exposes no editable numeric unit stats");
+        menu.nameText.setText("Workshop UI Edited");
+        menu.save(false);
+        menuRequire(!menu.modified, "Save did not persist the mod draft");
+        INIFile savedMetadata(path + "/mod.ini");
+        menuRequire(savedMetadata.getStringValue("Test Metadata", "Preserved") == "yes",
+                    "Mod metadata save discarded unrelated sections");
+        const auto revision = Workshop::saveMod(draft);
+        menu.save(false);
+        menuRequire(Workshop::saveMod(draft).version == revision.version,
+                    "Unchanged editor Save allocated another version");
+        menuCapture(menu,"mod-editor-saved");
+    }
+    {
+        // Exercise the actual LAN unpacker with a receiver that has neither the
+        // installed alias nor its cached revision. No public server is involved.
+        namespace fs = std::filesystem;
+        auto& manager = ModManager::instance();
+        const std::string draft = "Workshop LAN Probe";
+        const auto draftPath = fs::path(manager.getModPath(draft));
+        const auto previousMod = manager.getActiveModName();
+        menuRequire(std::getenv("DUNECITY_USERDIR") != nullptr,
+                    "LAN import probe requires the isolated user profile");
+        const auto profile = fs::weakly_canonical(std::getenv("DUNECITY_USERDIR"));
+        menuRequire(fs::weakly_canonical(draftPath.parent_path()).parent_path() == profile,
+                    "LAN import fixture escaped the isolated profile");
+        fs::remove_all(draftPath);
+        menuRequire(manager.createMod(draft, "vanilla"), "Cannot create LAN revision fixture");
+        const std::string assetPath = "graphics/probe-asset.bin";
+        const std::string assetBytes = "unpublished custom sprite bytes";
+        fs::create_directories(draftPath / "graphics");
+        { std::ofstream file(draftPath / assetPath, std::ios::binary); file << assetBytes; }
+        const auto revision = Workshop::saveMod(draft);
+        const auto alias = Workshop::installMod(revision);
+        const auto installed = fs::path(manager.getModPath(alias));
+        const auto cached = Workshop::store().root() / "revisions" / revision.hash;
+        const auto backup = Workshop::store().root() / (".probe-backup-" + revision.hash);
+        struct Cleanup {
+            std::function<void()> run;
+            ~Cleanup() { try { run(); } catch(const std::exception& error) { SDL_Log("LAN fixture cleanup: %s", error.what()); } }
+        } cleanup{[&] {
+            manager.setActiveMod(previousMod);
+            fs::remove_all(installed);
+            fs::remove_all(backup);
+            fs::remove_all(draftPath);
+            for(const auto& item : Workshop::store().list("mod"))
+                if(item.id == revision.id) fs::remove_all(Workshop::store().root() / "revisions" / item.hash);
+        }};
+        menuRequire(Workshop::activateModRevision(revision.hash), "Cannot activate LAN source snapshot");
+        const auto legacyChecksum = manager.getEffectiveChecksums().combined;
+        INIFile pointer((installed / "workshop-revision.ini").string());
+        menuRequire(Workshop::unhex(pointer.getStringValue("Workshop", "Manifest", "")) == revision.manifest,
+                    "LAN source sidecar omitted the complete manifest");
+        std::vector<std::pair<std::string, std::string>> files;
+        for(const auto& entry : fs::recursive_directory_iterator(installed)) if(entry.is_regular_file()) {
+            const auto name = fs::relative(entry.path(), installed).generic_string();
+            if(name != ".dunecity-managed") files.emplace_back(name, readCompleteFile(entry.path().string()));
+        }
+        std::sort(files.begin(), files.end());
+        const auto package = [&](bool tamperAsset) {
+            std::string bytes;
+            const auto integer = [&](uint32_t value) { bytes.append(reinterpret_cast<const char*>(&value), sizeof(value)); };
+            integer(static_cast<uint32_t>(files.size()));
+            for(const auto& [name, original] : files) {
+                auto contents = original;
+                if(tamperAsset && name == assetPath) contents[0] ^= 1;
+                integer(static_cast<uint32_t>(name.size())); bytes += name;
+                integer(static_cast<uint32_t>(contents.size())); bytes += contents;
+            }
+            return bytes;
+        };
+        const auto valid = package(false), altered = package(true);
+        menuRequire(valid.size() < MAX_MOD_TRANSFER_SIZE, "LAN test fixture exceeds the bounded peer transfer");
+        menuRequire(manager.setActiveMod("vanilla"), "Cannot release the LAN source alias");
+        fs::remove_all(installed);
+        fs::rename(cached, backup);
+        menuRequire(!fs::exists(installed) && !fs::exists(cached), "LAN receiver was not empty");
+        menuRequire(!manager.saveReceivedMod(alias, altered, legacyChecksum),
+                    "LAN accepted altered sprite bytes with matching legacy INI checksums");
+        menuRequire(!fs::exists(installed) && !fs::exists(cached),
+                    "Rejected LAN data became an installed or cached revision");
+        menuRequire(manager.saveReceivedMod(alias, valid, legacyChecksum),
+                    "LAN could not import an unpublished complete revision offline");
+        const auto received = Workshop::store().get(revision.hash);
+        menuRequire(received.hash == revision.hash && received.version == revision.version
+                    && received.base == revision.base && received.manifest == revision.manifest,
+                    "LAN import changed the pinned identity, version or engine base");
+        menuRequire(Workshop::activateModRevision(revision.hash), "LAN imported revision could not activate");
+        menuRequire(manager.getContentBase(alias) == "vanilla"
+                    && manager.getEffectiveChecksums().combined == legacyChecksum
+                    && readCompleteFile((installed / assetPath).string()) == assetBytes,
+                    "LAN imported revision lost its engine identity, rules or sprite asset");
+        // A second poisoned transfer cannot replace a previously verified revision.
+        menuRequire(!manager.saveReceivedMod(alias, altered, legacyChecksum),
+                    "LAN overwrote an installed revision with altered full-package content");
+        menuRequire(Workshop::saveMod(alias).hash == revision.hash
+                    && readCompleteFile((installed / assetPath).string()) == assetBytes,
+                    "Rejected LAN replacement damaged the verified local revision");
+        SDL_Log("MENU_PROBE_LAN_REVISION_PASS: offline full-package import and asset tamper rejection");
+    }
+    {
+        char mapPath[FILENAME_MAX];
+        menuRequire(fnkdat("maps/multiplayer/Workshop-legacy-probe.ini", mapPath, sizeof(mapPath), FNKDAT_USER|FNKDAT_CREAT)==0,
+                    "Cannot prepare local-map browser fixture");
+        { std::ofstream map(mapPath); map << "[BASIC]\nVersion=2\nAuthor=Menu probe\n"; }
+        auto menu = Workshop::createCommunityMenu(false);
+        auto* layout = dynamic_cast<StaticContainer*>(menu->getWindowWidget());
+        menuRequire(layout != nullptr, "Community library has no inspectable layout");
+        DropDownBox *source = nullptr, *requiredMod = nullptr;
+        TextButton* action = nullptr;
+        ListBox* maps = nullptr;
+        for(const auto& data : layout->containedWidgets) {
+            menuRequire(data.position.x>=0 && data.position.y>=0 && data.position.x+data.size.x<=menu->getSize().x
+                && data.position.y+data.size.y<=menu->getSize().y, "Community control extends outside the screen");
+            if(auto* dropdown = dynamic_cast<DropDownBox*>(data.pWidget)) {
+                if(dropdown->getNumEntries()>0 && dropdown->getEntry(0)=="Community downloads") source=dropdown;
+                if(dropdown->getNumEntries()>0 && dropdown->getEntry(0)=="Choose required mod...") requiredMod=dropdown;
+            }
+            if(auto* button = dynamic_cast<TextButton*>(data.pWidget))
+                if(button->getText()=="Share Version") action=button;
+            if(auto* list = dynamic_cast<ListBox*>(data.pWidget)) maps=list;
+        }
+        menuRequire(source && requiredMod && action && maps, "Community browser controls are missing");
+        menuCapture(*menu,"community-saved-versions");
+        source->setSelectedItem(3,true);
+        bool found=false;
+        for(int i=0; i<maps->getNumEntries(); ++i) {
+            if(maps->getEntry(i).find("Workshop-legacy-probe")!=std::string::npos) {
+                maps->setSelectedItem(i); found=true; break;
+            }
+        }
+        menuRequire(found && requiredMod->isVisible() && requiredMod->isEnabled(), "Legacy map has no required-mod selector");
+        menuRequire(requiredMod->getSelectedIndex()==0 && !action->isEnabled(), "Legacy map silently inherited the last active game mod");
+        menuCapture(*menu,"community-local-maps");
+        requiredMod->setSelectedItem(1);
+        menuRequire(action->isEnabled(), "Explicit required-mod choice did not enable sharing");
+        requiredMod->onOpenListBoxButton();
+        menuCapture(*menu,"community-map-mod-choice");
+        requiredMod->onOpenListBoxButton();
+        source->setSelectedItem(2,true); menuCapture(*menu,"community-installed-mods");
+        source->setSelectedItem(0,true); menuCapture(*menu,"community-offline");
+        std::filesystem::remove(mapPath);
+    }
     { DisplayMenu menu;menuCapture(menu,"display"); }
     { auto rules=settings.gameOptions;GameOptionsWindow menu(rules);menuCapture(menu,"game-rules"); }
     SDL_Log("MENU_PROBE_PASS: home, campaign retry, mission ranges, custom roster, online transition, settings validation and rendering");

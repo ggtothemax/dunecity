@@ -69,6 +69,7 @@ std::mutex Game::performanceLogMutex;
 #include <Network/MetaServerClient.h>
 #include <Network/PathBudgetSync.h>
 #include <mod/ModManager.h>
+#include <Network/WorkshopGameContent.h>
 
 #include <GUI/dune/InGameMenu.h>
 #include <GUI/dune/WaitingForOtherPlayers.h>
@@ -512,6 +513,10 @@ void Game::applyDuneCityGraphicsSkins() {
 
 void Game::initGame(const GameInitSettings& newGameInitSettings) {
     gameInitSettings = newGameInitSettings;
+    if(!WorkshopGameContent::isSave(gameInitSettings)) {
+        if(!gameInitSettings.getModRevisionHash().empty()) WorkshopGameContent::resolveMod(gameInitSettings);
+        else { WorkshopGameContent::resolveMod(gameInitSettings); WorkshopGameContent::pin(gameInitSettings); }
+    }
 
     applyCustomPaletteRuntimeHouseRamps();
 
@@ -3937,7 +3942,7 @@ void Game::onJoinRequests() {
 
 void Game::cycleDune2RZoom() {
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
 
@@ -3951,7 +3956,7 @@ void Game::cycleDune2RZoom() {
 
 void Game::toggleDune2RVisuals() {
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
     pGFXManager->toggleDune2RVisuals();
@@ -3962,7 +3967,7 @@ void Game::toggleDune2RVisuals() {
 
 void Game::applyDune2RZoom(int zoomLevel) {
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
 
@@ -4198,37 +4203,11 @@ bool Game::loadSaveGame(InputStream& stream) {
         savedModName = stream.readString();
         savedModChecksum = stream.readString();
 
-        // Check if save was created with a different mod
-        std::string currentModName = ModManager::instance().getActiveModName();
-        std::string currentChecksum = ModManager::instance().getEffectiveChecksums().combined;
-
-        if (savedModChecksum != currentChecksum) {
-            SDL_Log("Game::loadSaveGame(): Save mod mismatch detected");
-            SDL_Log("  Save mod: %s (checksum: %s)", savedModName.c_str(), savedModChecksum.c_str());
-            SDL_Log("  Current mod: %s (checksum: %s)", currentModName.c_str(), currentChecksum.c_str());
-
-            if (!ModManager::instance().modExists(savedModName)) {
-                SDL_Log("Game::loadSaveGame(): Required mod '%s' not found - loading with current mod active",
-                        savedModName.c_str());
-            } else if (savedModName != currentModName) {
-                // Auto-switch to the save's mod so its rules (city sim,
-                // ObjectData, GameOptions) match what the save was authored
-                // against. Persists via active_mod.txt — same as picking it
-                // in the mod menu.
-                if (ModManager::instance().setActiveMod(savedModName)) {
-                    SDL_Log("Game::loadSaveGame(): switched active mod to '%s' for save load",
-                            savedModName.c_str());
-                    citySimEnabled_ = ModManager::instance().isCityModeActive();
-                } else {
-                    SDL_Log("Game::loadSaveGame(): WARNING - failed to switch to mod '%s'; loading anyway",
-                            savedModName.c_str());
-                }
-            }
-        }
     }
 
     // if this is a multiplayer load we need to save some information before we overwrite gameInitSettings with the settings saved in the savegame
     const bool lateJoinLoad=pNetworkManager && pNetworkManager->lateJoinLoading();
+    const std::string expectedModRevision = gameInitSettings.getModRevisionHash();
     const bool bCoopLoad = gameInitSettings.getGameType() == GameType::LoadCoop;
     const std::string coopServer = gameInitSettings.getServername();
     bool bMultiplayerLoad = (gameInitSettings.getGameType() == GameType::LoadMultiplayer || bCoopLoad);
@@ -4237,6 +4216,14 @@ bool Game::loadSaveGame(InputStream& stream) {
     // read gameInitSettings
     logLoadStage("game settings");
     gameInitSettings = GameInitSettings(stream);
+    if(lateJoinLoad && !expectedModRevision.empty() && gameInitSettings.getModRevisionHash() != expectedModRevision)
+        THROW(std::runtime_error, "The checkpoint requires a different mod revision from the advertised game.");
+    // MOD4 identifies the complete immutable package. Older saves retain their legacy
+    // checksum contract, but a mismatch must never silently load different rules.
+    if(gameInitSettings.getModRevisionHash().empty() && savegameVersion >= 9806)
+        gameInitSettings.setModIdentity(savedModName, savedModChecksum);
+    WorkshopGameContent::resolveMod(gameInitSettings, !lateJoinLoad);
+    citySimEnabled_ = ModManager::instance().isCityModeActive();
     if(savegameVersion <= 9820) {
         gameInitSettings.migrateLegacyHouseColorSlots();
     }

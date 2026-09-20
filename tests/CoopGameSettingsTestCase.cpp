@@ -154,3 +154,49 @@ TEST_CASE("Invalid campaign start levels fail before loading a scenario", "[camp
     const int level = GENERATE(-1, 0, 10, 22);
     REQUIRE_THROWS_AS(GameInitSettings(HOUSE_ATREIDES, SettingsClass::GameOptionsClass{}, level), std::invalid_argument);
 }
+
+TEST_CASE("Workshop revisions survive game settings and checkpoint copies", "[workshop][network][save]") {
+    auto original = makeCoop(true, false);
+    original.setModRevision(std::string(64, 'a'), 7);
+    original.setMapRevision(std::string(64, 'b'), 12, "map manifest");
+    OMemoryStream out; out.open(); original.save(out);
+    IMemoryStream in(out.getData(), out.getDataLength());
+    GameInitSettings restored(in);
+    REQUIRE(restored.getModRevisionHash() == original.getModRevisionHash());
+    REQUIRE(restored.getModRevisionVersion() == 7);
+    REQUIRE(restored.getMapRevisionHash() == original.getMapRevisionHash());
+    REQUIRE(restored.getMapRevisionVersion() == 12);
+    REQUIRE(restored.getMapRevisionManifest() == "map manifest");
+    const auto checkpoint = restored.networkSnapshot("saved simulation bytes");
+    REQUIRE(checkpoint.getGameType() == GameType::LoadMultiplayer);
+    REQUIRE(checkpoint.getModRevisionHash() == original.getModRevisionHash());
+    GameInitSettings next(original, 11, 0, 0);
+    REQUIRE(next.getModRevisionHash() == original.getModRevisionHash());
+}
+
+TEST_CASE("Legacy MOD3 remains readable and truncated MOD4 fails closed", "[workshop][save]") {
+    auto original = makeCoop(false, true);
+    OMemoryStream out; out.open(); original.save(out);
+    std::string bytes(reinterpret_cast<const char*>(out.getData()), out.getDataLength());
+    const auto marker = bytes.find("4DOM");
+    REQUIRE(marker != std::string::npos);
+    SECTION("old graphics marker") {
+        bytes[marker] = '3';
+        bytes.resize(bytes.size() - 20); // three empty string lengths and two version integers
+        IMemoryStream in(bytes.data(), bytes.size());
+        GameInitSettings restored(in);
+        REQUIRE(restored.getModRevisionHash().empty());
+        REQUIRE(restored.getCampaignGraphicsSkin() == original.getCampaignGraphicsSkin());
+    }
+    SECTION("new descriptor truncated") {
+        bytes.pop_back();
+        IMemoryStream in(bytes.data(), bytes.size());
+        REQUIRE_THROWS(GameInitSettings(in));
+    }
+    SECTION("invalid revision hash") {
+        original.setModRevision("../../untrusted", 1);
+        OMemoryStream invalid; invalid.open(); original.save(invalid);
+        IMemoryStream in(invalid.getData(), invalid.getDataLength());
+        REQUIRE_THROWS(GameInitSettings(in));
+    }
+}

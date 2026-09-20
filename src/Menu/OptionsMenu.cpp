@@ -164,7 +164,7 @@ OptionsMenu::OptionsMenu() : MenuBase()
     pages[0].addWidget(VSpacer::create(6));
 
     const bool duneCityActive = ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "dunecity";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "dunecity";
     duneCitySkinHBox.addWidget(Spacer::create(), 0.5);
     duneCitySkinHBox.addWidget(optionLabel(_("Campaign Graphics Skin")), 190);
     duneCityCampaignSkinDropDownBox.addEntry(_("SimCity"), 0);

@@ -69,14 +69,20 @@ struct ModInfo {
     std::string author;          ///< Mod author
     std::string description;     ///< Short description
     std::string version;         ///< Mod version (user-defined, e.g., "1.0.0")
+    std::string baseMod;          ///< Original engine/content family for editable copies.
     std::string gameVersion;     ///< Game version this mod was created for
     ModChecksums checksums;      ///< Cached checksums
     CustomHouseInfo customHouse; ///< Optional generic ninth-house registration
     std::vector<ModMentatInfo> mentats; ///< Optional active-mod Mentat presentations by house ID
     
-    bool hasObjectData;          ///< Does this mod have ObjectData.ini?
-    bool hasQuantBotConfig;      ///< Does this mod have QuantBot Config.ini?
-    bool hasGameOptions;         ///< Does this mod have GameOptions.ini?
+    unsigned revisionVersion = 0; ///< Saved Workshop revision, separate from legacy author version.
+    std::string selectionLabel() const {
+        return displayName + (revisionVersion ? " v" + std::to_string(revisionVersion) : "");
+    }
+
+    bool hasObjectData = false;          ///< Does this mod have ObjectData.ini?
+    bool hasQuantBotConfig = false;      ///< Does this mod have QuantBot Config.ini?
+    bool hasGameOptions = false;         ///< Does this mod have GameOptions.ini?
 
     bool enablesCityMode = false; ///< When true, DuneCity city-sim features are active for this mod.
 };

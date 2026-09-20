@@ -255,6 +255,10 @@ target_sources(dunecity
 
         # Mod System
         mod/Dune2RAssetManager.cpp
+        mod/WorkshopStore.cpp
+        mod/Workshop.cpp
+        mod/WorkshopClient.cpp
+        Menu/WorkshopCommunityMenu.cpp
         mod/ModManager.cpp
 
         # Structures

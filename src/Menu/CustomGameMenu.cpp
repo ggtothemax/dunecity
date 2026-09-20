@@ -36,6 +36,8 @@
 
 #include <INIMap/INIMapPreviewCreator.h>
 #include <GameInitSettings.h>
+#include <Network/WorkshopGameContent.h>
+#include <GUI/MsgBox.h>
 
 #include <globals.h>
 #include <main.h>
@@ -189,7 +191,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
     std::string activeModName = setup && !setup->mods.empty() ? setup->mods[setup->mod].name : ModManager::instance().getActiveModName();
     int activeIndex = 0;
     for (size_t i = 0; i < availableMods.size(); i++) {
-        modDropDown.addEntry(availableMods[i].displayName);
+        modDropDown.addEntry(availableMods[i].selectionLabel());
         if (availableMods[i].name == activeModName) {
             activeIndex = static_cast<int>(i);
         }
@@ -277,7 +279,9 @@ void CustomGameMenu::onChildWindowClose(Window* pChildWindow) {
             std::string servername = settings.general.playerName + "'s Game";
             GameInitSettings gameInitSettings(getBasename(filename, true), savegamedata, servername);
 
-            int ret = CustomGamePlayers(gameInitSettings, true, bLANServer).showMenu();
+            int ret;
+            try { ret = CustomGamePlayers(gameInitSettings, true, bLANServer).showMenu(); }
+            catch(const std::exception& error) { openWindow(MsgBox::create(error.what())); return; }
             if(ret != MENU_QUIT_DEFAULT) {
                 quit(ret);
             }
@@ -352,6 +356,14 @@ void CustomGameMenu::onNext()
         gameInitSettings = GameInitSettings(getBasename(mapFilename, true), readCompleteFile(mapFilename), multiplePlayersPerHouseCheckbox.isChecked(), currentGameOptions);
     }
 
+    try {
+        const auto selectedMod = ModManager::instance().getActiveModName();
+        if(WorkshopGameContent::applyMapDependency(mapFilename, gameInitSettings)
+           && selectedMod != ModManager::instance().getActiveModName()) {
+            effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+            gameInitSettings.setGameOptions(effectiveGameOptions);
+        }
+    } catch(const std::exception& error) { openWindow(MsgBox::create(error.what())); return; }
     int ret = CustomGamePlayers(gameInitSettings, true, bLANServer).showMenu();
     if(ret != MENU_QUIT_DEFAULT) {
         quit(ret);

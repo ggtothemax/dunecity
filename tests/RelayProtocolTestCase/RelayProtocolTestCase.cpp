@@ -252,3 +252,15 @@ TEST_CASE("a state digest only compares like with like", "[relay][digest]") {
     REQUIRE(decoded == a);
     REQUIRE_FALSE(GameStateDigest::decode(encoded, sizeof(encoded) - 1, decoded));
 }
+
+TEST_CASE("Private room inspection returns the exact mod without issuing a grant", "[workshop][admission]") {
+    AdmissionResponse response;
+    std::string error;
+    const std::string body = "status=ok\nprotocol=1\nroom=ABCD-EFGH-JKMN\ncontentHash=" + std::string(64, 'a') + "\nrunning=1\n";
+    REQUIRE(RoomAdmission::parseAdmissionResponse(body, response, error, false, AdmissionOperation::Inspect));
+    REQUIRE(response.contentHash == std::string(64, 'a'));
+    REQUIRE(response.running);
+    REQUIRE(response.grant.empty());
+    REQUIRE_FALSE(RoomAdmission::parseAdmissionResponse("status=ok\nprotocol=1\nroom=ABCD-EFGH-JKMN\n", response, error, false, AdmissionOperation::Inspect));
+    REQUIRE_FALSE(RoomAdmission::parseAdmissionResponse("status=ok\nprotocol=1\nroom=ABCD-EFGH-JKMN\ncontentHash=../file\n", response, error, false, AdmissionOperation::Inspect));
+}

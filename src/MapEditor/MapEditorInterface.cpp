@@ -40,6 +40,9 @@
 
 #include <ObjectBase.h>
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
+#include <FileClasses/INIFile.h>
+#include <GUI/MsgBox.h>
 #include <GUI/ObjectInterfaces/ObjectInterface.h>
 #include <GUI/ObjectInterfaces/MultiUnitInterface.h>
 #include <GUI/dune/LoadSaveWindow.h>
@@ -117,10 +120,15 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
 
     saveButton.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_SaveIcon));
     saveButton.setTooltipText(_("Save Map"));
-    saveButton.setOnClick(std::bind(&MapEditorInterface::onSave, this));
+    saveButton.setOnClick([this]() { onSave(); });
     topBarHBox.addWidget(&saveButton,24);
+    topBarHBox.addWidget(HSpacer::create(1));
+    shareButton.setText(_("Share"));
+    shareButton.setTooltipText(_("Save a map version and share it with the community"));
+    shareButton.setOnClick([this]() { onSave(true); });
+    topBarHBox.addWidget(&shareButton,48);
 
-    topBarHBox.addWidget(HSpacer::create(10));
+    topBarHBox.addWidget(HSpacer::create(3));
 
     undoButton.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_UndoIcon));
     undoButton.setTooltipText(_("Undo"));
@@ -1045,8 +1053,23 @@ void MapEditorInterface::onChildWindowClose(Window* pChildWindow) {
     }
 
     LoadSaveWindow* pLoadSaveWindow = dynamic_cast<LoadSaveWindow*>(pChildWindow);
-    if(pLoadSaveWindow != nullptr && pLoadSaveWindow->getFilename() != "") {
-        pMapEditor->saveMap(pLoadSaveWindow->getFilename());
+    if(pLoadSaveWindow != nullptr) {
+        const bool share = shareAfterSave;
+        shareAfterSave = false;
+        if(!pLoadSaveWindow->getFilename().empty()) {
+            bool saved = false;
+            try {
+                pMapEditor->saveMap(pLoadSaveWindow->getFilename());
+                saved = true;
+                const INIFile metadata(pLoadSaveWindow->getFilename() + ".workshop.ini");
+                const auto revision = Workshop::store().get(metadata.getStringValue("Workshop", "Hash"));
+                saveButton.setTooltipText(_("Saved map version ") + std::to_string(revision.version));
+                if(share) Workshop::shareRevision(revision);
+                else openWindow(MsgBox::create(_("Saved map version ") + std::to_string(revision.version)));
+            } catch(const std::exception& error) {
+                openWindow(MsgBox::create(std::string(saved ? _("Map saved, but sharing failed: ") : _("Map save failed: ")) + error.what()));
+            }
+        }
     }
 
     QstBox* pQstBox = dynamic_cast<QstBox*>(pChildWindow);
@@ -1076,7 +1099,8 @@ void MapEditorInterface::onQuit() {
     }
 }
 
-void MapEditorInterface::onSave() {
+void MapEditorInterface::onSave(bool share) {
+    shareAfterSave = share;
 
     std::vector<std::string> mapDirectories;
     std::vector<std::string> directoryTitles;

@@ -31,6 +31,8 @@
 #include <misc/fnkdat.h>
 
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
+#include <mod/WorkshopClient.h>
 #include <mod/ModTransferValidation.h>
 
 #include <globals.h>
@@ -65,6 +67,7 @@ public:
         std::string* gameVersion        = nullptr;
         std::string* quantBotConfigHash = nullptr;
         std::string* objectDataHash     = nullptr;
+        std::string* modRevisionHash = nullptr;
     };
 
     PayloadPeerAdapter(const Fields& fields,
@@ -108,6 +111,7 @@ public:
     std::string& gameVersion() override { return field(fields_.gameVersion); }
     std::string& quantBotConfigHash() override { return field(fields_.quantBotConfigHash); }
     std::string& objectDataHash() override { return field(fields_.objectDataHash); }
+    std::string& modRevisionHash() override { return field(fields_.modRevisionHash); }
 
     void disconnectWithCause(int cause) override {
         if(disconnect_) {
@@ -567,6 +571,7 @@ void NetworkManager::disconnect() {
 
 void NetworkManager::update()
 {
+    Workshop::updatePublications();
     if(isRelaySession()) {
         updateRelaySession();
         updateLateJoin();
@@ -1002,38 +1007,31 @@ NetworkManager::ContentCheck NetworkManager::checkRelayContent(
         const std::string& gameVersion, std::string& reason) const {
     reason.clear();
 
-    if(!pRelayClient) {
-        return ContentCheck::Match;
-    }
-
     ContentCompatibility::Fingerprint local;
-    local.gameVersion    = gameVersion;
-    local.quantBotHash   = quantBotHash;
+    local.gameVersion = gameVersion;
+    local.quantBotHash = quantBotHash;
     local.objectDataHash = objectDataHash;
-
+    try { local.modRevisionHash = Workshop::saveMod(ModManager::instance().getActiveModName()).hash; }
+    catch(const std::exception&) { }
     ContentCheck worst = ContentCheck::Match;
-    for(const RoomSessionTransport::Peer& peer : pRelayClient->peers()) {
+    const auto check = [&](const auto& peer) {
         ContentCompatibility::Fingerprint reported;
-        reported.gameVersion    = peer.gameVersion;
-        reported.quantBotHash   = peer.quantBotConfigHash;
+        reported.gameVersion = peer.gameVersion;
+        reported.quantBotHash = peer.quantBotConfigHash;
         reported.objectDataHash = peer.objectDataHash;
-
-        std::string peerReason;
-        // One rule, shared with the per-message check in GamePayloadRouter, so the answer cannot
-        // depend on which of the two noticed first.
-        switch(ContentCompatibility::compare(local, reported, peer.name, peerReason)) {
-            case ContentCompatibility::Verdict::Mismatch:
-                reason = peerReason;
-                return ContentCheck::Mismatch;      // final; no point looking further
+        reported.modRevisionHash = peer.modRevisionHash;
+        std::string why;
+        switch(ContentCompatibility::compare(local, reported, peer.name, why)) {
+            case ContentCompatibility::Verdict::Mismatch: worst = ContentCheck::Mismatch; reason = why; break;
             case ContentCompatibility::Verdict::AwaitingPeer:
-                if(worst == ContentCheck::Match) {
-                    worst = ContentCheck::AwaitingPeer;
-                    reason = peerReason;
-                }
-                break;
-            case ContentCompatibility::Verdict::Match:
-                break;
+                if(worst == ContentCheck::Match) { worst = ContentCheck::AwaitingPeer; reason = why; } break;
+            case ContentCompatibility::Verdict::Match: break;
         }
+    };
+    if(pRelayClient) {
+        for(const auto& peer : pRelayClient->peers()) check(peer);
+    } else {
+        for(const auto* peer : peerList) if(peer->data) check(*static_cast<const PeerData*>(peer->data));
     }
 
     return worst;
@@ -1256,6 +1254,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
     std::string peerGameVersion        = sender->gameVersion;
     std::string peerQuantBotConfigHash = sender->quantBotConfigHash;
     std::string peerObjectDataHash     = sender->objectDataHash;
+    std::string peerModRevisionHash = sender->modRevisionHash;
     const bool  peerIsHost             = sender->isHost();
     const std::size_t peerCount        = pRelayClient->peers().size();
     sender = nullptr;
@@ -1312,6 +1311,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
         fields.gameVersion        = &peerGameVersion;
         fields.quantBotConfigHash = &peerQuantBotConfigHash;
         fields.objectDataHash     = &peerObjectDataHash;
+        fields.modRevisionHash = &peerModRevisionHash;
 
         fields.nameAssigned = &relayPeerNamesAreBound;
 
@@ -1367,9 +1367,8 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
         payloadContext.isHost         = bIsServer;
         payloadContext.inGame         = bGameInProgress;
         payloadContext.simulationSeed = simulationSeed;
-        // Relay v1 plays bundled, matching content: the map text is used from memory and never
-        // becomes a file on disk.
-        payloadContext.allowMapWrite  = false;
+        // Verified Workshop revisions are retained for both online and LAN games.
+        payloadContext.allowMapWrite  = true;
         // On the relay a client sends its hashes once when it enters the lobby; answering the
         // host's would race the host's own move to the match phase and be refused.
         payloadContext.replyToConfigHash = false;
@@ -1400,6 +1399,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
             current->gameVersion        = peerGameVersion;
             current->quantBotConfigHash = peerQuantBotConfigHash;
             current->objectDataHash     = peerObjectDataHash;
+            current->modRevisionHash = peerModRevisionHash;
         }
     }
 }
@@ -1963,6 +1963,7 @@ bool NetworkManager::routeSharedPayload(ENetPeer* peer, Uint32 packetType,
     fields.gameVersion        = &peerData->gameVersion;
     fields.quantBotConfigHash = &peerData->quantBotConfigHash;
     fields.objectDataHash     = &peerData->objectDataHash;
+    fields.modRevisionHash = &peerData->modRevisionHash;
 
     PayloadPeerAdapter adapter(
         fields,
@@ -2104,6 +2105,9 @@ void NetworkManager::sendChangeEventList(const ChangeEventList& changeEventList)
 }
 
 void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::string& objectDataHash, const std::string& gameVersion) {
+    std::string revision;
+    try { revision = Workshop::saveMod(ModManager::instance().getActiveModName()).hash; }
+    catch(const std::exception&) { /* Empty hash fails content verification. */ }
     SDL_Log("========== SENDING CONFIG HASHES ==========");
     SDL_Log("Role: %s", bIsServer ? "SERVER" : "CLIENT");
     SDL_Log("Protocol Version: %d", NETWORK_PROTOCOL_VERSION);
@@ -2118,6 +2122,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
         packetStream.writeString(gameVersion);
         packetStream.writeString(quantBotHash);
         packetStream.writeString(objectDataHash);
+        packetStream.writeString(revision);
         if(bIsServer) {
             sendPacketOverRelay(packetStream, 0, 0);
         } else {
@@ -2137,6 +2142,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
             packetStream.writeString(gameVersion);
             packetStream.writeString(quantBotHash);
             packetStream.writeString(objectDataHash);
+        packetStream.writeString(revision);
             sendPacketToPeer(pCurrentPeer, packetStream);
         }
     } else {
@@ -2148,6 +2154,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
         packetStream.writeString(gameVersion);
         packetStream.writeString(quantBotHash);
         packetStream.writeString(objectDataHash);
+        packetStream.writeString(revision);
         sendPacketToHost(packetStream);
     }
     
@@ -2502,7 +2509,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
             const auto fileSize = std::filesystem::file_size(filePath);
             if(fileSize > static_cast<std::uintmax_t>(MAX_MOD_TRANSFER_SIZE)
                || contentBytes + static_cast<std::size_t>(fileSize) > MAX_MOD_TRANSFER_SIZE) {
-                throw std::runtime_error("mod exceeds transfer size limit");
+                throw std::runtime_error("This mod is larger than the 10 MiB LAN transfer limit. Connect both players to the community server, share the mod, and download it before joining.");
             }
             std::ifstream file(filePath, std::ios::binary);
             if(!file) {
@@ -2518,7 +2525,7 @@ void NetworkManager::sendModFilesToPeer(ENetPeer* peer, const std::string& modNa
         ENetPacketOStream completePacket(ENET_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
-        completePacket.writeString("Could not package mod files");
+        completePacket.writeString(e.what());
         sendPacketToPeer(peer, completePacket);
         return;
     }

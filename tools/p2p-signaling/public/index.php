@@ -25,8 +25,12 @@ require __DIR__ . '/../src/Sdp.php';
 require __DIR__ . '/../src/Rooms.php';
 require __DIR__ . '/../src/Signaling.php';
 require __DIR__ . '/../src/Lobby.php';
+require __DIR__ . '/../src/Content.php';
 
-const ADMISSION_PATHS = ['/v1/admission/request', '/v1/admission/request-status', '/v1/admission/host', '/v1/admission/join', '/v1/admission/list',
+const CONTENT_PATHS = ['/v1/content/list', '/v1/content/begin', '/v1/content/chunk',
+                       '/v1/content/commit', '/v1/content/manifest', '/v1/content/blob'];
+
+const ADMISSION_PATHS = ['/v1/admission/inspect', '/v1/admission/request', '/v1/admission/request-status', '/v1/admission/host', '/v1/admission/join', '/v1/admission/list',
                          '/v1/admission/visibility', '/v1/lobby/enter', '/v1/lobby/poll',
                          '/v1/lobby/say'];
 const SIGNALING_PATHS = ['/v1/p2p/join-requests', '/v1/p2p/session', '/v1/p2p/poll', '/v1/p2p/signal', '/v1/p2p/phase',
@@ -134,6 +138,7 @@ function admissionLines(Config $config, array $room, string $grant, bool $host):
 }
 
 $signalingResponse = false;
+$contentResponse = false;
 $http = null;
 $log = null;
 $path = '';
@@ -143,6 +148,7 @@ try {
     $http = new Http($config);
     $path = $http->path();
     $signalingResponse = in_array($path, SIGNALING_PATHS, true);
+    $contentResponse = in_array($path, CONTENT_PATHS, true);
 
     $store = new Store($config->stateDir());
     $rooms = new Rooms($store, $config);
@@ -153,11 +159,15 @@ try {
     $rate = new Rate($store);
     $address = $http->address();
     $method = $http->method();
-    $known = in_array($path, ADMISSION_PATHS, true) || $signalingResponse;
+    $known = in_array($path, ADMISSION_PATHS, true) || $signalingResponse || $contentResponse;
 
     // The ingress allowance is charged before anything is parsed, so the cheapest way to reach
     // this service is still bounded.
-    $rate->charge('ingress', $address, Limits::RATE_GLOBAL_INGRESS, Limits::RATE_ADDRESS_INGRESS);
+    if ($contentResponse) {
+        $rate->charge('content', $address, 16384, 4096);
+    } else {
+        $rate->charge('ingress', $address, Limits::RATE_GLOBAL_INGRESS, Limits::RATE_ADDRESS_INGRESS);
+    }
 
     if ($method === 'GET' && $path === '/v1/health') {
         $http->send(200, [['status', 'ok'], ['protocol', (string)Limits::PROTOCOL_VERSION]], false);
@@ -176,6 +186,15 @@ try {
 
     $http->requireSecureTransport();
     $http->checkOrigin();
+
+    if ($contentResponse) {
+        if ($path === '/v1/content/begin') $rate->charge('contentBegin', $address, 256, 32);
+        if ($path === '/v1/content/commit') $rate->charge('contentCommit', $address, 256, 64);
+        $form = $http->form(524288, Content::MAX_MANIFEST * 2 + 32);
+        $lines = (new Content($config))->handle(substr($path, strlen('/v1/content/')), $form, $address);
+        Content::send($http, 200, $lines);
+        return;
+    }
 
     $isSignal = $path === '/v1/p2p/signal';
     $form = $http->form(
@@ -413,6 +432,15 @@ try {
         return;
     }
 
+    if ($path === '/v1/admission/inspect') {
+        $code = requireField($form, 'room');
+        $result = (new Signaling($store, $config))->inspectRoom($rooms->resolve($code), $code, $claims);
+        $http->send(200, [['status', 'ok'], ['protocol', (string)Limits::PROTOCOL_VERSION],
+            ['room', $result['code']], ['contentHash', $result['contentHash']],
+            ['running', $result['running'] ? '1' : '0']], false);
+        return;
+    }
+
     if ($path === '/v1/admission/request') {
         $code=requireField($form,'room'); $roomId=$rooms->resolve($code);
         $ticket=(new Signaling($store,$config))->requestLateJoin($roomId,$code,array_merge($claims,
@@ -446,7 +474,9 @@ try {
         $log->denied($path, $error->errorCode, $http->address());
     }
     if ($http !== null) {
-        $http->sendError($error, $signalingResponse);
+        if ($contentResponse) Content::send($http, $error->status, [
+            ['status', 'error'], ['code', $error->errorCode], ['message', bin2hex($error->getMessage())]]);
+        else $http->sendError($error, $signalingResponse);
     } else {
         http_response_code($error->status);
     }
@@ -464,8 +494,10 @@ try {
         $log->denied($path, 'internal', $http->address());
     }
     if ($http !== null) {
-        $http->sendError(new ServiceError(500, 'internal', 'The request could not be handled.'),
-                         $signalingResponse);
+        if ($contentResponse) Content::send($http, 500, [['status', 'error'], ['code', 'internal'],
+            ['message', bin2hex('The request could not be handled.')]]);
+        else $http->sendError(new ServiceError(500, 'internal', 'The request could not be handled.'),
+                             $signalingResponse);
     } else {
         http_response_code(500);
     }

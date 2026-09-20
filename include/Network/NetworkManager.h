@@ -623,6 +623,7 @@ private:
         std::string             gameVersion;
         std::string             quantBotConfigHash;
         std::string             objectDataHash;
+        std::string modRevisionHash;
         std::list<ENetPeer*>    notYetConnectedPeers;
 
         // Abuse accounting: a legitimate peer never trips these.

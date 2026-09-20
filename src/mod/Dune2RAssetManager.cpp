@@ -201,6 +201,12 @@ bool Dune2RAssetManager::isSafeRelativeAssetPath(const std::string& path) {
            == std::string::npos;
 }
 
+std::string Dune2RAssetManager::sha256Bytes(const std::string& bytes) {
+    Sha256 sha;
+    sha.update(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
+    return sha.finish();
+}
+
 std::string Dune2RAssetManager::sha256File(const std::string& filename) {
     std::ifstream input(filename, std::ios::binary);
     if(!input) {

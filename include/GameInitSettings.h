@@ -209,6 +209,7 @@ public:
     inline bool isMultiplePlayersPerHouse() const { return multiplePlayersPerHouse; };
     inline void setMultiplePlayersPerHouse(bool multiplePlayersPerHouse) { this->multiplePlayersPerHouse = multiplePlayersPerHouse; };
     inline const SettingsClass::GameOptionsClass& getGameOptions() const { return gameOptions; };
+    void setGameOptions(const SettingsClass::GameOptionsClass& options) { gameOptions = options; }
     inline GraphicsSkin getCampaignGraphicsSkin() const { return campaignGraphicsSkin; };
     inline void setCampaignGraphicsSkin(GraphicsSkin skin) { campaignGraphicsSkin = skin; };
 
@@ -217,6 +218,17 @@ public:
     /// host's mod choice (e.g. enable city-sim features when the host
     /// is on the dunecity mod).
     inline const std::string& getModName() const { return modName; }
+    const std::string& getModChecksum() const { return modChecksum; }
+    const std::string& getModRevisionHash() const { return modRevisionHash; }
+    const std::string& getMapRevisionHash() const { return mapRevisionHash; }
+    const std::string& getMapRevisionManifest() const { return mapRevisionManifest; }
+    Uint32 getModRevisionVersion() const { return modRevisionVersion; }
+    Uint32 getMapRevisionVersion() const { return mapRevisionVersion; }
+    void setModRevision(const std::string& hash, Uint32 version) { modRevisionHash = hash; modRevisionVersion = version; }
+    void setMapRevision(const std::string& hash, Uint32 version, const std::string& manifest) {
+        mapRevisionHash = hash; mapRevisionVersion = version; mapRevisionManifest = manifest;
+    }
+    void setModIdentity(const std::string& name, const std::string& checksum) { modName = name; modChecksum = checksum; }
     inline void setGameSpeed(int gameSpeed) { gameOptions.gameSpeed = gameSpeed; };
     inline void setImmortalHumanPlayer(bool immortal) { gameOptions.immortalHumanPlayer = immortal; };
 
@@ -265,6 +277,8 @@ private:
     std::string     modName = "vanilla";      ///< Name of active mod when game was started
     std::string     modChecksum = "";         ///< Combined mod checksum for verification
 
+    std::string modRevisionHash, mapRevisionHash, mapRevisionManifest;
+    Uint32 modRevisionVersion = 0, mapRevisionVersion = 0;
     HouseInfoList   houseInfoList;
 };
 
