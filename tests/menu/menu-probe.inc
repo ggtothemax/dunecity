@@ -84,6 +84,8 @@ int runMenuProbe() {
         OnlineModPolicy::restoreApprovedSelection();
         menuRequire(mods.getActiveModName() == "dunecity", "Upgrade left an approved mod on the sharing path");
         const std::string draft = "New campaign probe";
+        // Probe profiles are reused; reset only this test-owned full asset copy.
+        std::filesystem::remove_all(mods.getModPath(draft));
         menuRequire(mods.createMod(draft, "dunecity") && mods.setActiveMod(draft), "Cannot create new mod fixture");
         const auto authored = Workshop::saveMod(draft);
         menuRequire(Workshop::activateModRevision(authored.hash), "Cannot activate authored snapshot");

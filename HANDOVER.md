@@ -1,3 +1,40 @@
+## 2026-09-21 — Fast approved campaigns and lobby-only new mods, local 1.0.741
+
+Approved shipped mods (vanilla, dunecity, Tornie, Dune2R) now start campaigns
+without Workshop capture, publication, queueing or download. Admission/readiness
+use a self-identifying token from installed rule checksums; app/protocol and
+runtime configuration checks remain. The main Campaign route defaults online and
+starts automatically. Join Online -> Create Campaign retains the pregame roster.
+Authored copies do not inherit approval from BaseMod: they require the lobby and
+cannot hot join. Both admission and running-game discovery enforce the policy.
+The setup and lobby describe this restriction. Automatically generated approved
+snapshots selected by 738-740 migrate back to the shipped mod; authored IDs and
+saved game files are preserved. The complete 739 editor palette is retained.
+
+All eight native CTest groups pass. Expanded real-menu tests cover all approved
+mods with the content endpoint disabled, zero new snapshots on campaign startup,
+local hot-join activation, mismatched rules, custom-mod restrictions, old snapshot
+migration and both campaign entry routes at three sizes. A native two-peer Dune
+City spectator test continues at cycle 1800 with identical simulation digests.
+Real Chromium testing against the isolated local service reached gameplay within
+6.108 seconds of clicking Start Campaign. Both clients had /v1/content/* blocked;
+startup, hot joining and spectator-to-player promotion made zero content requests.
+The second browser player joined the live campaign, requested play, was accepted
+into shared control and both clients resumed. A separate Play Online -> Create
+Campaign test stayed in the editable pregame lobby until cancelled. All test tabs
+were closed and temporary network blocking removed. These are local checks, not
+a cross-network/MBA execution claim.
+
+Native/browser source: 6c38946a. The signed and notarized Mac candidate is under
+../outputs/mba-test-1.0.741/final-signed. Local browser test files are in play741;
+use relay=http://127.0.0.1:18738&relaydev=1 for the isolated service. No game push,
+tag or public release. The authorized 740 service deployment remains compatible;
+no additional production server change is needed for this policy. Package and
+live-flow evidence is recorded in ../outputs/mba-test-1.0.741/verification.json.
+
+Download: http://claw.local:18738/DuneCity-1.0.741-macOS.dmg
+Verified downloaded SHA256: e3f0b61753cd5cd5d5c1cb42fc247992fe3d0fdb16f736b99f5f6972d4957d5c.
+
 ## 2026-09-21 — Online direct Campaign and explicit online lobby, local 1.0.740
 
 Corrects 739's offline default: Campaign starts online/public by default, then
