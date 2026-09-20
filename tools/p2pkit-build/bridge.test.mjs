@@ -82,3 +82,14 @@ test('queued messages preserve order and later failures close the bridge',async(
   await new Promise(r=>setTimeout(r,30));assert.equal(bridge.state(handle),3);
  } finally {bridge.close(handle)}
 });
+
+test('failed RTC negotiation keeps a bounded reason instead of a silent disconnect',()=>{
+ const {handle,pc}=create();
+ try {
+  pc.connectionState='failed'; pc.iceConnectionState='failed';
+  pc.onconnectionstatechange({type:'connectionstatechange'});
+  assert.equal(bridge.state(handle),3);
+  assert.match(bridge.lastError(handle),/WebRTC failed; ICE failed/);
+  assert.equal(pc.connectionState,'closed');
+ } finally {bridge.close(handle)}
+});

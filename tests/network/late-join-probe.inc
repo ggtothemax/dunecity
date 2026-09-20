@@ -297,7 +297,7 @@ int runLateJoinProbe() {
                     if(requests[0].id==declinedRequest) continue;
                     game->getGameInterface().updateJoinRequestButton();
                     auto& notice=game->getGameInterface().joinRequestButton;
-                    if(!notice.isVisible() || notice.getText().find("waiting approval")==std::string::npos)
+                    if(!notice.isVisible() || notice.getText().find(requests[0].name + " wants to play")==std::string::npos)
                         throw std::runtime_error("host has no persistent approval notice");
                     if(game->pInGameMenu) throw std::runtime_error("request interrupted host with an automatic dialog");
                     joinCapture(*game,out+"/host-pending.bmp");
@@ -327,7 +327,7 @@ int runLateJoinProbe() {
                 if(!direct->requestToPlay()) throw std::runtime_error("request to play failed");
                 game->getGameInterface().updateJoinRequestButton();
                 const auto& notice=game->getGameInterface().joinRequestButton;
-                if(!notice.isVisible() || notice.getText()!="Request waiting approval")
+                if(!notice.isVisible() || notice.getText()!=settings.general.playerName + ": waiting for host approval")
                     throw std::runtime_error("requester has no persistent approval notice");
                 joinCapture(*game,out+"/requester-pending.bmp");
                 if(playRequested) retried=true;

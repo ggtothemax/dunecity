@@ -22,6 +22,7 @@
 #include <FileClasses/LoadSavePNG.h>
 #include <misc/string_util.h>
 #include <misc/FileSystem.h>
+#include <misc/FrameYield.h>
 #include <misc/draw_util.h>
 #include <misc/DiscordManager.h>
 #include <misc/TouchInput.h>
@@ -96,10 +97,23 @@ int MenuBase::showMenu() {
             }
         }
 
-        WebRuntime::yieldToBrowser();
-
         // VSync is controlled via SDL_HINT_RENDER_VSYNC in main.cpp
         // No software frame limiting needed in menus
+
+        // Browser build: hand control back to the event loop once per frame so
+        // WebRTC/signaling callbacks can run while this menu blocks. There is
+        // no blocking vsync on the web, so also pace to ~60 FPS — an unpaced
+        // menu redraws flat-out and starves the compositor (screenshots stall
+        // for tens of seconds) while burning a full core.
+#ifdef __EMSCRIPTEN__
+        constexpr int kWebMenuFrameBudgetMs = 16;
+        const int menuFrameMs = SDL_GetTicks() - frameStart;
+        // A callback may run a nested menu or an entire match. Never turn
+        // that elapsed time into a matching pause when it returns (minutes
+        // of a blank screen after Quit). Cap slow-frame pacing at 50 ms.
+        yieldFrameToBrowser(menuFrameMs < kWebMenuFrameBudgetMs ? kWebMenuFrameBudgetMs - menuFrameMs
+                                                                : std::min(menuFrameMs, 50));
+#endif
     }
 
     return retVal;

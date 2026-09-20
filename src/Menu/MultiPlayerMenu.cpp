@@ -10,7 +10,9 @@
 #include <FileClasses/INIFile.h>
 
 #include <Network/NetworkManager.h>
+#ifndef __EMSCRIPTEN__
 #include <Network/ENetHelper.h>
+#endif
 
 #include <GUI/MsgBox.h>
 
@@ -44,6 +46,48 @@ MultiPlayerMenu::MultiPlayerMenu() : MenuBase() {
     mainVBox.addWidget(&playerNameHBox, 28);
     mainVBox.addWidget(VSpacer::create(8));
 
+#ifdef __EMSCRIPTEN__
+    // Browser: global matchmaking lobby. One button finds an opponent; the
+    // lobby pairs the next two finders and assigns the host/joiner roles
+    // itself, so there are no rooms, codes, or separate host/join paths.
+    findMatchButton.setText(_("Find Match"));
+    findMatchButton.setOnClick(std::bind(&MultiPlayerMenu::onFindMatch, this));
+    connectHBox.addWidget(&findMatchButton, 120);
+    connectHBox.addWidget(HSpacer::create(20));
+    cancelButton.setText(_("Cancel"));
+    cancelButton.setOnClick(std::bind(&MultiPlayerMenu::onCancelMatchmaking, this));
+    connectHBox.addWidget(&cancelButton, 100);
+    connectHBox.addWidget(Spacer::create());
+
+    mainVBox.addWidget(&connectHBox, 28);
+    mainVBox.addWidget(VSpacer::create(8));
+
+    connectionStatusLabel.setText(_("Not connected"));
+    connectionStatusLabel.setAlignment(Alignment_HCenter);
+    mainVBox.addWidget(&connectionStatusLabel, 24);
+
+    mainVBox.addWidget(VSpacer::create(16));
+
+    mainVBox.addWidget(Spacer::create(), 0.05);
+    mainVBox.addWidget(VSpacer::create(10));
+
+    backButton.setText(_("Back"));
+    backButton.setOnClick(std::bind(&MultiPlayerMenu::onQuit, this));
+
+    mainVBox.addWidget(Spacer::create(), 1.0);
+    mainVBox.addWidget(&buttonHBox, 24);
+    buttonHBox.addWidget(&backButton, 100);
+    buttonHBox.addWidget(Spacer::create());
+
+    // Start Network Manager (browser transport; no LAN discovery)
+    SDL_Log("Starting network...");
+    try {
+        pNetworkManager = std::make_unique<NetworkManager>(settings.network.serverPort, settings.network.metaServer);
+        SDL_Log("Network initialization completed.");
+    } catch (const std::exception& e) {
+        SDL_Log("Network initialization failed: %s", e.what());
+    }
+#else
     // Connect row
     connectHBox.addWidget(Label::create("Host:"), 50);
     connectHostTextBox.setText("localhost");
@@ -151,6 +195,7 @@ MultiPlayerMenu::MultiPlayerMenu() : MenuBase() {
     }
 
     onGameTypeChange(0);
+#endif
 }
 
 
@@ -217,6 +262,68 @@ void MultiPlayerMenu::onChildWindowClose(Window* pChildWindow) {
     // TODO
 }
 
+#ifdef __EMSCRIPTEN__
+
+void MultiPlayerMenu::onFindMatch() {
+    if (!validateAndSavePlayerName()) {
+        return;
+    }
+    if (!pNetworkManager) {
+        openWindow(MsgBox::create(_("Network not available.")));
+        return;
+    }
+
+    pNetworkManager->setOnReceiveGameInfo(std::bind(&MultiPlayerMenu::onReceiveGameInfo, this, std::placeholders::_1, std::placeholders::_2));
+    pNetworkManager->setOnPeerDisconnected(std::bind(&MultiPlayerMenu::onPeerDisconnected, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3));
+    pNetworkManager->setOnMatched(std::bind(&MultiPlayerMenu::onMatched, this, std::placeholders::_1));
+    pNetworkManager->connectWebRtc(settings.general.playerName);
+}
+
+void MultiPlayerMenu::onCancelMatchmaking() {
+    if (pNetworkManager) {
+        pNetworkManager->cancelMatchmaking();
+    }
+}
+
+void MultiPlayerMenu::onMatched(bool bHost) {
+    if (bHost) {
+        // Host continuation: pick the game. The lobby screen's startServer
+        // takes the server role while the transport is already paired.
+        CustomGameMenu(true, true).showMenu();
+        // Back from map selection must also release the already matched pair.
+        if(pNetworkManager) pNetworkManager->disconnect();
+    }
+    // Joiner continuation: nothing to do here; the host's game info arrives
+    // through onReceiveGameInfo once the data channels are open.
+}
+
+void MultiPlayerMenu::update() {
+    if(pNetworkManager == nullptr) {
+        return;
+    }
+
+    // Connecting/connected/error status line driven by the transport state.
+    switch(pNetworkManager->getWebRtcState()) {
+        case WebRtcTransport::State::Idle: {
+            connectionStatusLabel.setText(_("Not connected"));
+        } break;
+
+        case WebRtcTransport::State::Connecting: {
+            connectionStatusLabel.setText(_("Connecting..."));
+        } break;
+
+        case WebRtcTransport::State::Connected: {
+            connectionStatusLabel.setText(_("Connected"));
+        } break;
+
+        case WebRtcTransport::State::Failed: {
+            connectionStatusLabel.setText(_("Connection failed"));
+        } break;
+    }
+}
+
+#else // native desktop
+
 void MultiPlayerMenu::onCreateLANGame() {
     if (!validateAndSavePlayerName()) {
         return;
@@ -274,6 +381,8 @@ void MultiPlayerMenu::onConnect() {
     openWindow(MsgBox::create(_("Connecting...")));
 }
 
+#endif // __EMSCRIPTEN__
+
 
 void MultiPlayerMenu::onQuit() {
     SDL_Event quitEvent;
@@ -291,6 +400,8 @@ void MultiPlayerMenu::onPeerDisconnected(const std::string& playername, bool bHo
         showDisconnectMessageBox(cause);
     }
 }
+
+#ifndef __EMSCRIPTEN__
 
 void MultiPlayerMenu::onJoin() {
     if (!validateAndSavePlayerName()) {
@@ -588,6 +699,8 @@ void MultiPlayerMenu::onMetaServerError(int errorcause, const std::string& error
         } break;
     }
 }
+
+#endif // __EMSCRIPTEN__
 
 void MultiPlayerMenu::onReceiveGameInfo(const GameInitSettings& gameInitSettings, const ChangeEventList& changeEventList) {
     closeChildWindow();

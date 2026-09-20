@@ -44,7 +44,7 @@ int runMenuProbe() {
     ModManager::instance().setActiveMod("vanilla");
     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     {
-        HouseChoiceMenu menu;
+        HouseChoiceMenu menu(false);
         for(auto* dropdown : {&menu.modDropDown, &menu.enemyAIDropDown,
                               &menu.supportBotDropDown, &menu.startLevelDropDown}) {
             dropdown->onOpenListBoxButton();
@@ -85,7 +85,7 @@ int runMenuProbe() {
         dropdown.setSelectedItem(0);
     }
     {
-        HouseChoiceMenu menu;
+        HouseChoiceMenu menu(false);
         menuRequire(HouseChoiceMenu::isPublicGame(),"Campaign should default to public");
         menu.supportBotDropDown.setSelectedItem(4);
         menuRequire(HouseChoiceMenu::getSupportBotIndex()==4,"Support setup fixture failed");
@@ -193,6 +193,13 @@ int runMenuProbe() {
     }
     {
         HouseChoiceMenu menu;
+        menuRequire(HouseChoiceMenu::isOnline(), "Campaign should default to online");
+        menuRequire(HouseChoiceMenu::isPublicGame(), "Campaign should default to public");
+        menuCapture(menu,"campaign-default");
+        menu.connectionDropDown.setSelectedItem(0);
+        menuRequire(!HouseChoiceMenu::isOnline(), "Campaign cannot be switched offline");
+        menuRequire(!menu.visibilityDropDown.isEnabled() && menu.supportBotDropDown.isEnabled(),
+                    "Offline campaign controls did not update");
         menu.onHouseButton(1);
         menuRequire(!menu.isQuiting(),"Selecting a house starts the game");
         HouseChoiceMenu::s_startLevel = 7;
@@ -265,8 +272,15 @@ int runMenuProbe() {
         coop.setScenarioData(scenarioData);
         CustomGamePlayers menu(coop,true);
         SDL_Event tab{}; tab.type=SDL_KEYDOWN; tab.key.keysym.sym=SDLK_TAB;
-        // A partner arriving enables Start after the lobby was built with it disabled.
+        // The host can start alone, with the second controller still open for a later join.
         menu.update();
+        menuRequire(menu.nextButton.isEnabled(), "Campaign requires a partner before starting");
+        menu.addAllPlayersToGameInitSettings();
+        for(const auto& house : menu.gameInitSettings.getHouseInfoList()) {
+            if(house.houseID == HOUSE_ATREIDES)
+                menuRequire(house.playerInfoList.size() == 1, "Solo campaign added a phantom partner");
+        }
+        menuCapture(menu,"campaign-solo-lobby");
         menu.setPlayer2Slot("Keyboard partner",1);
         menu.update();
         bool reachedStart=false;

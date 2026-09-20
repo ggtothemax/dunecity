@@ -85,6 +85,12 @@ jobs:
             libcurl4-openssl-dev libssl-dev python3-cryptography \
             catch2
 
+      # Native packet tests need headers; framing vectors also need the SDK's
+      # ESM exports, produced by its prepare script.
+      - name: Install the pinned p2pkit SDK
+        working-directory: platform/web
+        run: npm ci
+
       - name: Verify signed update feeds and AppImage replacement
         run: |
           python3 -m unittest discover -s scripts/tests -p test_desktop_updates.py
@@ -101,7 +107,7 @@ jobs:
         run: cmake --build build --target dunelegacy_tests
 
       - name: Check native and browser framing still agree
-        run: node --experimental-strip-types tools/p2p-interop/framing-vectors.mjs
+        run: node tools/p2p-interop/framing-vectors.mjs
 
       - name: Check the browser signaling fetch keeps its guarantees
         # The JavaScript inside the EM_JS blocks is not reachable by a C++ compiler and not
@@ -130,7 +136,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: tools/p2pkit-build/package-lock.json
+          cache-dependency-path: |
+            platform/web/package-lock.json
+            tools/p2pkit-build/package-lock.json
 
       - name: Install build deps
         run: |
@@ -142,15 +150,26 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_web_build.py'
           python3 -m unittest discover -s scripts/tests -p 'test_check_web_mods.py'
 
-      # The direct-play bridge bundle is committed so that a clean clone builds without npm.
-      # These three steps are what keeps that honest: install the pinned tool, prove the
-      # vendored transport and the bridge still behave, and prove the committed bundle is what
+      # The p2pkit SDK (headers + --js-library glue) is a real dependency of the
+      # browser build; CMake configure refuses to proceed without it.
+      - name: Install the pinned p2pkit SDK
+        working-directory: platform/web
+        run: npm ci
+
+      - name: Test browser matchmaking glue and runtime packaging
+        working-directory: platform/web
+        run: npm test
+
+      # The direct-play bridge bundle is committed for reproducible browser builds.
+      # These three steps are what keeps that honest: install the pinned tool (and the
+      # p2pkit package its tests exercise through genuine package exports), prove the
+      # SDK transport and the bridge still behave, and prove the committed bundle is what
       # this source actually produces.
       - name: Install the pinned bundler
         working-directory: tools/p2pkit-build
-        run: npm ci --ignore-scripts
+        run: npm ci
 
-      - name: Test the vendored P2PKit transport and the bridge
+      - name: Test the pinned P2PKit transport and the bridge
         working-directory: tools/p2pkit-build
         run: |
           node --test test.mjs
@@ -168,6 +187,11 @@ jobs:
 
       - name: Build browser target
         run: ./tools/web/build-emscripten.sh
+
+      - name: Check browser peer teardown with AddressSanitizer
+        run: |
+          source .emsdk/emsdk_env.sh
+          tests/wasm/run-webrtc-peer-lifecycle.sh
 
       - name: Upload browser artifacts
         uses: actions/upload-artifact@v4
@@ -203,10 +227,49 @@ jobs:
             exit 1
           }
 
+      - name: Set Windows dependency cache location
+        id: windows-vcpkg-cache
+        run: |
+          $cache = Join-Path $env:LOCALAPPDATA 'vcpkg/archives'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "path=$cache" >> $env:GITHUB_OUTPUT
+          "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+
+      - name: Cache Windows dependency binaries
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.windows-vcpkg-cache.outputs.path }}
+          key: vcpkg-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-
+            vcpkg-windows-x64-v1-
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgJsonGlob: 'vcpkg.json'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+
+      # The p2pkit SDK headers are a configure-time dependency on every
+      # platform (the packet streams and WebRtcTransport alias include them);
+      # headers ship in the git package, so no prepare/build scripts are needed.
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: npm ci --ignore-scripts
+
+      # run-vcpkg still selects the removed x-gha backend and clears the
+      # default cache. Use the persisted files provider, as on Linux/macOS.
+      # vcpkg validates package ABIs before reusing restored binaries.
+      - name: Enable Windows dependency binary caching
+        env:
+          WINDOWS_VCPKG_CACHE: ${{ steps.windows-vcpkg-cache.outputs.path }}
+        run: |
+          "VCPKG_BINARY_SOURCES=clear;files,$env:WINDOWS_VCPKG_CACHE,readwrite" >> $env:GITHUB_ENV
 
       - name: Configure CMake
         # Quote the -D arg so PowerShell expands $env:VCPKG_ROOT instead
@@ -356,6 +419,16 @@ jobs:
           echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/vcpkg/archives,readwrite" >> "$GITHUB_ENV"
           echo "Cache holds $(find "$HOME/.cache/vcpkg/archives" -name '*.zip' | wc -l | tr -d ' ') prebuilt packages."
 
+      # The p2pkit SDK headers are a configure-time dependency on every
+      # platform. This is a persistent self-hosted runner, so fail legibly if
+      # node is missing rather than deep inside CMake's SDK guard.
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: |
+          set -euo pipefail
+          command -v node >/dev/null 2>&1 || { echo "::error title=Runner not provisioned::node is required to install the p2pkit SDK headers (brew install node)."; exit 1; }
+          npm ci --ignore-scripts
+
       - name: Configure CMake
         run: >-
           cmake -S . -B build -G Ninja
@@ -475,6 +548,18 @@ jobs:
       # caching backed by the actions/cache step above.
       - name: Fix vcpkg binary caching
         run: echo "VCPKG_BINARY_SOURCES=clear;files,$HOME/.cache/vcpkg/archives,readwrite" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: platform/web/package-lock.json
+
+      # The p2pkit SDK headers are a configure-time dependency on every
+      # platform (the packet streams and WebRtcTransport alias include them).
+      - name: Install the pinned p2pkit SDK headers
+        working-directory: platform/web
+        run: npm ci --ignore-scripts
 
       - name: Configure CMake
         run: cmake -B build -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_TOOLCHAIN_FILE=$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release

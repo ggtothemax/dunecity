@@ -41,7 +41,7 @@ Point InGameMenuButton::getMinimumSize() const {
 
 InGameMenu::InGameMenu(bool bMultiplayer, int color)
  : Window(0,0,0,0), bMultiplayer(bMultiplayer), color(color) {
-    const bool onlineContinues = pNetworkManager && pNetworkManager->isRelaySession();
+    const bool onlineContinues = pNetworkManager && pNetworkManager->isRoomSession();
     const bool canSkip = currentGame->canSkipMission();
     const bool canJoin=pNetworkManager && pNetworkManager->isServer() && pNetworkManager->getDirectTransport() && pNetworkManager->getDirectTransport()->allowsLateJoin();
     const bool canRequest=currentGame->isSpectating() && pNetworkManager->getDirectTransport();

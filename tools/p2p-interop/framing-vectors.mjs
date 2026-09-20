@@ -1,14 +1,16 @@
 /**
- * Cross-checks the native framing against the browser's, using the vendored chunker itself.
+ * Cross-checks the native framing against the browser's, using the installed p2pkit
+ * dependency's own chunker.
  *
  * The strings below are the exact ones tests/P2PWireFramingTestCase asserts the native encoder
- * produces. Feeding the same literals to platform/web/p2pkit/src/framing/index.ts closes the
+ * produces. Feeding the same literals to the p2pkit package's framing export (resolved through
+ * platform/web's installed dependency, the same bytes the browser bridge bundles) closes the
  * loop: if either side changes its output, one of the two test suites fails instead of a browser
  * and a native client quietly failing to understand each other.
  *
- *   node --experimental-strip-types tools/p2p-interop/framing-vectors.mjs
+ *   node tools/p2p-interop/framing-vectors.mjs
  */
-import { Chunker, CHUNK_LIMITS } from '../../platform/web/p2pkit/src/framing/index.ts'
+import { Chunker, CHUNK_LIMITS } from '../../platform/web/node_modules/p2pkit/dist/framing.js'
 
 let failures = 0
 function check(name, actual, expected) {
@@ -53,6 +55,7 @@ for (const packet of packets) assembled = assembler.ingest(JSON.parse(packet)) ?
 check('a full-size packet round trips', assembled, value)
 
 // 4. The bounds are fatal in the browser too, which is what the native side relies on.
+// The hardened chunker is the direct-play opt-in the browser bridge uses.
 for (const [name, packet] of [
   ['zero fragments', { id: 'a', i: 0, n: 0, part: 'x' }],
   ['too many fragments', { id: 'a', i: 0, n: CHUNK_LIMITS.fragments + 1, part: 'x' }],
@@ -60,7 +63,7 @@ for (const [name, packet] of [
   ['unacceptable group id', { id: 'a b', i: 0, n: 1, part: 'x' }],
 ]) {
   let threw = false
-  try { new Chunker({}).ingest(packet) } catch { threw = true }
+  try { new Chunker({ hardened: true }).ingest(packet) } catch { threw = true }
   check(`the browser refuses ${name}`, String(threw), 'true')
 }
 

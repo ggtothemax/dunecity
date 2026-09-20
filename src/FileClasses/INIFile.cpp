@@ -18,6 +18,7 @@
 #include <FileClasses/INIFile.h>
 
 #include <misc/exceptions.h>
+#include <misc/FrameYield.h>
 
 #include <fstream>
 #include <iostream>
@@ -883,6 +884,21 @@ void INIFile::readfile(SDL_RWops * file) {
 
     while(!readfinished) {
         lineNum++;
+
+#ifdef __EMSCRIPTEN__
+        // Browser build: parsing a map INI (up to ~3500 lines, read one byte
+        // at a time) is a long synchronous block on the joiner's lobby-entry
+        // path — the received map is re-parsed from memory inside the
+        // CustomGamePlayers constructor, with no frame boundary until it
+        // finishes and the main thread wedges. Yield every few dozen lines
+        // so input, signaling and the compositor keep flowing during the
+        // parse. Each line is fully consumed before the next one starts and
+        // no file position is cached across the yield (SDL_RWread resumes
+        // from the stream's own state), so the parse is unchanged.
+        if((lineNum & 31) == 0) {
+            yieldFrameToBrowser();
+        }
+#endif
 
         completeLine = "";
         unsigned char tmp;

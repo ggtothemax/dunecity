@@ -9,11 +9,11 @@ There are two halves, plus a pure-framing cross-check that needs neither.
 ## 1. Framing cross-check (fast, no browser)
 
 ```bash
-node --experimental-strip-types tools/p2p-interop/framing-vectors.mjs
+node tools/p2p-interop/framing-vectors.mjs
 ```
 
 Feeds the exact strings `tests/P2PWireFramingTestCase` asserts the native encoder produces to the
-vendored browser chunker, in both directions. If either side's framing changes, one of the two
+pinned SDK browser chunker, in both directions. If either side's framing changes, one of the two
 suites fails rather than a browser and a native client quietly failing to play each other.
 
 ## 2. Live native-to-browser session

@@ -1,3 +1,116 @@
+## 2026-09-20 — Final 737 acceptance
+
+The complete 737 raw browser build passes public matchmaking and gameplay again
+following the CMake runtime fix. Native and browser builds, all eight CTest groups,
+29 browser glue tests, four build safety checks, generated-JS and bundled-mod
+verification pass. Incremental CMake plus wrapper packaging is byte-identical.
+The solo-host spectator promotion test passes at cycle 1800 with matching state,
+including a declined request, retry and shared-control admission. See the PR49
+validation document for evidence and the same-network ICE test limitation.
+
+## 2026-09-20 — Complete browser runtime on every build path
+
+A raw CMake rebuild linked successfully but omitted the P2PKit runtime, making
+public pairing fail with RTCTransport unavailable. CMake now prepends the pinned
+runtime after every link. The standalone web publisher now installs the pinned
+SDK and uses the same verified build script as game CI. The old optional wrapper
+prepend remains idempotent. This fixes a separate production publication path
+that the main CI artifact build alone did not exercise.
+
+The solo-host spectator promotion probe initially expected obsolete anonymous
+approval text. Updated its assertions to the current named notices; the real
+host and newcomer then resumed with matching state at cycle 1800.
+
+## 2026-09-20 — Final combined release advances to 1.0.737
+
+The separately completed public-campaign defaults and privacy explanation are
+now merged too (a50938a). Release 1.0.737 from main includes these local commits
+alongside the complete 736 candidate and published 735. The 736 candidate was
+never published. Website PR12 is merged and deployed on website main.
+
+## 2026-09-20 — Campaign privacy explanation (local 1.0.737)
+
+Added a short note directly above the campaign connection/visibility controls:
+"Public by default: others can watch or ask to join. Choose Private for invite-only
+play, or Offline." The title sits alongside the note without moving the controls.
+Native app rebuilt; dependency audits, version consistency and the menu navigation
+probe pass at all three sizes. Visually checked the 640x480 rendering. No push or
+public release performed.
+
+## 2026-09-20 — Public campaign by default (local 1.0.736)
+
+Campaign entry now defaults to Online co-op with the existing Public visibility
+setting. Players can select Offline before starting, or Private for invitations.
+The co-op lobby allows a human host to start with the partner slot open or closed,
+without requiring a second human or an AI. Existing late-join shared-control slots
+and CampaignCoop progression carry this through the full level 1–9 campaign.
+Menu guidance explains starting solo and later spectators/request-to-play joins.
+
+Native app rebuilt at build/bin/dunecity.app. Dependency audits and version check
+pass; all eight CTest suites pass. Menu regressions cover the online/public default,
+switching offline, and solo lobby readiness/roster at 640, 854 and 1280 widths.
+The 640-pixel campaign and solo-lobby screenshots were visually checked. Live
+native/browser joins and a full nine-level playthrough were not rerun for this
+change. No public release or push performed.
+
+## 2026-09-20 — Combined main release candidate 1.0.736
+
+Released 1.0.735 (f836940) already contains the graphics skins and campaign menu
+changes. Preserve that published tag and all its assets. The combined 1.0.736
+candidate includes that exact main history plus PR49 browser matchmaking,
+PR28 direct-P2P command pacing, PR62 Windows dependency caching, and PR45's
+screenshot fix intent while retaining main's stronger physical-target bounds.
+Every origin branch tip inventoried below is now an ancestor of this candidate;
+see `docs/branch-consolidation-736.md` for the superseded historical snapshots.
+Merge this PR into main before creating v1.0.736; remove incorporated branches
+only after checking their current tips against the merged main.
+
+Native and pinned Emscripten builds pass. All eight CTest groups pass (772 main
+suite cases passed, three skipped), as do the wasm32 ASan lifecycle harness and
+real three-peer hot-join replacement test (matching state at cycle 150).
+Two Chromium profiles using the candidate 736 game and actual production
+`wss://dunelegacy.com/` pass Find Match, cancellation/retry, lobby/start, two-way
+chat, movement, sustained command exchange and guest exit. No reported packet
+drops, browser errors or long menu sleeps. Both browsers share one network;
+selected ICE paths are host/UDP, so this is not a different-NAT traversal test.
+
+The separate production matcher is installed from website commit a2ed864 under
+`/opt/dunecity-matchmaking`, with a hardened systemd service and Apache TLS proxy.
+The existing room service remains healthy. Restart/recovery and root/dedicated
+WebSocket routes are checked separately. Website source PR12 must also land on
+its main branch. Public game assets remain 735 until the 736 release pipeline.
+
+## 2026-09-20 — PR 49 refreshed onto main 1.0.734
+
+Main advanced to c505255 while the original PR validation run was completing.
+Integrated its hot-join checkpoint recovery and named join UI changes, preserving
+the browser transport and lifecycle fixes. The combined build is 1.0.735.
+Native and browser builds, all eight CTest groups, 193 signaling tests and the
+real three-peer hot-join replacement regression pass on the combined tree.
+The wasm32 ASan harness and real two-browser pairing/play/quit test pass again.
+
+## 2026-09-20 — PR 49 browser multiplayer review, 1.0.734
+
+Integrated current `main` (8057d80) into the matchmaking branch. Browser peer
+cleanup now removes aliases before deletion and defers local rejection cleanup
+until packet handling returns. Fixed the rejection log varargs mismatch,
+restored incoming-byte limits, guarded room-session status queries, and reset
+match state on retry. Browser menu pacing is capped at 50 ms: the real exit
+test caught a 484-second sleep after a nested match returned. Cancel releases paired connections, map-selection Back
+leaves the pair, and the matchmaking screen now renders its Back button.
+Preserved main's updater, observer/late-join behavior and direct-RTC diagnostics.
+
+Native and Emscripten builds pass; all eight CTest groups pass (770 main-suite
+cases passed, three skipped). The original teardown fails the new wasm32 ASan
+harness with heap-use-after-free; fixed lifecycle cases pass. Browser glue has
+29 passing tests; direct transport/bridge has 18. Real Chromium clients paired,
+entered the same map, and exchanged thousands of command packets without drops.
+See `docs/browser-multiplayer-pr49-validation.md` for evidence and limits.
+
+The production matchmaking WebSocket service must be deployed separately;
+configuration, trust model, STUN defaults and fixture provenance are documented
+in `platform/web/README.md`. This review does not publish or merge the game.
+
 ## 2026-09-20 — Graphics skins integrated with current main, 1.0.735
 
 PR53 integrates canonical main 24eed049, including PR63 campaign dropdowns. Preserve the new
@@ -131,6 +244,17 @@ running; do not claim warm-cache performance or that the fix has merged yet.
 No paid runner or Windows-laptop setup was performed. Stefan offered a laptop;
 we recommended measuring the cache repair first, then trusted self-hosted builds
 if needed. The release and Mac upgrade are ready independently of that work.
+
+## 2026-09-20 — Windows dependency-cache repair
+
+The 734 PR run 35484459930 spent 13m17s configuring dependencies (OpenSSL alone
+7.7 minutes), then 8m17s compiling. Its log explicitly warns that run-vcpkg's
+`clear;x-gha,readwrite` selects a removed backend, disabling reusable binaries.
+Windows now uses the same files-provider approach as Linux/Mac, persisted through
+actions/cache. Cache keys include runner image and manifest; prefix restores keep
+compatible packages across version bumps, with vcpkg performing ABI validation.
+This infrastructure change does not alter the already-tagged 734 release. A cold
+run must populate the cache before a later run can demonstrate the time saved.
 
 ## 2026-09-20 — Prominent in-game join names (local 734)
 
@@ -3176,6 +3300,33 @@ The Mac mini runner and caffeinate wrapper are restored; temporary Air builder
 label removed. Original branch protection restored after PR26 merge.
 **1.0.666 balance changes are committed locally, not pushed, merged, tagged or
 publicly deployed.** Earlier dated entries below describe historical states.
+
+## Direct command pacing correction — 13 September 2026
+
+Local branch `fix/direct-p2p-command-pacing`, based on published 1.0.665 (`b7db719`).
+Version 1.0.667 reserved here because the separate campaign-AI branch already uses 1.0.666.
+This change is not deployed. User asked to remove relay behaviour from P2P gameplay after
+reporting generally sluggish Brave multiplayer with VR48.
+
+`CommandManager::update()` was incorrectly applying the legacy 100ms relay emission cadence
+because `isRelaySession()` aliased all room sessions, including DirectP2P. Direct P2P now
+sends the rolling command window on every simulation iteration, the same as ENet. The
+ambiguous alias is removed; room lifecycle, validation, state digests and pause guards use
+`isRoomSession()`, while only the actual legacy relay uses `usesBatchedCommands()`.
+No gameplay fallback, protocol changes, command skipping, catch-up changes or server changes.
+
+Regression coverage includes two simulated peers on an ordered lossless 286ms RTT path,
+22-cycle lead and 10ms ticks. The old cadence loses over 5 seconds of simulated progress in
+120 seconds; DirectP2P and ENet preserve >=99% of intended pace. This is a controlled timing
+model, not a reproduction of all conditions in the reported WAN match. Full native build,
+six CTest suites and Emscripten syntax checks of all changed translation units pass.
+No fresh browser multiplayer playthrough yet; published 1.0.665 is unchanged.
+
+The user's diagnostic text concatenated the usual desktop-equivalent general/performance
+logs. There is also per-mission `ai-decisions/<session>/events.jsonl` in the browser virtual
+filesystem: its `performance_window` events contain wall-clock intervals and `frame.tick_ms`.
+Use that to measure actual simulation pace; legacy reported FPS excludes browser yield time
+and NetworkWait excludes time between frames. No complete cause claim from those fields.
 
 ## Campaign controls release integration — 13 September 2026
 

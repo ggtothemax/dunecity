@@ -19,8 +19,10 @@
 #include <GUI/ClickMap.h>
 #include <GUI/VBox.h>
 
-#include <Network/LANGameFinderAndAnnouncer.h>
 #include <Network/ChangeEventList.h>
+#ifndef __EMSCRIPTEN__
+#include <Network/LANGameFinderAndAnnouncer.h>
+#endif
 
 #include <GameInitSettings.h>
 
@@ -43,16 +45,29 @@ private:
     bool validateAndSavePlayerName();
     void savePlayerNameToConfig();
 
+#ifndef __EMSCRIPTEN__
     void onCreateLANGame();
     void onCreateInternetGame();
     void onPlayOnline();
     void onHostCampaignCoop();
+#else
+    void onFindMatch();
+    void onCancelMatchmaking();
+    /// Browser: the matchmaking lobby paired us; the host continues into the
+    /// game setup, the joiner waits for the host's game info.
+    void onMatched(bool bHost);
+    /// Browser: refresh the connecting/connected/error status line.
+    void update() override;
+#endif
+#ifndef __EMSCRIPTEN__
     void onConnect();
     void onJoin();
+#endif
     void onQuit();
 
     void onPeerDisconnected(const std::string& playername, bool bHost, int cause);
 
+#ifndef __EMSCRIPTEN__
     void onGameTypeChange(int buttonID);
     void onGameListSelectionChange(bool bInteractive);
 
@@ -62,12 +77,14 @@ private:
 
     void onGameServerInfoList(const std::list<GameServerInfo>& gameServerInfoList);
     void onMetaServerError(int errorcause, const std::string& errorMessage);
-
+#endif
 
     void onReceiveGameInfo(const GameInitSettings& gameInitSettings, const ChangeEventList& changeEventList);
 
+#ifndef __EMSCRIPTEN__
     std::list<GameServerInfo> LANGameList;
     std::list<GameServerInfo> InternetGameList;
+#endif
 
     StaticContainer windowWidget;
 
@@ -76,14 +93,22 @@ private:
 
     Label           captionLabel;
 
+#ifdef __EMSCRIPTEN__
+    HBox            connectHBox;
+    TextButton      findMatchButton;
+    TextButton      cancelButton;
+    Label           connectionStatusLabel;
+#else
     HBox            connectHBox;
     TextBox         connectHostTextBox;
     TextBox         connectPortTextBox;
     TextButton      connectButton;
+#endif
 
     HBox            playerNameHBox;
     TextBox         playerNameTextBox;
 
+#ifndef __EMSCRIPTEN__
     // left VBox with create game buttons
     VBox            leftVBox;
     TextButton      createLANGameButton;
@@ -99,8 +124,9 @@ private:
     ListBox         gameList;
 
     // bottom row of buttons
-    HBox            buttonHBox;
     TextButton      joinButton;
+#endif
+    HBox            buttonHBox;
     TextButton      backButton;
 };
 
