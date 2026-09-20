@@ -41,6 +41,10 @@ int runMenuProbe() {
     settings.network.relayUseDevelopmentEndpoint = true;
     // Disable online discovery in this fixture; admission and transport have separate tests.
     settings.network.directDevelopmentEndpoint = "";
+    const auto installedSkin = std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        / "graphics_skins" / "Dune2" / "zones" / "dunecity_atreides_residential_zone" / "zone.ini";
+    menuRequire(std::filesystem::is_regular_file(installedSkin),
+                "Bundled DuneCity skin was not installed into the fresh profile");
     ModManager::instance().setActiveMod("vanilla");
     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     {

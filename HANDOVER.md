@@ -1,3 +1,19 @@
+## 2026-09-20 — Stop unpublished 737 for complete skin packaging
+
+The stable artifact audit found that the browser preload omitted the DuneCity
+skin tree. A fresh native profile also failed to install those files: the bundle
+lookup required mod.ini, whereas DuneCity's package contains presentation assets
+only and generates its configuration from engine defaults. The initial 737 build
+was cancelled before any GitHub release was published; 735 remains untouched.
+
+Recognize the DuneCity graphics-only bundle, repair profiles missing the skin
+folder, and preload the same files in browser builds. The browser payload checker
+now compares every bundled skin file with tagged source and rejects missing or
+corrupt art. The real menu probe checks that a fresh profile installs a skin
+manifest. The previous native build fails that assertion, and the previous stable
+browser artifact fails the new payload audit. After validation and main merge,
+replace only the unpublished 737 tag and run the gated release again.
+
 ## 2026-09-20 — Final 737 acceptance
 
 The complete 737 raw browser build passes public matchmaking and gameplay again
