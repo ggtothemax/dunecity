@@ -109,6 +109,9 @@ unsigned int getMapEditorStructureUIGraphic(int itemID) noexcept {
         case Structure_Chemipost:           return UI_MapEditor_Chemipost;
         case Structure_LoveFactory:         return UI_MapEditor_LoveFactory;
         case Structure_ChaosFactory:        return UI_MapEditor_ChaosFactory;
+        case Structure_PoliceStation:       return UI_MapEditor_PoliceStation;
+        case Structure_Stadium:             return UI_MapEditor_Stadium;
+        case Structure_Airport:             return UI_MapEditor_Airport;
         default:                            return NUM_UIGRAPHICS;
     }
 }
@@ -1751,6 +1754,9 @@ void MapEditor::drawMap(ScreenBorder* pScreenborder, bool bCompleteMap) {
                 case Structure_ZoneCommercial:      objectPic = ObjPic_ZoneCommercial;      break;
                 case Structure_ZoneIndustrial:      objectPic = ObjPic_ZoneIndustrial;      break;
                 case Structure_NuclearPlant:        objectPic = ObjPic_NuclearPlant;        break;
+                case Structure_PoliceStation:       objectPic = ObjPic_PoliceStation;       break;
+                case Structure_Stadium:             objectPic = ObjPic_Stadium;             break;
+                case Structure_Airport:             objectPic = ObjPic_Airport;             break;
                 case Structure_AdvancedWindTrap:    objectPic = ObjPic_AdvancedWindTrap;    break;
                 case Structure_AdvancedWindTrapMK2: objectPic = ObjPic_AdvancedWindTrap2x3; break;
                 case Structure_AdvancedWindTrapMK3: objectPic = ObjPic_AdvancedWindTrap3x2; break;

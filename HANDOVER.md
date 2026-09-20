@@ -1,3 +1,23 @@
+## 2026-09-20 — Complete city editor and direct solo campaigns, local 1.0.739
+
+Added Police Station, Stadium and Airport to the city-capable map editor palette,
+including RGBA icons for every house, correct placed-map graphics, and scrolling
+rows. Existing R/C/I zones, roads and nuclear plants remain available. City-only
+rows remain hidden for vanilla; gameplay footprints and map formats are unchanged.
+
+The main Campaign and Single Player entries now default to offline and launch
+through startSinglePlayerGame without a lobby or Workshop upload. Play Online ->
+Create Campaign explicitly retains online hosting. Offline setup hides public/
+private visibility and explains direct launch. This removes the community-service
+failure from the solo campaign path; it does not deploy the public Workshop API.
+
+Native build and dependency audit pass. All eight CTest groups pass, with the
+expanded real-menu probe checked at 640/854/1280 widths. It selects all eight city
+tools through the scroll view, places them, checks undo/redo and saves/reloads the
+map with exact item identities. Campaign controls verify both entry defaults.
+A real Dune City level-1 native campaign ran 3,750 cycles (one simulated minute).
+The local MBA test package is signed/notarized separately; no push or public release.
+
 ## 2026-09-20 — Workshop integrated with released main, local 1.0.738
 
 Fresh origin/main and the published v1.0.737 tag both resolved to 5848c510;

@@ -32,7 +32,7 @@
 
 class HouseChoiceMenu : public MenuBase {
 public:
-    explicit HouseChoiceMenu(bool online = true, bool keepRules = false);
+    explicit HouseChoiceMenu(bool online = false, bool keepRules = false);
     virtual ~HouseChoiceMenu();
 
     void onChildWindowClose(Window* pChildWindow) override;

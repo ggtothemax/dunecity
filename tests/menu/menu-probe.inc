@@ -2,6 +2,7 @@
 #include <fstream>
 // Test-only entry point, linked against the real menu objects by run-menu-probe.py.
 #include <Menu/HouseChoiceMenu.h>
+#include <MapEditor/MapEditor.h>
 #include <Menu/CustomGamePlayers.h>
 #include <Menu/CustomGameMenu.h>
 #include <Menu/CrossplayMenu.h>
@@ -205,12 +206,13 @@ int runMenuProbe() {
     }
     {
         HouseChoiceMenu menu;
-        menuRequire(HouseChoiceMenu::isOnline(), "Campaign should default to online");
+        menuRequire(!HouseChoiceMenu::isOnline(), "Campaign entry must default to single player");
+        menuRequire(menu.hostCoopButton.getText() == _("Start Campaign"), "Single player campaign offers a lobby instead of launch");
         menuRequire(HouseChoiceMenu::isPublicGame(), "Campaign should default to public");
         menuCapture(menu,"campaign-default");
         menu.connectionDropDown.setSelectedItem(0);
         menuRequire(!HouseChoiceMenu::isOnline(), "Campaign cannot be switched offline");
-        menuRequire(!menu.visibilityDropDown.isEnabled() && menu.supportBotDropDown.isEnabled(),
+        menuRequire(!menu.visibilityDropDown.isEnabled() && !menu.visibilityDropDown.isVisible() && menu.supportBotDropDown.isEnabled(),
                     "Offline campaign controls did not update");
         menu.onHouseButton(1);
         menuRequire(!menu.isQuiting(),"Selecting a house starts the game");
@@ -225,6 +227,8 @@ int runMenuProbe() {
         HouseChoiceMenu menu(true,true);
         menuRequire(HouseChoiceMenu::getStartLevel()==7,"Retry lost campaign level");
         menuRequire(HouseChoiceMenu::getGameOptions().fogOfWar != effectiveGameOptions.fogOfWar,"Retry lost game rules");
+        menuRequire(HouseChoiceMenu::isOnline() && menu.hostCoopButton.getText() == _("Create Lobby"),
+                    "Explicit online campaign entry must retain its lobby");
         menuRequire(!menu.supportBotDropDown.isEnabled(),"Online campaign AI selector should defer to lobby");
         menuCapture(menu,"campaign-online");
         HouseChoiceMenu::s_singleMission = true;
@@ -646,6 +650,63 @@ int runMenuProbe() {
         menuRequire(!menu.editButton.isEnabled(), "Bundled mod can be edited without making a copy");
         menuCapture(menu,"mod-projects");
     }
+    // Exercise the real editor palette, scrolling, placement and map round trip.
+    for(const std::string mod : {"vanilla", "dunecity"}) {
+        menuRequire(ModManager::instance().setActiveMod(mod), "Editor mod unavailable");
+        MapEditor editor;
+        auto& ui = *editor.pInterface;
+        while(ui.hasChildWindow()) { ui.closeChildWindow(); ui.processChildWindowOpenCloses(); }
+        editor.setMap(MapData(64,64,Terrain_Rock), MapInfo());
+        ui.onModeButton(2);
+        menuRequire(ui.cityStructsVisible_ == (mod == "dunecity"), "City palette has wrong mod gating");
+        menuRequire((ui.editorModeStructs_HBoxCityCivic.getParent() != nullptr) == (mod == "dunecity"),
+                    "Civic buildings must appear only for city-capable mods");
+        if(mod != "dunecity") continue;
+        struct PaletteEntry { SymbolButton* button; HBox* row; int item; };
+        const PaletteEntry entries[] = {
+            {&ui.editorModeStructs_ZoneResidential, &ui.editorModeStructs_HBoxCityZones, Structure_ZoneResidential},
+            {&ui.editorModeStructs_ZoneCommercial, &ui.editorModeStructs_HBoxCityZones, Structure_ZoneCommercial},
+            {&ui.editorModeStructs_ZoneIndustrial, &ui.editorModeStructs_HBoxCityZones, Structure_ZoneIndustrial},
+            {&ui.editorModeStructs_Road, &ui.editorModeStructs_HBoxCityInfra, Structure_Road},
+            {&ui.editorModeStructs_NuclearPlant, &ui.editorModeStructs_HBoxCityInfra, Structure_NuclearPlant},
+            {&ui.editorModeStructs_PoliceStation, &ui.editorModeStructs_HBoxCityCivic, Structure_PoliceStation},
+            {&ui.editorModeStructs_Stadium, &ui.editorModeStructs_HBoxCityCivic, Structure_Stadium},
+            {&ui.editorModeStructs_Airport, &ui.editorModeStructs_HBoxCityAirport, Structure_Airport},
+        };
+        auto& scroll = ui.editorModeStructs_ScrollView;
+        int index = 0;
+        for(const auto& entry : entries) {
+            menuRequire(entry.button->pSymbolSurface.get() != nullptr, "Editor structure icon missing");
+            const auto position = ui.editorModeStructs_VBox.getWidgetPosition(entry.row) + entry.row->getWidgetPosition(entry.button);
+            menuRequire(position.x >= 0 && position.x + entry.button->getSize().x <= scroll.getContentWidth(),
+                        "Editor building clipped horizontally");
+            scroll.scrollbar.setCurrentValue(position.y);
+            const int x = position.x + entry.button->getSize().x/2;
+            const int y = position.y - scroll.scrollbar.getCurrentValue() + entry.button->getSize().y/2;
+            menuRequire(y >= 0 && y < scroll.getSize().y, "Cannot scroll to city building");
+            scroll.handleMouseLeft(x,y,true);
+            scroll.handleMouseLeft(x,y,false);
+            menuRequire(editor.currentEditorMode.itemID == entry.item && entry.button->getToggleState(),
+                        "Editor building click selects wrong structure");
+            editor.performMapEdit(2 + index*6, 4, false);
+            menuRequire(editor.getStructureList().size() == static_cast<size_t>(++index), "City building cannot be placed");
+        }
+        menuCapture(ui, "editor-city-buildings");
+        editor.undoLastOperation();
+        menuRequire(editor.getStructureList().size() == 7, "City building undo failed");
+        editor.redoLastOperation();
+        menuRequire(editor.getStructureList().size() == 8, "City building redo failed");
+        const std::string path = std::string(std::getenv("MENU_PROBE_OUT")) + "/city-buildings-" + std::getenv("MENU_PROBE_WIDTH") + ".ini";
+        editor.saveMap(path);
+        editor.loadMap(path);
+        menuRequire(editor.getStructureList().size() == 8, "City buildings lost in map round trip");
+        for(size_t i=0; i<8; ++i)
+            menuRequire(editor.getStructureList()[i].itemID == entries[i].item, "Saved city building changed identity");
+        SDL_ClearError();
+        editor.drawMap(screenborder, false);
+        menuRequire(SDL_GetError()[0] == '\0', "Editor city map rendering failed");
+    }
+    ModManager::instance().setActiveMod("vanilla");
     { ModMenu menu(ModMenu::Purpose::MapEditor); menuCapture(menu,"map-working-mod"); }
     { ModMenu menu(ModMenu::Purpose::AssetEditors); menuCapture(menu,"asset-working-mod"); }
     {

@@ -3097,6 +3097,19 @@ GFXManager::GFXManager() {
         }
     }
 
+    // Civic atlases are RGBA. Fill every house explicitly, avoiding indexed
+    // palette remapping, and take only the static frame at the logical footprint.
+    struct CityEditorIcon { int uiID; int objectID; int tiles; };
+    for(const auto& icon : {CityEditorIcon{UI_MapEditor_PoliceStation, ObjPic_PoliceStation, 2},
+                            CityEditorIcon{UI_MapEditor_Stadium, ObjPic_Stadium, 3},
+                            CityEditorIcon{UI_MapEditor_Airport, ObjPic_Airport, 3}}) {
+        for(int house = 0; house < NUM_HOUSES; ++house) {
+            uiGraphic[icon.uiID][house] = getSubPicture(
+                objPic[icon.objectID][HOUSE_HARKONNEN][0].get(), 0, 0,
+                icon.tiles * D2_TILESIZE, icon.tiles * D2_TILESIZE);
+        }
+    }
+
     // Road icon: pull frame 15 (four-way intersection) from the CityRoad
     // atlas at zoom level 1 (D2_TILESIZE-per-cell) so it matches the size of
     // other 1x1 structure icons (Slab1, Wall). Road is house-agnostic — fill
