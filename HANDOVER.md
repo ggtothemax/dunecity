@@ -17,7 +17,23 @@ This service correction must be deployed before standalone public online tests.
 
 Native and browser builds pass. All eight CTest groups pass, including real menus
 at three sizes, both entry defaults, automatic-launch progress and retained AI.
-Local package/service preparation is in progress; no public deployment yet.
+Real Chromium checks against the isolated local service confirm Campaign ->
+Start Campaign reaches live Dune City gameplay without a roster or second click;
+Play Online -> Create Campaign -> Create Lobby remains in its pregame roster.
+All 207 PHP tests and the verified service installer pass. Legacy claim tests
+pass 40 admission/grant/signaling/start cases for 1.0.737/protocol9 and another
+40 for protocol8. These are HTTP compatibility tests, not old executable runs.
+
+The signed/notarized DMG and ZIP are under ../outputs/mba-test-1.0.740/signed.
+The DMG is available at http://claw.local:18738/DuneCity-1.0.740-macOS.dmg;
+its downloaded SHA256 matches e5bd5656a9b86e5db50339d9bc8e373d3d4b509d7bb6b19efc1cb769049317dd.
+Code/package source is 8b352f03; browser test files live in play740 with explicit
+relay=http://127.0.0.1:18738&relaydev=1 parameters for the local service.
+The user asked why the live service is needed and whether older versions break;
+explained online discovery/mod sharing and successful legacy checks. No approval
+for public deployment has been given, so the public service and website remain
+unchanged. The standalone app's public online mode still needs that service
+update. Prepared service bundle: ../outputs/mba-test-1.0.740/p2p-service.
 
 ## 2026-09-20 — Complete city editor and direct solo campaigns, local 1.0.739
 
