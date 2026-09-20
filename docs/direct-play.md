@@ -20,7 +20,7 @@ admission answer offers.
 | `src/Network/DirectPeerConnectionLibdatachannel.cpp` | native backend (libdatachannel, pinned commit `443f6934d9007eb7076ab7825ba330f355fcbead`, v0.24.5) |
 | `src/Network/DirectPeerConnectionEmscripten.cpp` | browser backend, through the bridge below |
 | `platform/web/src/dune-direct-bridge.ts` | owns P2PKit's `RTCTransport`; bundled to `platform/web/p2p-direct.js` |
-| `platform/web/p2pkit/**` | the vendored, hardened P2PKit transport and framing |
+| `platform/web/package.json` | the pinned P2PKit SDK dependency, including hardened direct mode and framing |
 | `tools/p2p-signaling/**` | the PHP signaling service |
 | `tools/p2p-interop/**` | native-to-browser interoperability harness |
 
@@ -30,11 +30,12 @@ sees anything but opaque hex.
 
 ## 1a. Relationship to upstream P2PKit
 
-The browser side **is** P2PKit. `platform/web/p2pkit/` is the upstream source
-(`94ae7eb8818a629478e0a6ba0aa3232c5fc0b1ab`) with security hardening applied in place and recorded
-in `platform/web/p2pkit/UPSTREAM.md`; the game uses `RTCTransport` directly through
-`platform/web/src/dune-direct-bridge.ts`, and nothing else from the library - no mesh, no
-broadcast, no RPC, no signer. P2PKit's own separation of concerns is what the design follows:
+The browser uses the P2PKit revision pinned in `platform/web/package.json` through
+its documented package exports. `platform/web/src/dune-direct-bridge.ts` selects
+`direct: true` for hardened framing and STUN-only signaling. The old vendored
+source tree has been removed; generic transport code comes from the dependency.
+The separate browser **Find Match** flow uses the SDK's matchmaking service and
+has a different trust model; see `platform/web/README.md` for configuration and deployment.
 
 | Upstream concept | Here |
 | --- | --- |

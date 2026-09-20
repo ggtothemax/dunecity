@@ -6,6 +6,7 @@
 #include <Network/NetworkManager.h>
 #include <Network/RoomAdmissionClient.h>
 #include <Menu/CrossplayMenu.h>
+#include <Network/WorkshopGameContent.h>
 #include <players/HumanPlayer.h>
 #include <units/UnitBase.h>
 #include <units/Harvester.h>
@@ -72,7 +73,7 @@ int runLateJoinProbe() {
     auto wait=[&](auto condition) { while(!condition()) { if(SDL_TICKS_PASSED(SDL_GetTicks(),deadline)) throw std::runtime_error("probe wait timeout"); SDL_Delay(5); } };
     AdmissionRequest request;
     request.baseUrl=endpoint; request.allowLoopbackPlaintext=true; request.appVersion=VERSIONSTRING;
-    request.gameProtocol=NETWORK_PROTOCOL_VERSION; request.runtime="native"; request.contentHash=CrossplayMenu::contentFingerprint();
+    request.gameProtocol=NETWORK_PROTOCOL_VERSION; request.runtime="native"; request.contentHash=Workshop::saveMod(ModManager::instance().getActiveModName()).hash;
     request.hosting=host; request.publicRoom=true; request.maxPeers=4; request.mode="custom"; request.allowLateJoin=true;
     request.modName=city ? "dunecity" : "vanilla";
     request.mapName=std::getenv("JOIN_TWIN_CITIES") ? "2P - 256x256 - Twin Cities"
@@ -129,6 +130,7 @@ int runLateJoinProbe() {
             if(name=="Newcomer") throw std::runtime_error("late join reopened waiting-lobby assignment");
             return ChangeEventList();
         });
+        WorkshopGameContent::pin(init);
         network.startServer(false,"Join probe",role,&init,solo ? 1 : 2,4);
         OMemoryStream bytes; bytes.open(); init.save(bytes); joinWrite(out+"/init",std::string(bytes.getData(),bytes.getDataLength()));
     } else if(!newcomer) {
@@ -297,7 +299,7 @@ int runLateJoinProbe() {
                     if(requests[0].id==declinedRequest) continue;
                     game->getGameInterface().updateJoinRequestButton();
                     auto& notice=game->getGameInterface().joinRequestButton;
-                    if(!notice.isVisible() || notice.getText().find("waiting approval")==std::string::npos)
+                    if(!notice.isVisible() || notice.getText().find(requests[0].name + " wants to play")==std::string::npos)
                         throw std::runtime_error("host has no persistent approval notice");
                     if(game->pInGameMenu) throw std::runtime_error("request interrupted host with an automatic dialog");
                     joinCapture(*game,out+"/host-pending.bmp");
@@ -327,7 +329,7 @@ int runLateJoinProbe() {
                 if(!direct->requestToPlay()) throw std::runtime_error("request to play failed");
                 game->getGameInterface().updateJoinRequestButton();
                 const auto& notice=game->getGameInterface().joinRequestButton;
-                if(!notice.isVisible() || notice.getText()!="Request waiting approval")
+                if(!notice.isVisible() || notice.getText()!=settings.general.playerName + ": waiting for host approval")
                     throw std::runtime_error("requester has no persistent approval notice");
                 joinCapture(*game,out+"/requester-pending.bmp");
                 if(playRequested) retried=true;

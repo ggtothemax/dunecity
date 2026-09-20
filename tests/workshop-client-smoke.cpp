@@ -14,6 +14,12 @@
 #include <stdexcept>
 #include <thread>
 
+// Advance only the client's retry clock; curl deadlines and the smoke-test deadline remain real.
+// This lets the PHP fixture inject HTTP 429 without adding a minute to the suite.
+extern "C" Uint32 SDLCALL SDL_GetTicks(void) {
+    static Uint32 ticks=0;
+    return ticks+=1000;
+}
 SettingsClass settings;
 std::string getDuneLegacyDataDir() { return "."; }
 namespace WebRuntime { void syncPersistentFiles() {} }
@@ -68,6 +74,20 @@ int main(int argc,char** argv) {
         write(modSource/"mod.ini","[Mod]\nName=Wire test\n");
         write(modSource/"idle.png",atlas);write(modSource/"movement.png",atlas);write(modSource/"empty","");
         auto mod=Workshop::store().capture("mod",Workshop::newID(),"Wire test","Dune2R","",modSource);
+        // Canonical display names must agree with the server's UTF-8 validator.
+        auto withName=[&](const std::string& name) {
+            auto text=mod.manifest;const auto start=text.find("name=")+5,end=text.find('\n',start);
+            text.replace(start,end-start,Workshop::hex(name));return text;
+        };
+        for(const auto& name:std::vector<std::string>{"   ",std::string("\xc0\xaf",2),
+                std::string("\xed\xa0\x80",3),std::string("\xf4\x90\x80\x80",4),
+                std::string("\x80",1),std::string("\xe2\x82",2)}) {
+            bool refused=false;
+            try {Workshop::parseManifest(withName(name));}catch(const std::exception&){refused=true;}
+            check(refused,"Client accepted a name rejected by the server");
+        }
+        check(Workshop::parseManifest(withName(u8"Dunes \u00e9 \U0001f30d")).name==u8"Dunes \u00e9 \U0001f30d",
+              "Valid Unicode display name was refused");
         // Resume a server-side upload whose first two chunks succeeded before interruption.
         auto receipt=post("begin","hash="+mod.hash+"&manifest="+Workshop::hex(mod.manifest)+"&owner="+Workshop::store().owner());
         auto hash=Workshop::hashBytes(atlas);
@@ -104,7 +124,7 @@ int main(int argc,char** argv) {
         const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
         while(client.status()==Workshop::Client::Status::Busy&&std::chrono::steady_clock::now()<deadline){client.update();std::this_thread::sleep_for(std::chrono::milliseconds(1));}
         check(client.status()==Workshop::Client::Status::Failed,"Borrower changed the original author's lineage");
-        std::cout<<"PASS: real client/server resume, duplicate large assets, dependency closure, versions, cache repair and owner rejection\n";
+        std::cout<<"PASS: real client/server resume, duplicate large assets, dependency closure, versions, cache repair, rate-limit retry and owner rejection\n";
         return 0;
     }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<'\n';return 1;}
 }

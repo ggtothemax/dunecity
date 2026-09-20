@@ -129,7 +129,11 @@ CrossplayMenu::CrossplayMenu() : MenuBase() {
     chatInput.setOnReturn([this]() { sendLobbyChat(); });
     chatSendButton.setText(_("Send"));
     chatSendButton.setOnClick([this]() { sendLobbyChat(); });
+#ifdef __EMSCRIPTEN__
+    otherConnections.setText(_("Find Match"));
+#else
     otherConnections.setText(_("LAN / direct connection"));
+#endif
     otherConnections.setOnClick([]() { MultiPlayerMenu().showMenu(); });
     backButton.setText(_("Back"));
     backButton.setOnClick([this]() { onBack(); });
@@ -209,9 +213,10 @@ void CrossplayMenu::layoutControls() {
     place(&joinProgress,x,h-65,w,26);
     joinProgress.setVisible(false);
     place(&backButton,x,h-34,95,28);
-#ifndef __EMSCRIPTEN__
+    // In the browser this opens the matchmaking lobby (Find Match), natively
+    // the LAN/direct connection screen; the button is the same MultiPlayerMenu
+    // route either way.
     if(!preparedGame) place(&otherConnections,x+w-215,h-34,215,28);
-#endif
 }
 
 void CrossplayMenu::refreshDirectory() {
@@ -253,7 +258,7 @@ CrossplayMenu::~CrossplayMenu() {
     admission.cancel();
     visibilityUpdate.cancel();
     visibilityPending = false;
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         pNetworkManager->setOnReceiveGameInfo(
             std::function<void (const GameInitSettings&, const ChangeEventList&)>());
         pNetworkManager->setOnPeerDisconnected(
@@ -702,7 +707,7 @@ void CrossplayMenu::teardownSession(std::string reason) {
     admission.cancel();
     visibilityUpdate.cancel();
     visibilityPending = false;
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         pNetworkManager->setOnReceiveGameInfo(
             std::function<void (const GameInitSettings&, const ChangeEventList&)>());
         pNetworkManager->setOnPeerDisconnected(
@@ -869,7 +874,7 @@ void CrossplayMenu::update() {
         }
         return;
     }
-    if(pNetworkManager == nullptr || !pNetworkManager->isRelaySession()) {
+    if(pNetworkManager == nullptr || !pNetworkManager->isRoomSession()) {
         return;
     }
 

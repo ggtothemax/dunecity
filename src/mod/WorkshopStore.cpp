@@ -49,6 +49,38 @@ uint64_t number(const std::string& s) {
             && s.find_first_not_of("0123456789") == std::string::npos, "Invalid Workshop size or version.");
     return std::stoull(s);
 }
+bool validDisplayName(const std::string& text) {
+    bool nonblank=false;
+    for(size_t i=0;i<text.size();) {
+        const auto first=static_cast<unsigned char>(text[i++]);
+        if(first<0x80) {
+            if(first<0x20||first==0x7f)return false;
+            nonblank=nonblank||first!=' ';
+            continue;
+        }
+        nonblank=true;
+        unsigned continuation=0;
+        unsigned char minimum=0x80,maximum=0xbf;
+        if(first>=0xc2&&first<=0xdf)continuation=1;
+        else if(first>=0xe0&&first<=0xef) {
+            continuation=2;
+            if(first==0xe0)minimum=0xa0; // No overlong encoding.
+            if(first==0xed)maximum=0x9f; // No UTF-16 surrogate code points.
+        } else if(first>=0xf0&&first<=0xf4) {
+            continuation=3;
+            if(first==0xf0)minimum=0x90;
+            if(first==0xf4)maximum=0x8f; // Unicode ends at U+10FFFF.
+        } else return false;
+        if(text.size()-i<continuation)return false;
+        const auto second=static_cast<unsigned char>(text[i]);
+        if(second<minimum||second>maximum)return false;
+        for(unsigned n=0;n<continuation;++n) {
+            const auto next=static_cast<unsigned char>(text[i++]);
+            if(next<0x80||next>0xbf)return false;
+        }
+    }
+    return nonblank;
+}
 bool safePath(const std::string& s) {
     fs::path out;
     for(const auto& part : fs::path(s)) if(!part.string().empty() && part.string().front()==' ') return false;
@@ -114,7 +146,7 @@ Revision parseManifest(const std::string& manifest) {
     r.kind=field("kind"); r.id=field("id"); r.name=unhex(field("name"));
     r.base=unhex(field("base")); r.modHash=field("mod");
     require((r.kind=="map"||r.kind=="mod") && token(r.id,32) && !r.name.empty() && r.name.size()<=128
-            && std::none_of(r.name.begin(),r.name.end(),[](unsigned char c){return c<32||c==127;})
+            && validDisplayName(r.name)
             && (r.base.empty() || (r.base.size()<=64 && safePath(r.base) && r.base.find('/')==std::string::npos))
             && (r.modHash.empty() || token(r.modHash,64)) && (r.kind!="mod" || r.modHash.empty()),
             "Invalid Workshop identity or dependency.");

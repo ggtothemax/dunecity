@@ -14,6 +14,17 @@ ZIP, Android APK, warm-cache strategy, and exFAT workarounds, see
 - CMake 3.15+
 - C++17 compatible compiler
 - Git
+- Node.js 20+ and npm
+
+Before configuring either a native or browser build, install the pinned SDK headers:
+
+```bash
+npm ci --ignore-scripts --prefix platform/web
+```
+
+Use `npm ci --prefix platform/web` and `npm ci --prefix tools/p2pkit-build`
+when rebuilding the JavaScript bundles (the SDK prepare script produces its ESM exports).
+The dependency uses HTTPS and an immutable Git commit; GitHub SSH keys are not required.
 
 **Platform-Specific:**
 - **Windows**: Visual Studio 2019+ or MinGW-w64

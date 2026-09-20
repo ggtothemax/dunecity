@@ -2,5 +2,8 @@
   "name": "dunecity-p2pkit-build",
   "private": true,
   "type": "module",
-  "devDependencies": { "esbuild": "0.25.10" }
+  "devDependencies": {
+    "esbuild": "0.25.10",
+    "p2pkit": "git+https://github.com/QuixThe2nd/p2pkit.git#257f3c8eb0c0cf373298225e54c8d09d2f896a42"
+  }
 }

@@ -47,10 +47,14 @@ int runMenuProbe() {
     settings.network.relayUseDevelopmentEndpoint = true;
     // Disable online discovery in this fixture; admission and transport have separate tests.
     settings.network.directDevelopmentEndpoint = "";
+    const auto installedSkin = std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        / "graphics_skins" / "Dune2" / "zones" / "dunecity_atreides_residential_zone" / "zone.ini";
+    menuRequire(std::filesystem::is_regular_file(installedSkin),
+                "Bundled DuneCity skin was not installed into the fresh profile");
     ModManager::instance().setActiveMod("vanilla");
     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     {
-        HouseChoiceMenu menu;
+        HouseChoiceMenu menu(false);
         for(auto* dropdown : {&menu.modDropDown, &menu.enemyAIDropDown,
                               &menu.supportBotDropDown, &menu.startLevelDropDown}) {
             dropdown->onOpenListBoxButton();
@@ -91,7 +95,7 @@ int runMenuProbe() {
         dropdown.setSelectedItem(0);
     }
     {
-        HouseChoiceMenu menu;
+        HouseChoiceMenu menu(false);
         menuRequire(HouseChoiceMenu::isPublicGame(),"Campaign should default to public");
         menu.supportBotDropDown.setSelectedItem(4);
         menuRequire(HouseChoiceMenu::getSupportBotIndex()==4,"Support setup fixture failed");
@@ -201,6 +205,13 @@ int runMenuProbe() {
     }
     {
         HouseChoiceMenu menu;
+        menuRequire(HouseChoiceMenu::isOnline(), "Campaign should default to online");
+        menuRequire(HouseChoiceMenu::isPublicGame(), "Campaign should default to public");
+        menuCapture(menu,"campaign-default");
+        menu.connectionDropDown.setSelectedItem(0);
+        menuRequire(!HouseChoiceMenu::isOnline(), "Campaign cannot be switched offline");
+        menuRequire(!menu.visibilityDropDown.isEnabled() && menu.supportBotDropDown.isEnabled(),
+                    "Offline campaign controls did not update");
         menu.onHouseButton(1);
         menuRequire(!menu.isQuiting(),"Selecting a house starts the game");
         HouseChoiceMenu::s_startLevel = 7;
@@ -273,8 +284,15 @@ int runMenuProbe() {
         coop.setScenarioData(scenarioData);
         CustomGamePlayers menu(coop,true);
         SDL_Event tab{}; tab.type=SDL_KEYDOWN; tab.key.keysym.sym=SDLK_TAB;
-        // A partner arriving enables Start after the lobby was built with it disabled.
+        // The host can start alone, with the second controller still open for a later join.
         menu.update();
+        menuRequire(menu.nextButton.isEnabled(), "Campaign requires a partner before starting");
+        menu.addAllPlayersToGameInitSettings();
+        for(const auto& house : menu.gameInitSettings.getHouseInfoList()) {
+            if(house.houseID == HOUSE_ATREIDES)
+                menuRequire(house.playerInfoList.size() == 1, "Solo campaign added a phantom partner");
+        }
+        menuCapture(menu,"campaign-solo-lobby");
         menu.setPlayer2Slot("Keyboard partner",1);
         menu.update();
         bool reachedStart=false;
@@ -678,6 +696,27 @@ int runMenuProbe() {
         menuRequire(Workshop::saveMod(draft).version == revision.version,
                     "Unchanged editor Save allocated another version");
         menuCapture(menu,"mod-editor-saved");
+        // Copies and cached installs must carry full nested assets, not just
+        // configuration files. This also exercises the Android-compatible
+        // file-by-file staging path used by Workshop installation.
+        const std::string nested = "graphics_skins/Probe/nested/sprite.bin";
+        std::filesystem::create_directories(std::filesystem::path(path)/"graphics_skins/Probe/nested");
+        { std::ofstream asset(std::filesystem::path(path)/nested,std::ios::binary); asset << "nested authored sprite bytes"; }
+        const auto withAssets = Workshop::saveMod(draft);
+        const auto installed = Workshop::installMod(withAssets);
+        Workshop::store().verifyDirectory(withAssets,manager.getModPath(installed));
+        const std::string copiedDraft = "Workshop Nested Copy Probe";
+        std::filesystem::remove_all(manager.getModPath(copiedDraft));
+        menuRequire(manager.createMod(copiedDraft,installed), "Cannot make editable copy of a cached revision");
+        const auto copiedPath = std::filesystem::path(manager.getModPath(copiedDraft));
+        std::ifstream copiedAsset(copiedPath/nested,std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(copiedAsset)),std::istreambuf_iterator<char>());
+        menuRequire(bytes=="nested authored sprite bytes", "Workshop copy lost nested authored assets");
+        const auto copied = Workshop::saveMod(copiedDraft);
+        menuRequire(copied.id!=withAssets.id && copied.base==withAssets.base,
+                    "Editable copy reused the immutable original's identity or lost its content base");
+        menuRequire(!INIFile((copiedPath/"workshop-revision.ini").string()).getBoolValue("Workshop","Immutable",false),
+                    "Editable copy inherited immutable download metadata");
     }
     {
         // Exercise the actual LAN unpacker with a receiver that has neither the
@@ -808,6 +847,28 @@ int runMenuProbe() {
         source->setSelectedItem(2,true); menuCapture(*menu,"community-installed-mods");
         source->setSelectedItem(0,true); menuCapture(*menu,"community-offline");
         std::filesystem::remove(mapPath);
+    }
+    {
+        // Receiving the first map must work before any editor or map browser has
+        // created the destination directory (including a fresh browser profile).
+        namespace fs = std::filesystem;
+        menuRequire(std::getenv("DUNECITY_USERDIR") != nullptr, "Fresh map test needs an isolated profile");
+        const auto directory = fs::path(std::getenv("DUNECITY_USERDIR"))/"maps/multiplayer";
+        const auto backup = fs::path(directory.string()+".probe-backup");
+        const bool existed = fs::exists(directory);
+        if(existed) fs::rename(directory,backup);
+        struct Restore {
+            fs::path directory, backup; bool existed;
+            ~Restore() { std::error_code e; fs::remove_all(directory,e); if(existed) fs::rename(backup,directory,e); }
+        } restore{directory,backup,existed};
+        const std::string data="[BASIC]\nName=First shared map\n";
+        const auto mod=Workshop::saveMod("vanilla");
+        const auto source=Workshop::saveMapData("First shared map.ini",data,mod.hash);
+        const auto received=Workshop::receiveMap("First shared map.ini",data,source.hash,source.manifest,source.version);
+        const auto installed=Workshop::installMap(received);
+        menuRequire(fs::is_directory(directory) && readCompleteFile(installed)==data,
+                    "First received map did not create its destination or preserve bytes");
+        menuRequire(fs::exists(installed+".workshop.ini"), "First received map lost revision metadata");
     }
     { DisplayMenu menu;menuCapture(menu,"display"); }
     { auto rules=settings.gameOptions;GameOptionsWindow menu(rules);menuCapture(menu,"game-rules"); }

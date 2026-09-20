@@ -12,7 +12,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from test_signaling import ServiceFixture, PHP_BIN
+from test_signaling import ServiceFixture, PHP_BIN, php_literal
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -41,9 +41,23 @@ def main():
                    + cflags + [strip] + [str(ROOT / p) for p in sources] + libs + ['-o', str(binary)])
         subprocess.run(command, check=True, cwd=ROOT)
     service = ServiceFixture()
+    # Inject one real HTTP 429 before the final catalog request. The harness advances the
+    # SDL retry clock, while the production client still decides whether/what to retry.
+    flag = Path(service.tmp) / 'rate-once'
+    observed = Path(service.tmp) / 'rate-observed'
+    flag.write_text('1')
+    router = Path(service.tmp) / 'router.php'
+    injection = ("if (($_SERVER['REQUEST_URI'] ?? '') === '/v1/content/list' && file_exists("
+                 + php_literal(str(flag)) + ")) { unlink(" + php_literal(str(flag))
+                 + "); file_put_contents(" + php_literal(str(observed)) + ", '1'); "
+                 + "http_response_code(429); header('Content-Type: text/plain'); "
+                 + "echo \"status=error\\ncode=rate_limited\\nmessage=5265747279\\n\"; return; }\n")
+    router.write_text(router.read_text().replace('<?php\n', '<?php\n' + injection, 1))
     try:
         with tempfile.TemporaryDirectory(prefix='workshop-client-wire-') as directory:
             subprocess.run([str(binary), 'http://127.0.0.1:' + str(service.port), directory], check=True, cwd=ROOT)
+            if not observed.exists():
+                raise RuntimeError('The client smoke test did not exercise rate-limit retry.')
     finally:
         service.stop()
 

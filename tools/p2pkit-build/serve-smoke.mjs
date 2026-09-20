@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 const port=Number(process.argv[2] ?? 8770);
 if(!Number.isInteger(port)||port<1024||port>65535)throw new Error('Invalid local port');
-const bundle=await build({entryPoints:[fileURLToPath(new URL('../../platform/web/p2pkit/src/transports/rtc.ts',import.meta.url))],bundle:true,platform:'browser',format:'esm',write:false});
+// Bundle the installed p2pkit package's documented browser-safe iife export
+// (the same surface the bridge bundle is built from) for serving to the browser.
+const bundle=await build({stdin:{contents:'export * from "p2pkit/iife";',resolveDir:fileURLToPath(new URL('.',import.meta.url))},bundle:true,platform:'browser',format:'esm',write:false});
 const page=await readFile(new URL('./browser-smoke.html',import.meta.url));
 const server=createServer((req,res)=>{
  const pathname=new URL(req.url,'http://127.0.0.1').pathname;

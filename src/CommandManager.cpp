@@ -132,10 +132,10 @@ void CommandManager::update() {
     // the relay's 1 MiB slow-consumer guard. Pace it by wall time instead; the emitted window,
     // and therefore everything CommandValidation.h checks about it, is unchanged.
     //
-    // Direct ENet sessions keep emitting once per iteration: their command buffer is as small as
-    // five cycles (80 ms), which is shorter than the emission interval, and there is no batching
-    // queue between the peers that the extra packets could congest.
-    if(pNetworkManager->isRelaySession()) {
+    // Direct P2P and ENet sessions emit once per iteration. Their command lead is sized
+    // for the peer path, without the extra 100ms batch delay. Applying relay pacing here
+    // can make the other peer exhaust that lead and slow the lockstep simulation.
+    if(pNetworkManager->usesBatchedCommands()) {
         const Uint32 nowMs = SDL_GetTicks();
         if(!emissionSchedule.shouldEmit(nowMs, currentCycle)) {
             return;

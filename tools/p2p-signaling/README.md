@@ -278,7 +278,7 @@ file=<64-lowercase-hex-sha256>,<decimal-byte-length>,6d61702e696e69
 - `file` lines repeat in raw path byte order. Paths are hex-encoded portable ASCII relative
   paths, up to 240 bytes; traversal, reserved device names, case collisions and file/directory
   conflicts are rejected. Directory spellings must use consistent case.
-- A map contains exactly `map.ini`, up to 1 MiB. A mod has up to 4,096 files, at most 128 MiB
+- A map contains exactly `map.ini`, up to 1 MiB. A mod must include `mod.ini` and has up to 4,096 files, at most 128 MiB
   each and 2 GiB total. Manifest bytes are limited to **255 KiB** so a hex-encoded manifest
   plus response envelope fits the client's 512 KiB HTTP response budget.
 - The revision identity is SHA-256 of the exact raw manifest. A display version is allocated

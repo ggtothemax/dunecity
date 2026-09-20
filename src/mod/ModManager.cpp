@@ -77,7 +77,11 @@ std::filesystem::path findBundledModPath(const std::string& modName) {
     };
 
     for(const auto& candidate : candidates) {
-        if(std::filesystem::is_regular_file(candidate / MOD_INI_FILE)) {
+        // DuneCity configuration is generated from the engine defaults. Its
+        // bundled directory contains graphics only, so it has no mod.ini.
+        const bool citySkins = modName == DUNECITY_MOD_NAME
+            && std::filesystem::is_directory(candidate / "graphics_skins");
+        if(citySkins || std::filesystem::is_regular_file(candidate / MOD_INI_FILE)) {
             return std::filesystem::weakly_canonical(candidate);
         }
     }
@@ -1010,10 +1014,18 @@ bool ModManager::createMod(const std::string& name, const std::string& baseMod) 
     SDL_Log("ModManager::createMod - baseModPath: %s", baseModPath.c_str());
     
     const std::filesystem::path stage = newModPath + ".stage-" + Workshop::newID();
+    bool installedDraft = false;
     try {
         // Capture first: every copied asset, campaign, palette and rule is hash checked.
         const auto base = Workshop::saveMod(baseMod);
-        std::filesystem::copy(base.directory, stage, std::filesystem::copy_options::recursive);
+        std::filesystem::create_directories(stage);
+        // Android libc++ does not support recursive filesystem::copy. Copy the
+        // verified manifest explicitly, including every nested authored asset.
+        for(const auto& file : base.files) {
+            const auto destination = stage / file.path;
+            std::filesystem::create_directories(destination.parent_path());
+            std::filesystem::copy_file(std::filesystem::path(base.directory) / file.path, destination);
+        }
         ModInfo info = getModInfo(baseMod);
         info.description = "Custom mod based on " + info.displayName;
         info.name = name;
@@ -1024,11 +1036,13 @@ bool ModManager::createMod(const std::string& name, const std::string& baseMod) 
         if(!writeModInfo(stage.string(), info)) throw std::runtime_error("Cannot write copied mod metadata");
         // The new item gets a new permanent identity when first saved; no ownership is copied.
         std::filesystem::rename(stage, newModPath);
+        installedDraft = true;
         Workshop::saveMod(name);
         return true;
     } catch(const std::exception& e) {
         std::error_code ignored;
         std::filesystem::remove_all(stage, ignored);
+        if(installedDraft) std::filesystem::remove_all(newModPath, ignored);
         SDL_Log("ModManager: Cannot create mod: %s", e.what());
         return false;
     }
@@ -1514,6 +1528,13 @@ bool ModManager::dunecityNeedsReseed() const {
     // flag set, reseed so it gets the correct metadata.
     if (!info.enablesCityMode) {
         SDL_Log("ModManager: Dunecity mod.ini missing 'Enables City Mode = true', needs reseed");
+        return true;
+    }
+
+    const auto bundledSkins = findBundledModPath(DUNECITY_MOD_NAME) / "graphics_skins";
+    if(std::filesystem::is_directory(bundledSkins)
+       && !std::filesystem::is_directory(std::filesystem::path(dunecityPath) / "graphics_skins")) {
+        SDL_Log("ModManager: Bundled DuneCity graphics skins are missing from the profile, needs reseed");
         return true;
     }
 

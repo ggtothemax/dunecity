@@ -119,8 +119,18 @@ std::string installMod(const Revision& revision) {
     const fs::path destination=ModManager::instance().getModPath(name);
     if(!fs::exists(destination)) {
         const auto stage=fs::path(destination.string()+".stage-"+newID());
-        try {fs::copy(r.directory,stage,fs::copy_options::recursive);pointer(stage/"workshop-revision.ini",r,true);fs::rename(stage,destination);}
-        catch(...) {std::error_code e;fs::remove_all(stage,e);throw;}
+        try {
+            fs::create_directories(stage);
+            // Recursive filesystem::copy is unavailable in Android libc++.
+            // The verified manifest is also the exact set of files to install.
+            for(const auto& file : r.files) {
+                const auto target = stage / file.path;
+                fs::create_directories(target.parent_path());
+                fs::copy_file(fs::path(r.directory) / file.path, target);
+            }
+            pointer(stage/"workshop-revision.ini",r,true);
+            fs::rename(stage,destination);
+        } catch(...) {std::error_code e;fs::remove_all(stage,e);throw;}
     }
     // Existing installed copies are checked too; never quietly activate altered bytes.
     store().verifyDirectory(r,destination);
@@ -132,7 +142,9 @@ std::string installMap(const Revision& revision) {
     std::string name;
     for(unsigned char c:r.name) name += (c>=32&&c<127&&std::string("<>:\"/\\|?*").find(c)==std::string::npos)?char(c):'_';
     if(name.empty()||!ModTransferValidation::isPortablePathComponent(name)) name="Map";
-    const auto path=fs::path(userPath("maps/multiplayer"))/(name.substr(0,60)+" - v"+std::to_string(r.version)+" - "+r.hash.substr(0,8)+".ini");
+    const auto directory=fs::path(userPath("maps/multiplayer"));
+    fs::create_directories(directory); // fnkdat creates parents; a fresh profile has no final map folder.
+    const auto path=directory/(name.substr(0,60)+" - v"+std::to_string(r.version)+" - "+r.hash.substr(0,8)+".ini");
     if(!fs::exists(path)) atomicWrite(path,readFile(fs::path(r.directory)/"map.ini"));
     else if(Dune2RAssetManager::sha256File(path.string())!=r.files[0].hash) throw std::runtime_error("A different map occupies the download destination.");
     pointer(path.string()+".workshop.ini",r,true);return path.string();

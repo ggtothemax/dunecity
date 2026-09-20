@@ -75,7 +75,7 @@ constexpr int kEnemyAIOptionCount = sizeof(kEnemyAIClasses) / sizeof(kEnemyAICla
 
 // Static member definitions
 int HouseChoiceMenu::s_house = HOUSE_ATREIDES;
-bool HouseChoiceMenu::s_online = false;
+bool HouseChoiceMenu::s_online = true;
 bool HouseChoiceMenu::s_singleMission = false;
 bool HouseChoiceMenu::s_publicGame = true;
 int HouseChoiceMenu::s_startLevel = 1;
@@ -104,7 +104,12 @@ HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules) : MenuBase()
     titleLabel.setTextColor(COLOR_WHITE);
     titleLabel.setTextFontSize(20);
     titleLabel.setAlignment(Alignment_HCenter);
-    windowWidget.addWidget(&titleLabel, Point(0,0), Point(640,26));
+    windowWidget.addWidget(&titleLabel, Point(48,0), Point(174,26));
+    onlineDescription.setText(_("Public by default: others can watch or ask to join.\nChoose Private for invite-only play, or Offline."));
+    onlineDescription.setTextFontSize(10);
+    onlineDescription.setTextColor(COLOR_WHITE);
+    onlineDescription.setAlignment(Alignment_Left);
+    windowWidget.addWidget(&onlineDescription, Point(232,0), Point(360,28));
     connectionDropDown.addEntry(_("Offline"), 0);
     connectionDropDown.addEntry(_("Online co-op"), 1);
     connectionDropDown.setSelectedItem(s_online ? 1 : 0);
@@ -341,7 +346,7 @@ void HouseChoiceMenu::updateConnection() {
     hostCoopButton.setText(s_online ? _("Create Lobby") : s_singleMission ? _("Start Mission") : _("Start Campaign"));
     visibilityDropDown.setEnabled(s_online);
     supportBotDropDown.setEnabled(!s_online);
-    if(s_online) supportDescription.setText(_("Two people share one house and army.\nYour partner joins in the lobby."));
+    if(s_online) supportDescription.setText(_("Start solo; others can watch or ask to join.\nChoose Offline above to play alone."));
     else onSupportBotSelectionChanged(false);
 }
 

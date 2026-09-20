@@ -135,6 +135,8 @@ final class Content
         if (count($out['files']) < 1 || count($out['files']) > self::MAX_FILES) self::reject('The package file count is invalid.');
         if ($out['kind'] === 'map' && (count($out['files']) !== 1 || $out['files'][0]['path'] !== 'map.ini'
             || $out['files'][0]['size'] > 1048576)) self::reject('A map must contain only map.ini, up to 1 MiB.');
+        if ($out['kind'] === 'mod' && !in_array('mod.ini', array_column($out['files'], 'path'), true))
+            self::reject('A mod must contain mod.ini metadata.');
         $sizes = [];
         foreach ($out['files'] as $file) {
             if (isset($sizes[$file['hash']]) && $sizes[$file['hash']] !== $file['size'])

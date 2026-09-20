@@ -18,7 +18,7 @@ constexpr std::size_t maxHistoryBytes=4u*1024*1024;
 // These operations use the existing shared, authorized JOIN_SYNC/JOIN_ACK parser.
 // Unlike player admission, no observer operation changes the host's join stage.
 bool NetworkManager::sendObserverPacket(Uint32 peer, Uint32 op, Uint32 epoch, Uint32 offset, const std::string& bytes) {
-    ENetPacketOStream packet(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packet(NETWORK_PACKET_FLAG_RELIABLE);
     packet.writeUint32(bIsServer ? NETWORKPACKET_JOIN_SYNC : NETWORKPACKET_JOIN_ACK);
     packet.writeUint32(op); packet.writeUint32(epoch); packet.writeUint32(offset); packet.writeString(bytes);
     return sendPacketOverRelay(packet,0,peer);

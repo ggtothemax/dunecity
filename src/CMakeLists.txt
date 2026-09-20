@@ -224,6 +224,7 @@ target_sources(dunecity
         # Network
         Network/LANGameFinderAndAnnouncer.cpp
         Network/NetworkManager.cpp
+    Network/WebRtcPeerLifecycle.cpp
         Network/LateJoin.cpp
         Network/ObserverStream.cpp
         Network/GamePayloadRouter.cpp
@@ -380,6 +381,7 @@ target_sources(dunecity
         misc/FileSystem.cpp
         misc/fnkdat.cpp
         misc/format.cpp
+        misc/FrameYield.cpp
         misc/IFileStream.cpp
         misc/md5.cpp
         misc/OFileStream.cpp
@@ -441,6 +443,13 @@ target_include_directories(dunecity PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 
+# p2pkit SDK headers (path + install guard defined in the top-level
+# CMakeLists.txt): the packet streams and the WebRTC transport alias in
+# include/Network/ are thin adapters over them.
+target_include_directories(dunecity PRIVATE
+    "${DUNECITY_P2PKIT_DIR}/emscripten/include"
+)
+
 # Platform-specific include directories
 if(APPLE)
     target_include_directories(dunecity PRIVATE
@@ -489,6 +498,13 @@ if(EMSCRIPTEN)
         Network/RelayWebSocketEmscripten.cpp
         Network/RelayHttpTransportEmscripten.cpp
         Network/DirectPeerConnectionEmscripten.cpp)
+
+    # WebRTC multiplayer transport (browser only): NetworkManager reaches the
+    # browser bridge through include/Network/WebRtcTransport.h, an alias of the
+    # header-only p2pkit_wasm::WebRtcTransport from the installed p2pkit SDK
+    # (no WebRtcTransport.cpp of our own). The bridge itself is the SDK's
+    # --js-library glue plus DuneCity's adapter, linked in the target_link_options
+    # block below.
 else()
     target_sources(dunecity PRIVATE
         Network/RelayWebSocketCurl.cpp
@@ -526,9 +542,9 @@ if(EMSCRIPTEN)
     endforeach()
 
     # The direct-play bridge bundle. It is generated from platform/web/src/dune-direct-bridge.ts
-    # and the vendored P2PKit source by tools/p2pkit-build, and committed, so a clean clone builds
-    # without npm at configure time. Copied, never built here; if it is missing the game still
-    # builds and simply reports that this page cannot open direct connections.
+    # and the pinned P2PKit dependency by tools/p2pkit-build, and committed.
+    # Install the SDK before configuring; this bundle is copied, never built here.
+    # If missing, the game reports that this page cannot open direct connections.
     if(EXISTS "${CMAKE_SOURCE_DIR}/platform/web/p2p-direct.js")
         configure_file("${CMAKE_SOURCE_DIR}/platform/web/p2p-direct.js"
             "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/p2p-direct.js" COPYONLY)
@@ -537,7 +553,23 @@ if(EMSCRIPTEN)
                        "the browser build will have no direct-play bridge")
     endif()
     set_property(TARGET dunecity APPEND PROPERTY LINK_DEPENDS
-        "${CMAKE_SOURCE_DIR}/web/shell.html")
+        "${CMAKE_SOURCE_DIR}/web/shell.html"
+        "${CMAKE_SOURCE_DIR}/platform/web/dist/p2pkit.iife.js"
+        "${CMAKE_SOURCE_DIR}/platform/web/dunecity_webrtc_config.js"
+        "${DUNECITY_P2PKIT_DIR}/emscripten/js/p2pkit_webrtc_glue.cjs")
+    # Matchmaking also needs the SDK runtime before the Emscripten module.
+    # Package it after every link, including raw CMake/incremental builds;
+    # relying on the optional wrapper left the website workflow without it.
+    find_program(DUNECITY_NODE_EXECUTABLE NAMES node REQUIRED)
+    set_property(TARGET dunecity APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/tools/web/prepend-p2pkit.mjs")
+    add_custom_command(TARGET dunecity POST_BUILD
+        COMMAND "${DUNECITY_NODE_EXECUTABLE}"
+            "${CMAKE_SOURCE_DIR}/tools/web/prepend-p2pkit.mjs"
+            "${CMAKE_SOURCE_DIR}/platform/web/dist/p2pkit.iife.js"
+            "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/dunecity.js"
+        COMMENT "Package the pinned matchmaking runtime"
+        VERBATIM)
     target_compile_options(dunecity PRIVATE
         "SHELL:-sUSE_SDL=2"
         "SHELL:-sUSE_SDL_MIXER=2"
@@ -574,14 +606,23 @@ if(EMSCRIPTEN)
         "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/imported_sprites@/imported_sprites"
         "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/mods/Tornie@/mods/Tornie"
         "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/mods/Dune2R@/mods/Dune2R"
+        "SHELL:--preload-file ${CMAKE_SOURCE_DIR}/mods/dunecity@/mods/dunecity"
         # Keep the Dune2R mod/catalog available; its optional art downloads
         # separately, just as in the native packages.
         "SHELL:--exclude-file ${CMAKE_SOURCE_DIR}/mods/Dune2R/graphics_hd/units"
         "SHELL:--exclude-file ${CMAKE_SOURCE_DIR}/mods/Dune2R/graphics_compact/objpics"
+        # WebRTC multiplayer bridge (browser only), reached from C++ through
+        # include/Network/WebRtcTransport.h. The generic transport glue is the
+        # p2pkit SDK's own --js-library (installed dependency, not a copy);
+        # dunecity_webrtc_config.js is DuneCity's adapter on top of it (lobby
+        # wiring, Emscripten event pump, stats).
+        "SHELL:--js-library ${DUNECITY_P2PKIT_DIR}/emscripten/js/p2pkit_webrtc_glue.cjs"
+        "SHELL:--js-library ${CMAKE_SOURCE_DIR}/platform/web/dunecity_webrtc_config.js"
     )
     file(GLOB_RECURSE WEB_MOD_FILES CONFIGURE_DEPENDS
         "${CMAKE_SOURCE_DIR}/mods/Tornie/*"
-        "${CMAKE_SOURCE_DIR}/mods/Dune2R/*")
+        "${CMAKE_SOURCE_DIR}/mods/Dune2R/*"
+        "${CMAKE_SOURCE_DIR}/mods/dunecity/*")
     list(FILTER WEB_MOD_FILES EXCLUDE REGEX "/graphics_hd/units/|/graphics_compact/objpics/")
     set_property(TARGET dunecity APPEND PROPERTY LINK_DEPENDS ${WEB_MOD_FILES})
 else()

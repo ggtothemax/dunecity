@@ -148,12 +148,12 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(400, self.begin(b''.join(lines[:-2] + lines[-2:][::-1])).status)
 
     def test_empty_files_and_quota_expiry(self):
-        self.share({'empty': b''}, kind='mod')
+        self.share({'mod.ini': b'[Mod]', 'empty': b''}, kind='mod')
         self.service.write_config(content_quota_bytes=1048576)
         try:
-            raw = manifest({'large': b'x' * 700000}, kind='mod', item='d' * 32)
+            raw = manifest({'mod.ini': b'[Mod]', 'large': b'x' * 700000}, kind='mod', item='d' * 32)
             self.ok(self.begin(raw))
-            raw2 = manifest({'large': b'x' * 700000}, kind='mod', item='e' * 32)
+            raw2 = manifest({'mod.ini': b'[Mod]', 'large': b'x' * 700000}, kind='mod', item='e' * 32)
             self.assertEqual('quota_exceeded', self.begin(raw2).fields['code'])
             path = Path(self.service.state) / 'content/index.json'
             state = json.loads(path.read_text())
@@ -162,6 +162,15 @@ class ContentTests(SignalingTestCase):
             self.ok(self.begin(raw2))
         finally:
             self.service.write_config()
+
+    def test_name_encoding_and_required_mod_metadata(self):
+        raw = manifest({'map.ini': b'map'})
+        for name in [b'   ', b'\xc0\xaf', b'\xed\xa0\x80', b'\xf4\x90\x80\x80', b'\x80', b'\xe2\x82']:
+            replaced = raw.replace(b'name=' + b'Shared dunes'.hex().encode(), b'name=' + name.hex().encode())
+            self.assertEqual(400, self.begin(replaced).status)
+        self.ok(self.begin(manifest({'map.ini': b'map'}, name='Dunes é 🌍')))
+        missing = manifest({'atlas.png': b'atlas'}, kind='mod')
+        self.assertEqual(400, self.begin(missing).status)
 
     def test_content_symlinks_fail_closed_and_no_uncommitted_reads(self):
         raw = manifest({'map.ini': b'test'})
@@ -179,6 +188,7 @@ class ContentTests(SignalingTestCase):
 
     def test_large_manifest_fits_client_response_budget(self):
         files = {'%04d' % n: b'' for n in range(2800)}
+        files['mod.ini'] = b'[Mod]'
         raw, _ = self.share(files, kind='mod')
         self.assertGreater(len(raw), 128 * 1024)
         response = self.ok(self.post('manifest', hash=sha(raw)))

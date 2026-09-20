@@ -24,6 +24,7 @@ install/
 external/
 docs/*
 !docs/workshop.md
+!docs/workshop-validation-738.md
 !docs/index.html
 !docs/guide.html
 !docs/style.css
@@ -94,6 +95,10 @@ documents/
 !.vscode/settings.json
 !.vscode/extensions.json
 dist/
+# Committed browser bundle copied verbatim from the installed p2pkit
+# dependency's own build output (tools/web/build-p2pkit-iife.mjs); all other
+# dist/ output stays ignored.
+!platform/web/dist/
 build0/
 analysis/
 /_CPack_Packages/
@@ -127,3 +132,5 @@ __pycache__/
 # The PHP development router is source, not a compiled bin directory.
 !tools/p2p-signaling/bin/
 !tools/p2p-signaling/bin/router.php
+
+!docs/browser-multiplayer-pr49-validation.md

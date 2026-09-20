@@ -43,12 +43,6 @@ bool WebRuntime::copyText(const std::string& text) {
 #endif
 }
 
-void WebRuntime::yieldToBrowser() {
-#ifdef __EMSCRIPTEN__
-    emscripten_sleep(0);
-#endif
-}
-
 void WebRuntime::markGameReady() {
 #ifdef __EMSCRIPTEN__
     markBrowserGameReady();

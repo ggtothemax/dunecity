@@ -33,17 +33,14 @@ jobs:
           git fetch origin "tag" "$TAG"
           git checkout "$TAG"
           echo "WEB_TAG=$TAG" >> "$GITHUB_ENV"
-      - name: Install Emscripten
-        run: |
-          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
-          "$RUNNER_TEMP/emsdk/emsdk" install 4.0.14
-          "$RUNNER_TEMP/emsdk/emsdk" activate 4.0.14
-      - name: Build browser game
-        run: |
-          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
-          emcmake cmake -S . -B build-web -G Ninja -DCMAKE_BUILD_TYPE=Release -DDUNECITY_BUILD_TESTS=OFF -DDUNECITY_ENABLE_PCH=OFF
-          cmake --build build-web --parallel 4
-          python3 scripts/check-web-mods.py --build-root build-web
+      - name: Install the pinned P2PKit SDK
+        working-directory: platform/web
+        run: npm ci
+      - name: Build and verify the complete browser game
+        env:
+          BUILD_DIR: build-web
+          JOBS: '4'
+        run: ./tools/web/build-emscripten.sh
       - name: Package and publish website
         env:
           WEBSITE_DEPLOY_KEY: ${{ secrets.WEBSITE_DEPLOY_KEY }}

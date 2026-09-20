@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # Project name and version
-project(DuneCity VERSION 1.0.736 LANGUAGES C CXX)
+project(DuneCity VERSION 1.0.738 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJCXX)
 endif()
@@ -203,6 +203,19 @@ else()
     add_compile_options(-Wall -Wextra -pedantic)
     add_compile_options(-Wno-unused-parameter -Wno-unused-but-set-variable -Wno-unknown-pragmas) # FIXME These should be cleaned up.
     add_compile_options(-Wno-expansion-to-defined)  # Silences "define FMT_HAS_FEATURE(x) __has_feature(x) may not be portable" warnings.
+endif()
+
+# The p2pkit Emscripten SDK (C++ headers under emscripten/include/p2pkit-wasm/
+# and the --js-library glue under emscripten/js/) is a real dependency,
+# installed from the pinned git revision in platform/web/package.json. The
+# packet streams, the WebRTC transport (src) and the packet tests (tests)
+# consume it; nothing SDK-owned is copied into our tree.
+set(DUNECITY_P2PKIT_DIR "${CMAKE_SOURCE_DIR}/platform/web/node_modules/p2pkit")
+if(NOT EXISTS "${DUNECITY_P2PKIT_DIR}/emscripten/include/p2pkit-wasm/packet.h")
+    message(FATAL_ERROR
+        "p2pkit SDK not installed: ${DUNECITY_P2PKIT_DIR}/emscripten/include/p2pkit-wasm/ is missing. "
+        "Run: npm install  (in platform/web)  to install the p2pkit revision pinned in "
+        "platform/web/package.json, then reconfigure.")
 endif()
 
 # Add subdirectories

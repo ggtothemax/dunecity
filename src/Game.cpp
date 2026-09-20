@@ -47,6 +47,7 @@ std::mutex Game::performanceLogMutex;
 #include <misc/OFileStream.h>
 #include <misc/IMemoryStream.h>
 #include <misc/FileSystem.h>
+#include <misc/FrameYield.h>
 #include <misc/fnkdat.h>
 #include <misc/WebRuntime.h>
 #include <misc/draw_util.h>
@@ -3057,7 +3058,7 @@ void Game::runMainLoop() {
                 // Break out of loop to avoid spinning - we'll try again next frame
                 // Also add a small delay to avoid burning CPU. Not in the browser: see
                 // handleNetworkUpdates(). This loop has just given up on the cycle, the frame
-                // ends in WebRuntime::yieldToBrowser(), and an ASYNCIFY sleep here would only
+                // ends in yieldFrameToBrowser(), and an ASYNCIFY sleep here would only
                 // add a second stack unwind to the same wait.
 #ifndef __EMSCRIPTEN__
                 SDL_Delay(1);
@@ -3250,7 +3251,10 @@ void Game::runMainLoop() {
             lastTimingLogMs = now;
         }
 
-        WebRuntime::yieldToBrowser();
+        // Browser build: hand control back to the event loop once per frame so
+        // lockstep commands and transport events keep arriving mid-game.
+        yieldFrameToBrowser();
+
     } while (!bQuitGame && !finishedLevel);
 }
 
@@ -3653,7 +3657,7 @@ void Game::resumeGame()
 {
     bMenu = false;
     // Relay menus never stop lockstep, so closing one must not enqueue a resume command.
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         return;
     }
     if(bPause && settings.general.diagnosticLogs) {
@@ -3677,7 +3681,7 @@ void Game::resumeGame()
 void Game::pauseGame(const char* source) {
     // A local pause freezes the cycle that would transmit the pause command itself.
     // Until a synchronized pause protocol exists, relay games continue behind menus.
-    if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
         return;
     }
     if(!bPause && settings.general.diagnosticLogs) {
@@ -5448,7 +5452,7 @@ void Game::handleKeyInput(SDL_KeyboardEvent& keyboardEvent)
         } break;
 
         case SDLK_SPACE: {
-            if(pNetworkManager != nullptr && pNetworkManager->isRelaySession()) {
+            if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
                 pInterface->getChatManager().addInfoMessage(_("Online games cannot be paused."));
                 break;
             }
@@ -6324,7 +6328,7 @@ bool Game::handleNetworkUpdates() {
             // but "waiting for other players". Ending it visibly is the honest outcome; a
             // player's commands are never skipped to keep the match moving, because that is a
             // silent desynchronisation.
-            if(pNetworkManager->isRelaySession()
+            if(pNetworkManager->isRoomSession()
                && waitedMs > LOCKSTEP_STALL_TIMEOUT_MS && !lockstepStallReported) {
                 lockstepStallReported = true;
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
@@ -6399,7 +6403,7 @@ GameStateDigest::Digest Game::computeStateDigest() const {
 
 void Game::updateStateDigests() {
     if(isSpectating()) return;
-    if(pNetworkManager == nullptr || !pNetworkManager->isRelaySession()) {
+    if(pNetworkManager == nullptr || !pNetworkManager->isRoomSession()) {
         return;
     }
     if(gameCycleCount == 0 || (gameCycleCount % GameStateDigest::kDigestIntervalCycles) != 0) {

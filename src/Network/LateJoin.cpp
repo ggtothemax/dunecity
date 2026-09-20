@@ -13,7 +13,7 @@ constexpr Uint32 chunkSize=48u*1024;
 
 bool NetworkManager::sendJoinSync(Uint32 operation, Uint32 offset, const std::string& data, Uint32 recipient) {
     if(!isDirectSession()) return false;
-    ENetPacketOStream packet(ENET_PACKET_FLAG_RELIABLE);
+    NetworkPacketOStream packet(NETWORK_PACKET_FLAG_RELIABLE);
     packet.writeUint32(bIsServer ? NETWORKPACKET_JOIN_SYNC : NETWORKPACKET_JOIN_ACK);
     packet.writeUint32(operation); packet.writeUint32(joinTransaction); packet.writeUint32(offset); packet.writeString(data);
     return sendPacketOverRelay(packet,0,bIsServer ? recipient : relayHostPeerId());

@@ -23,7 +23,7 @@ FILE_RECORD = re.compile(
     r'"?end"?\s*:\s*(\d+(?:\.\d+)?(?:[eE]\+?\d+)?)\s*[,}]')
 
 
-def check_payload(javascript, data):
+def check_payload(javascript, data, skin_payload=None):
     files = {}
     for encoded, start, end in FILE_RECORD.findall(javascript):
         name = json.loads(encoded)
@@ -60,7 +60,18 @@ def check_payload(javascript, data):
             raise ValueError('Missing or corrupt Tornie payload: ' + relative)
     if not checked:
         raise ValueError('Empty Tornie checksum manifest')
+    if skin_payload is None:
+        skin_root = Path(__file__).resolve().parents[1] / 'mods/dunecity/graphics_skins'
+        skin_payload = {p.relative_to(skin_root).as_posix(): p.read_bytes()
+                        for p in skin_root.rglob('*') if p.is_file()}
+    if not skin_payload:
+        raise ValueError('Empty DuneCity skin source payload')
+    for relative, expected in skin_payload.items():
+        name = '/mods/dunecity/graphics_skins/' + relative
+        if files.get(name) != expected:
+            raise ValueError('Missing or corrupt DuneCity skin payload: ' + relative)
     return {'verified_tornie_files': len(checked),
+            'verified_dunecity_skin_files': len(skin_payload),
             'dune2r_files': sum(n.startswith('/mods/Dune2R/') for n in files),
             'data_bytes': len(data)}
 

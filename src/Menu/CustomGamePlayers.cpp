@@ -40,6 +40,7 @@
 #include <misc/FileSystem.h>
 #include <misc/WebRuntime.h>
 #include <misc/draw_util.h>
+#include <misc/FrameYield.h>
 #include <misc/string_util.h>
 #include <misc/IMemoryStream.h>
 
@@ -163,7 +164,14 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
    bConfigMismatchDetected(false), bModDownloadInProgress(false), bWaitingForModAcks(false), brainEqHumanSlot(-1) {
     setup = newSetup;
     if(isNetworkGameType(gameInitSettings.getGameType())) {
-        if(bServer) WorkshopGameContent::pin(gameInitSettings, false, !pNetworkManager || !pNetworkManager->isRelaySession());
+        bool publishBeforeSetup = false;
+#ifdef __EMSCRIPTEN__
+        // Find Match uses the mesh packet protocol over browser data channels.
+        // Its map is chosen after pairing, so publish before sending game setup.
+        publishBeforeSetup = pNetworkManager && !pNetworkManager->isRoomSession();
+#endif
+        if(bServer) WorkshopGameContent::pin(gameInitSettings, publishBeforeSetup,
+            !publishBeforeSetup && (!pNetworkManager || !pNetworkManager->isRoomSession()));
         else if(pNetworkManager && pNetworkManager->supportsModTransfer()) {
             try { WorkshopGameContent::resolveMod(gameInitSettings, false); }
             catch(const std::exception&) {
@@ -300,6 +308,14 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         extractMapInfo(&inimap);
     }
 
+#ifdef __EMSCRIPTEN__
+    // Browser build: extractMapInfo() above (full map INI parse + minimap
+    // render) ran as one synchronous block inside the Next click handler.
+    // Yield before building the lobby widgets so the page can service input
+    // and signaling between the two halves of the transition.
+    yieldFrameToBrowser();
+#endif
+
     rightVBox.addWidget(VSpacer::create(10));
     rightVBox.addWidget(&mapPropertiesHBox, 0.01);
     mapPropertiesHBox.addWidget(&mapPropertyNamesVBox, 75);
@@ -317,6 +333,12 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
     mapPropertyMod.setText(activeModInfo.displayName + (gameInitSettings.getModRevisionVersion() ? " v" + std::to_string(gameInitSettings.getModRevisionVersion()) : ""));
     mapPropertyCity.setText(activeModInfo.enablesCityMode ? _("On") : _("Off"));
     mapPropertyValuesVBox.addWidget(&mapPropertyMod);
+#ifdef __EMSCRIPTEN__
+    // Browser: the matchmaking lobby already paired us; show how the matched
+    // opponent's connection is doing.
+    mapPropertyNamesVBox.addWidget(Label::create(_("Opponent") + ":"));
+    mapPropertyValuesVBox.addWidget(&opponentLabel);
+#endif
     mapPropertyNamesVBox.addWidget(Label::create(_("City sim") + ":"));
     mapPropertyValuesVBox.addWidget(&mapPropertyCity);
     rightVBox.addWidget(Spacer::create());
@@ -621,6 +643,12 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         playerListVBox.addWidget(VSpacer::create(4), 0.0);
         playerListVBox.addWidget(Spacer::create(), 0.07);
 
+#ifdef __EMSCRIPTEN__
+        // Browser build: each house row builds several dropdowns with full
+        // entry lists; yield per row to keep the lobby transition paced.
+        yieldFrameToBrowser();
+#endif
+
         if(i >= numHouses) {
             curHouseInfo.houseInfoVBox.setEnabled(false);
             curHouseInfo.houseInfoVBox.setVisible(false);
@@ -713,7 +741,7 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
             }
         }
 
-        if(pNetworkManager->isRelaySession() && !bServer) {
+        if(pNetworkManager->isRoomSession() && !bServer) {
             // Send our content fingerprint now, while the room is certainly still a lobby. On
             // the relay the host may declare the match started in the same breath as it sends
             // its own hashes, so answering that message later would be too late.
@@ -721,7 +749,41 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
                                             getObjectDataHash(), VERSIONSTRING);
         }
     }
+
+#ifdef __EMSCRIPTEN__
+    // The opponent's connection state changes asynchronously; update()
+    // refreshes the label.
+    updateOpponentLabel();
+#endif
 }
+
+#ifdef __EMSCRIPTEN__
+void CustomGamePlayers::updateOpponentLabel() {
+    if(pNetworkManager == nullptr) {
+        opponentLabel.setText("-");
+        return;
+    }
+
+    switch(pNetworkManager->getWebRtcState()) {
+        case WebRtcTransport::State::Connecting: {
+            opponentLabel.setText(_("Connecting..."));
+        } break;
+
+        case WebRtcTransport::State::Connected: {
+            opponentLabel.setText(_("Connected"));
+        } break;
+
+        case WebRtcTransport::State::Failed: {
+            opponentLabel.setText(_("Connection failed"));
+        } break;
+
+        case WebRtcTransport::State::Idle:
+        default: {
+            opponentLabel.setText("-");
+        } break;
+    }
+}
+#endif
 
 void CustomGamePlayers::updateDiscordLobbyPresence() {
     if(pNetworkManager == nullptr) return;
@@ -797,11 +859,15 @@ void CustomGamePlayers::onChildWindowClose(Window* child) {
 }
 
 void CustomGamePlayers::update() {
+#ifdef __EMSCRIPTEN__
+    updateOpponentLabel();
+#endif
+
     if(isCoopGameType(gameInitSettings.getGameType()) && startGameTime == 0 && bServer && !bWaitingForModAcks) {
         const int partner = houseInfo[0].player2DropDown.getSelectedEntryIntData();
-        const bool waiting = partner == PLAYER_OPEN || partner == PLAYER_CLOSED;
-        nextButton.setEnabled(!waiting);
-        readinessLabel.setText(waiting ? _("Waiting for your co-op partner, or choose an AI partner.") : _("Your co-op partner is ready."));
+        const bool solo = partner == PLAYER_OPEN || partner == PLAYER_CLOSED;
+        nextButton.setEnabled(houseInfo[0].player1DropDown.getSelectedEntryIntData() == PLAYER_HUMAN);
+        readinessLabel.setText(solo ? _("Start now. Others can watch or ask to join while you play.") : _("Your co-op partner is ready."));
     } else if(!bServer && startGameTime == 0) readinessLabel.setText(_("Waiting for the host to start."));
     else if(setup) readinessLabel.setText(setup->online
         ? _("Leave an open player slot for a friend. Create Lobby when ready.")
@@ -1170,6 +1236,7 @@ void CustomGamePlayers::onReceiveModInfo(const std::string& modName, const std::
         // Server shouldn't receive this
         return;
     }
+    if(communityModDownloadInProgress) return;
     
     SDL_Log("CLIENT: Received mod info from host - mod='%s', checksum=%s", modName.c_str(), modChecksum.c_str());
     
@@ -1182,6 +1249,28 @@ void CustomGamePlayers::onReceiveModInfo(const std::string& modName, const std::
             return;
         }
         if(!WorkshopGameContent::matches(gameInitSettings)) {
+#ifdef __EMSCRIPTEN__
+            // The host has published before sending setup. Resolve through the
+            // content service first, which also supports packages over the peer
+            // transfer limit. Call only after lobby callbacks are installed.
+            if(!communityModDownloadAttempted) {
+                communityModDownloadAttempted = true;
+                communityModDownloadInProgress = true;
+                try { WorkshopGameContent::resolveMod(gameInitSettings); }
+                catch(const std::exception&) { /* Retain the bounded peer fallback. */ }
+                communityModDownloadInProgress = false;
+                if(WorkshopGameContent::matches(gameInitSettings)) {
+                    if(ModManager::instance().getEffectiveChecksums().combined != modChecksum) {
+                        onConfigMismatch(_("The host announced a different checksum from the selected revision."));
+                        if(pNetworkManager) pNetworkManager->sendModAck(false, "");
+                    } else {
+                        rebuildAfterModTransfer = true;
+                        quit();
+                    }
+                    return;
+                }
+            }
+#endif
             if(pNetworkManager && pNetworkManager->supportsModTransfer()) {
                 bModDownloadInProgress = true;
                 addInfoMessage(_("Receiving the exact mod version from the host..."));
@@ -1604,10 +1693,8 @@ void CustomGamePlayers::onNext()
         return;
     }
     if(isCoopGameType(gameInitSettings.getGameType())
-       && (houseInfo[0].player1DropDown.getSelectedEntryIntData() != PLAYER_HUMAN
-           || houseInfo[0].player2DropDown.getSelectedEntryIntData() == PLAYER_OPEN
-           || houseInfo[0].player2DropDown.getSelectedEntryIntData() == PLAYER_CLOSED)) {
-        openWindow(MsgBox::create(_("Wait for your co-op partner, or select a QuantBot.")));
+       && houseInfo[0].player1DropDown.getSelectedEntryIntData() != PLAYER_HUMAN) {
+        openWindow(MsgBox::create(_("Choose a human player to lead the campaign.")));
         return;
     }
     // check if we have at least two houses on the map and if we have more than one team
