@@ -77,7 +77,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
             visibilityChoice.setVisible(online);
             visibilityChoice.setEnabled(online);
             allowJoinAfterStartCheckbox.setVisible(online);
-            allowJoinAfterStartCheckbox.setEnabled(online);
+            allowJoinAfterStartCheckbox.setEnabled(online && OnlineModPolicy::approved());
         });
         connectionRow.addWidget(&connectionChoice, 130);
         connectionRow.addWidget(HSpacer::create(8));
@@ -90,9 +90,9 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         connectionRow.addWidget(Spacer::create());
         mainVBox.addWidget(&connectionRow, 28);
         allowJoinAfterStartCheckbox.setText(_("Allow hot join"));
-        allowJoinAfterStartCheckbox.setChecked(setup->allowJoinAfterStart);
+        allowJoinAfterStartCheckbox.setChecked(setup->allowJoinAfterStart && OnlineModPolicy::approved());
         allowJoinAfterStartCheckbox.setVisible(setup->online);
-        allowJoinAfterStartCheckbox.setEnabled(setup->online);
+        allowJoinAfterStartCheckbox.setEnabled(setup->online && OnlineModPolicy::approved());
         mainVBox.addWidget(&allowJoinAfterStartCheckbox, 24);
     }
 
@@ -208,6 +208,8 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         if(previous == availableMods[choice].name) return;
         if(manager.setActiveMod(availableMods[choice].name)) {
             currentGameOptions = effectiveGameOptions = manager.loadEffectiveGameOptions(settings.gameOptions);
+            allowJoinAfterStartCheckbox.setEnabled(connectionChoice.getSelectedIndex() == 1 && OnlineModPolicy::approved());
+            if(!OnlineModPolicy::approved()) allowJoinAfterStartCheckbox.setChecked(false);
         } else {
             for(size_t i = 0; i < availableMods.size(); ++i)
                 if(availableMods[i].name == previous) modDropDown.setSelectedItem(static_cast<int>(i));
@@ -331,7 +333,7 @@ void CustomGameMenu::onNext()
         setup->mod = selectedMod;
         setup->online = connectionChoice.getSelectedIndex() == 1;
         setup->publicGame = visibilityChoice.getSelectedIndex() == 1;
-        setup->allowJoinAfterStart = allowJoinAfterStartCheckbox.isChecked();
+        setup->allowJoinAfterStart = allowJoinAfterStartCheckbox.isChecked() && OnlineModPolicy::approved();
         setup->sharedHouse = multiplePlayersPerHouseCheckbox.isChecked();
         setup->rules = currentGameOptions;
         quit(MENU_SETUP_PLAYERS);

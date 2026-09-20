@@ -65,7 +65,7 @@ std::string CrossplayMenu::contentFingerprint() const {
     const auto active = ModManager::instance().getActiveModName();
     if(fingerprintMod == active && !fingerprintHash.empty()) return fingerprintHash;
     try {
-        fingerprintHash = Workshop::saveMod(active).hash;
+        fingerprintHash = OnlineModPolicy::fingerprint();
         fingerprintMod = active;
         return fingerprintHash;
     }
@@ -157,8 +157,8 @@ CrossplayMenu::CrossplayMenu(const GameInitSettings& game, bool publicGame, cons
     directoryPending = false;
     preparedGame = std::make_unique<GameInitSettings>(game);
     preparedPlayers = players;
-    this->allowLateJoin = allowLateJoin;
-    this->startImmediately = startImmediately;
+    this->allowLateJoin = allowLateJoin && OnlineModPolicy::approved();
+    this->startImmediately = startImmediately && OnlineModPolicy::approved();
     hostingCoop = isCoopGameType(game.getGameType());
     visibilityChoice.setSelectedItem(publicGame ? 1 : 0);
     autoHostRequested = stage == Stage::Choosing;
@@ -370,18 +370,31 @@ void CrossplayMenu::refreshPublicGames(unsigned offset) {
     refreshControls();
 }
 
+bool CrossplayMenu::activateGameContent(const std::string& fingerprint, bool running) {
+    if(!OnlineModPolicy::approvedName(fingerprint).empty()) {
+        if(OnlineModPolicy::activateApproved(fingerprint)) return true;
+        setStatus(_("This game needs the matching approved mod. Update the game to join."));
+        return false;
+    }
+    if(running) {
+        setStatus(_("New mods cannot be joined after the game starts. Join their pregame lobby."));
+        return false;
+    }
+    if(fingerprint.size() != 64 || !RoomRelay::isLowercaseHex(fingerprint)) {
+        setStatus(_("This host has not shared a verified mod revision.")); return false;
+    }
+    if(Workshop::activateModRevision(fingerprint)
+       || (Workshop::downloadWithProgress(fingerprint) && Workshop::activateModRevision(fingerprint))) return true;
+    setStatus(_("The game's exact mod version could not be downloaded."));
+    return false;
+}
+
 void CrossplayMenu::joinPublicGame() {
     const int index = publicGameList.getSelectedIndex();
     if(stage != Stage::Choosing || directoryPending || index < 0
        || static_cast<std::size_t>(index) >= publicGames.size()) return;
     const auto& game=publicGames[index];
-    if(game.contentHash.size() != 64 || !RoomRelay::isLowercaseHex(game.contentHash)) {
-        setStatus(_("This host has not shared a verified mod revision.")); return;
-    }
-    if(!Workshop::activateModRevision(game.contentHash)
-       && (!Workshop::downloadWithProgress(game.contentHash) || !Workshop::activateModRevision(game.contentHash))) {
-        setStatus(_("The game's exact mod version could not be downloaded.")); return;
-    }
+    if(!activateGameContent(game.contentHash, game.running)) return;
     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     // Running games always open in the passive view. A spectator can ask the
     // host for a playing slot after the map has loaded.
@@ -580,8 +593,12 @@ void CrossplayMenu::beginAdmission(bool hosting, bool publicJoin) {
         try { WorkshopGameContent::pin(*preparedGame, true); }
         catch(const std::exception& error) { setStatus(error.what()); return; }
     }
+    if(hosting && !OnlineModPolicy::approved()) {
+        allowLateJoin = false;
+        startImmediately = false;
+    }
 
-    fingerprintHash.clear(); // Admission re-verifies the entire package, not the discovery cache.
+    fingerprintHash.clear(); // Recheck the selected mod rather than the discovery cache.
     // Fail closed. Going online without being able to describe our own content would ask the
     // game service to match us against a fingerprint we never computed, and would leave the
     // lobby with nothing to compare either.
@@ -608,7 +625,8 @@ void CrossplayMenu::beginAdmission(bool hosting, bool publicJoin) {
     if(hosting) {
         // Co-op is a two-player arrangement; a custom game uses the lobby's own limit.
         request.mode = hostingCoop ? "coop" : "custom";
-        request.modName = Workshop::store().get(fingerprint).name;
+        request.modName = OnlineModPolicy::approved() ? ModManager::instance().getActiveModName()
+            : Workshop::store().get(fingerprint).name;
         request.maxPeers = hostingCoop ? 2 : static_cast<std::uint8_t>(RoomRelay::Limits::kMaxPeersPerRoom);
         request.allowLateJoin = allowLateJoin;
         request.mapName = preparedGame ? preparedGame->getFilename() : "";
@@ -804,9 +822,7 @@ void CrossplayMenu::update() {
                     admission.cancel();
                     inspectingCode = false;
                     stage = Stage::Choosing;
-                    if(!Workshop::activateModRevision(inspected.contentHash)
-                       && (!Workshop::downloadWithProgress(inspected.contentHash) || !Workshop::activateModRevision(inspected.contentHash))) {
-                        setStatus(_("The game's exact mod version could not be downloaded."));
+                    if(!activateGameContent(inspected.contentHash, inspected.running)) {
                         refreshControls(); return;
                     }
                     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);

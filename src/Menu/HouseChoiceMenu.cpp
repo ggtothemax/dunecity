@@ -20,6 +20,7 @@
 #include <Menu/PlaySetup.h>
 #include <Menu/SinglePlayerSkirmishMenu.h>
 #include <mod/ModManager.h>
+#include <Network/OnlineModPolicy.h>
 
 #include <globals.h>
 
@@ -85,6 +86,7 @@ SettingsClass::GameOptionsClass HouseChoiceMenu::s_currentGameOptions;
 
 HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules, bool showLobby) : MenuBase(), showLobby(showLobby)
 {
+    OnlineModPolicy::restoreApprovedSelection();
     s_online = online;
     currentHouseChoiceScrollPos = 0;
     if(!keepRules) s_currentGameOptions = effectiveGameOptions;
@@ -342,14 +344,17 @@ void HouseChoiceMenu::populateLevels() {
 }
 
 void HouseChoiceMenu::updateConnection() {
+    const bool lobby = showLobby || !OnlineModPolicy::approved();
     onlineDescription.setText(s_online
         ? _("Public: others can watch or ask to join.\nChoose Private for invite-only play.")
         : _("Play the campaign on this computer.\nStart directly with your chosen house and rules."));
-    hostCoopButton.setText(s_online && showLobby ? _("Create Lobby") : s_singleMission ? _("Start Mission") : _("Start Campaign"));
+    hostCoopButton.setText(s_online && lobby ? _("Create Lobby") : s_singleMission ? _("Start Mission") : _("Start Campaign"));
+    if(s_online && !OnlineModPolicy::approved())
+        onlineDescription.setText(_("New mods use a pregame lobby.\nPlayers must join before the game starts."));
     visibilityDropDown.setEnabled(s_online);
     visibilityDropDown.setVisible(s_online);
-    supportBotDropDown.setEnabled(!s_online || !showLobby);
-    if(s_online && showLobby) supportDescription.setText(_("Start solo; others can watch or ask to join.\nChoose Offline above to play alone."));
+    supportBotDropDown.setEnabled(!s_online || !lobby);
+    if(s_online && lobby) supportDescription.setText(_("Choose your partner in the pregame lobby."));
     else onSupportBotSelectionChanged(false);
 }
 
@@ -411,4 +416,5 @@ void HouseChoiceMenu::onModSelectionChanged(bool interactive) {
     currentHouseChoiceScrollPos = std::min(currentHouseChoiceScrollPos, getMaxHouseScrollPos());
     updateHouseChoice();
     updateModDescription();
+    updateConnection();
 }

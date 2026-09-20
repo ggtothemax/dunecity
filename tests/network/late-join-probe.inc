@@ -73,7 +73,7 @@ int runLateJoinProbe() {
     auto wait=[&](auto condition) { while(!condition()) { if(SDL_TICKS_PASSED(SDL_GetTicks(),deadline)) throw std::runtime_error("probe wait timeout"); SDL_Delay(5); } };
     AdmissionRequest request;
     request.baseUrl=endpoint; request.allowLoopbackPlaintext=true; request.appVersion=VERSIONSTRING;
-    request.gameProtocol=NETWORK_PROTOCOL_VERSION; request.runtime="native"; request.contentHash=Workshop::saveMod(ModManager::instance().getActiveModName()).hash;
+    request.gameProtocol=NETWORK_PROTOCOL_VERSION; request.runtime="native"; request.contentHash=OnlineModPolicy::fingerprint();
     request.hosting=host; request.publicRoom=true; request.maxPeers=4; request.mode="custom"; request.allowLateJoin=true;
     request.modName=city ? "dunecity" : "vanilla";
     request.mapName=std::getenv("JOIN_TWIN_CITIES") ? "2P - 256x256 - Twin Cities"

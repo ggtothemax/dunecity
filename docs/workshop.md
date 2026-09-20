@@ -64,16 +64,28 @@ prevent unbounded growth; it does not automatically prune replay dependencies.
 
 ## Multiplayer and saves
 
-Online hosts publish the exact mod and map before advertising the game. A joiner
-can resolve the required mod through a public listing or private invitation code
-before admission. Received maps are saved only after manifest and payload hashes
-match. Same-name revisions receive separate installed filenames.
+Approved shipped mods (Vanilla, Dune City, Tornie and Dune2R) use their installed
+files. Campaign starts online by default and automatically starts after admission;
+it never captures, uploads or downloads a Workshop package. These games permit
+hot joining. Join Online -> Create Campaign retains the editable pregame lobby.
+Admission and readiness compare a self-identifying approved-mod token based on
+the installed rules, alongside the matching app/protocol version and runtime
+configuration. A joiner selects the corresponding installed mod locally.
 
-LAN hosts capture the same local revisions and queue automatic publication.
+New/authored mods require the pregame lobby, with hot joining disabled even for
+copies based on an approved mod. These hosts publish their exact mod and map
+before advertising. Joiners resolve the required version through a public listing
+or private invitation before admission. Received maps are saved only after
+manifest and payload hashes match. Same-name revisions receive separate installed
+filenames. Approved custom maps retain local revision metadata for map transfer,
+without automatic community publication.
+
+LAN hosts using new mods capture the same revisions and queue publication.
 Offline guests can use exact local content or the existing verified peer transfer
 for packages up to 10 MiB. Larger missing packages need the community service.
-The lobby, readiness gate, and game start check the full mod revision as well as
-runtime configuration. A missing or mismatched revision cannot silently start.
+For new mods, the lobby, readiness gate, and game start check the full mod revision
+as well as runtime configuration. A missing or mismatched revision cannot silently
+start.
 
 MOD4 game settings record exact map/mod hashes and numbers. Older MOD3 settings
 remain readable. New saves and replays resolve their original revision; legacy

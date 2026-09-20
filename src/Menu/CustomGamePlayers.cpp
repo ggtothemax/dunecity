@@ -898,7 +898,9 @@ void CustomGamePlayers::update() {
         const int partner = houseInfo[0].player2DropDown.getSelectedEntryIntData();
         const bool solo = partner == PLAYER_OPEN || partner == PLAYER_CLOSED;
         nextButton.setEnabled(houseInfo[0].player1DropDown.getSelectedEntryIntData() == PLAYER_HUMAN);
-        readinessLabel.setText(solo ? _("Start now. Others can watch or ask to join while you play.") : _("Your co-op partner is ready."));
+        readinessLabel.setText(!OnlineModPolicy::approved()
+            ? _("Players must join this lobby before you start. Hot joining is unavailable for new mods.")
+            : solo ? _("Start now. Others can watch or ask to join while you play.") : _("Your co-op partner is ready."));
     } else if(!bServer && startGameTime == 0) readinessLabel.setText(_("Waiting for the host to start."));
     else if(setup) readinessLabel.setText(setup->online
         ? _("Leave an open player slot for a friend. Create Lobby when ready.")

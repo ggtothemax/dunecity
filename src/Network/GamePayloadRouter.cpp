@@ -24,6 +24,7 @@
 #include <GameInitSettings.h>
 #include <Network/GameInitSettingsPolicy.h>
 #include <mod/Workshop.h>
+#include <Network/OnlineModPolicy.h>
 #include <mod/ModManager.h>
 
 #include <Definitions.h>
@@ -112,7 +113,7 @@ void handleConfigHash(InputStream& stream, GamePayloadPeer& peer,
     local.gameVersion    = localVersion;
     local.quantBotHash   = localQuantBotHash;
     local.objectDataHash = localObjectDataHash;
-    try { local.modRevisionHash = Workshop::saveMod(ModManager::instance().getActiveModName()).hash; }
+    try { local.modRevisionHash = OnlineModPolicy::fingerprint(); }
     catch(const std::exception&) { /* Incomplete fingerprint fails closed below. */ }
 
     ContentCompatibility::Fingerprint reported;

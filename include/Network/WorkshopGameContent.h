@@ -1,6 +1,7 @@
 #ifndef DUNECITY_WORKSHOP_GAME_CONTENT_H
 #define DUNECITY_WORKSHOP_GAME_CONTENT_H
 #include <GameInitSettings.h>
+#include <Network/OnlineModPolicy.h>
 #include <mod/ModManager.h>
 #include <mod/Workshop.h>
 #include <mod/WorkshopClient.h>
@@ -17,6 +18,15 @@ inline bool isSave(const GameInitSettings& init) {
 inline void resolveMod(GameInitSettings& init, bool allowDownload = true) {
     auto& mods = ModManager::instance();
     if(!init.getModRevisionHash().empty()) {
+        // Approved mods are already installed. Keep their shipped identity instead
+        // of installing a second, hash-named copy just to join a game.
+        if(OnlineModPolicy::approved(init.getModName()) && mods.modExists(init.getModName())
+           && Workshop::saveMod(init.getModName()).hash == init.getModRevisionHash()) {
+            if(mods.getActiveModName() != init.getModName() && !mods.setActiveMod(init.getModName()))
+                throw std::runtime_error("Could not load the approved mod.");
+            init.setModIdentity(mods.getActiveModName(), mods.getEffectiveChecksums().combined);
+            return;
+        }
         bool available = Workshop::activateModRevision(init.getModRevisionHash());
         if(!available) {
             // Fresh installations may already have the exact bundled package but no
@@ -41,7 +51,7 @@ inline void resolveMod(GameInitSettings& init, bool allowDownload = true) {
             throw std::runtime_error("The exact mod version for this game could not be loaded. Connect to the community server to download it.");
 
     } else {
-        if(!mods.setActiveMod(init.getModName()))
+        if(mods.getActiveModName() != init.getModName() && !mods.setActiveMod(init.getModName()))
             throw std::runtime_error("This game's mod is not installed.");
         if(!init.getModChecksum().empty() && mods.getEffectiveChecksums().combined != init.getModChecksum())
             throw std::runtime_error("This game needs an older mod version. Its installed files have changed.");
@@ -75,12 +85,22 @@ inline void pin(GameInitSettings& init, bool publish = false, bool queue = false
         init.setMapRevision(saved.getMapRevisionHash(), saved.getMapRevisionVersion(), saved.getMapRevisionManifest());
         resolveMod(init);
     }
+    if(!init.getModRevisionHash().empty()) resolveMod(init);
+    const bool approved = OnlineModPolicy::approved();
+    if(approved) {
+        publish = false;
+        queue = false;
+        if(init.getModRevisionHash().empty()
+           && init.getGameType() != GameType::CustomGame && init.getGameType() != GameType::CustomMultiplayer) {
+            init.setModIdentity(mods.getActiveModName(), mods.getEffectiveChecksums().combined);
+            return;
+        }
+    }
     if(!init.getModRevisionHash().empty()) {
-        resolveMod(init);
         mod = Workshop::store().get(init.getModRevisionHash());
     } else {
         mod = Workshop::saveMod(mods.getActiveModName());
-        if(!Workshop::activateModRevision(mod.hash)) throw std::runtime_error("Could not load the saved mod revision.");
+        if(!approved && !Workshop::activateModRevision(mod.hash)) throw std::runtime_error("Could not load the saved mod revision.");
         init.setModRevision(mod.hash, mod.version);
         init.setModIdentity(mods.getActiveModName(), mods.getEffectiveChecksums().combined);
     }

@@ -93,6 +93,7 @@ private:
     void refreshControls();
 
     bool validatePlayerName();
+    bool activateGameContent(const std::string& fingerprint, bool running);
 
     void onReceiveGameInfo(const GameInitSettings& gameInitSettings,
                            const ChangeEventList& changeEventList);

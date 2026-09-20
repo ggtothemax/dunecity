@@ -33,6 +33,7 @@
 #include <Menu/CustomGameMenu.h>
 #include <Menu/SinglePlayerSkirmishMenu.h>
 #include <Menu/HouseChoiceMenu.h>
+#include <Network/OnlineModPolicy.h>
 
 #include <GUI/dune/LoadSaveWindow.h>
 #include <GUI/MsgBox.h>
@@ -142,7 +143,7 @@ void SinglePlayerMenu::playCampaign(bool showLobby) {
         "qBotEasy", "qBotMedium", "qBotHard", "qBotBrutal", "qBotDefend", "CampaignAIPlayer"
     };
 
-    const bool supportSelected = (supportBotIndex > 0) && (!HouseChoiceMenu::isOnline() || !showLobby);
+    const bool supportSelected = (supportBotIndex > 0) && (!HouseChoiceMenu::isOnline() || (!showLobby && OnlineModPolicy::approved()));
     const char* supportPlayerClass = supportSelected ? kSupportPlayerClasses[supportBotIndex] : nullptr;
     const char* enemyAIClass = kEnemyAIClasses[enemyAIIndex];
 
@@ -182,7 +183,7 @@ void SinglePlayerMenu::playCampaign(bool showLobby) {
         std::string data(static_cast<size_t>(size), '\0');
         if(SDL_RWread(file.get(), data.data(), 1, data.size()) != data.size()) throw std::runtime_error("Could not read this campaign mission.");
         init.setScenarioData(data);
-        if(CrossplayMenu(init, HouseChoiceMenu::isPublicGame(), {}, true, !showLobby).showMenu() == MENU_QUIT_GAME_FINISHED) return;
+        if(CrossplayMenu(init, HouseChoiceMenu::isPublicGame(), {}, OnlineModPolicy::approved(), !showLobby && OnlineModPolicy::approved()).showMenu() == MENU_QUIT_GAME_FINISHED) return;
         online = true;
     } else { startSinglePlayerGame(init); return; }
   }

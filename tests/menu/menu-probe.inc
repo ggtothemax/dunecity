@@ -1,4 +1,5 @@
 #include <Network/NetworkManager.h>
+#include <Network/WorkshopGameContent.h>
 #include <fstream>
 // Test-only entry point, linked against the real menu objects by run-menu-probe.py.
 #include <Menu/HouseChoiceMenu.h>
@@ -54,6 +55,54 @@ int runMenuProbe() {
                 "Bundled DuneCity skin was not installed into the fresh profile");
     ModManager::instance().setActiveMod("vanilla");
     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+    {
+        auto& mods = ModManager::instance();
+        for(const auto& name : OnlineModPolicy::approvedMods()) {
+            menuRequire(mods.setActiveMod(name), "Approved mod is not installed");
+            const auto revisions = Workshop::store().list("mod").size();
+            const auto token = OnlineModPolicy::fingerprint();
+            menuRequire(OnlineModPolicy::approvedName(token) == name, "Approved mod token cannot identify its installed mod");
+            GameInitSettings campaign(HOUSE_ATREIDES, effectiveGameOptions, 1);
+            campaign.enableCoop(true, "Approved campaign");
+            // The community endpoint is disabled. Even publish/queue callers must
+            // start approved campaigns without capturing or uploading a mod.
+            WorkshopGameContent::pin(campaign, true, true);
+            menuRequire(campaign.getModRevisionHash().empty() && campaign.getModName() == name,
+                        "Approved campaign created a Workshop dependency");
+            menuRequire(Workshop::store().list("mod").size() == revisions,
+                        "Approved campaign copied its assets into Workshop");
+            CrossplayMenu direct(campaign, true, {}, true, true);
+            menuRequire(direct.startImmediately && direct.allowLateJoin, "Approved campaign lost direct start or hot joining");
+            menuRequire(direct.activateGameContent(token, true), "Approved hot join requires the community service");
+            auto mismatch = token;
+            mismatch.back() = token.back() == '0' ? '1' : '0';
+            menuRequire(!direct.activateGameContent(mismatch, true), "Approved join accepted changed rules");
+        }
+        menuRequire(mods.setActiveMod("dunecity"), "Cannot select Dune City");
+        const auto original = Workshop::saveMod("dunecity");
+        menuRequire(Workshop::activateModRevision(original.hash), "Cannot simulate the previous build's mod selection");
+        OnlineModPolicy::restoreApprovedSelection();
+        menuRequire(mods.getActiveModName() == "dunecity", "Upgrade left an approved mod on the sharing path");
+        const std::string draft = "New campaign probe";
+        menuRequire(mods.createMod(draft, "dunecity") && mods.setActiveMod(draft), "Cannot create new mod fixture");
+        const auto authored = Workshop::saveMod(draft);
+        menuRequire(Workshop::activateModRevision(authored.hash), "Cannot activate authored snapshot");
+        OnlineModPolicy::restoreApprovedSelection();
+        menuRequire(!OnlineModPolicy::approved(), "Authored mod inherited approval from its base");
+        {
+            HouseChoiceMenu menu(true);
+            menuRequire(menu.hostCoopButton.getText() == _("Create Lobby"), "New campaign mod bypasses the pregame lobby");
+            GameInitSettings campaign(HOUSE_ATREIDES, effectiveGameOptions, 1);
+            campaign.enableCoop(true, "New campaign");
+            CrossplayMenu direct(campaign, true, {}, true, true);
+            menuRequire(!direct.startImmediately && !direct.allowLateJoin, "New mod permits direct start or hot joining");
+            menuRequire(!direct.activateGameContent(authored.hash, true), "New mod accepts a running-game join");
+            menuRequire(direct.activateGameContent(authored.hash, false), "New mod cannot join its pregame lobby");
+            menuCapture(menu, "campaign-new-mod-lobby");
+        }
+        menuRequire(mods.setActiveMod("vanilla"), "Cannot restore vanilla fixture");
+        effectiveGameOptions = mods.loadEffectiveGameOptions(settings.gameOptions);
+    }
     {
         HouseChoiceMenu menu(false);
         for(auto* dropdown : {&menu.modDropDown, &menu.enemyAIDropDown,
@@ -475,9 +524,9 @@ int runMenuProbe() {
         menu.publicGames[1].contentHash=std::string(32, 'a');
         menu.joinPublicGame();
         menuRequire(menu.stage==CrossplayMenu::Stage::Choosing
-            && menu.statusText.find("verified mod revision")!=std::string::npos,
+            && menu.statusText.find("New mods cannot be joined")!=std::string::npos,
             "Public join accepted an obsolete partial-content fingerprint");
-        menu.publicGames[1].contentHash=Workshop::saveMod("vanilla").hash;
+        menu.publicGames[1].contentHash=OnlineModPolicy::fingerprint();
         settings.network.directDevelopmentEndpoint="http://127.0.0.1:1";
         menu.joinPublicGame();
         menu.processChildWindowOpenCloses();

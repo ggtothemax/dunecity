@@ -32,6 +32,7 @@
 
 #include <mod/ModManager.h>
 #include <mod/Workshop.h>
+#include <Network/OnlineModPolicy.h>
 #include <mod/WorkshopClient.h>
 #include <mod/ModTransferValidation.h>
 
@@ -1231,7 +1232,7 @@ NetworkManager::ContentCheck NetworkManager::checkRelayContent(
     local.gameVersion = gameVersion;
     local.quantBotHash = quantBotHash;
     local.objectDataHash = objectDataHash;
-    try { local.modRevisionHash = Workshop::saveMod(ModManager::instance().getActiveModName()).hash; }
+    try { local.modRevisionHash = OnlineModPolicy::fingerprint(); }
     catch(const std::exception&) { }
     ContentCheck worst = ContentCheck::Match;
     const auto check = [&](const auto& peer) {
@@ -2380,7 +2381,7 @@ void NetworkManager::sendChangeEventList(const ChangeEventList& changeEventList)
 
 void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::string& objectDataHash, const std::string& gameVersion) {
     std::string revision;
-    try { revision = Workshop::saveMod(ModManager::instance().getActiveModName()).hash; }
+    try { revision = OnlineModPolicy::fingerprint(); }
     catch(const std::exception&) { /* Empty hash fails content verification. */ }
     SDL_Log("========== SENDING CONFIG HASHES ==========");
     SDL_Log("Role: %s", bIsServer ? "SERVER" : "CLIENT");
