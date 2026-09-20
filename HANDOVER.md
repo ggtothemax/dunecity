@@ -29,11 +29,21 @@ The DMG is available at http://claw.local:18738/DuneCity-1.0.740-macOS.dmg;
 its downloaded SHA256 matches e5bd5656a9b86e5db50339d9bc8e373d3d4b509d7bb6b19efc1cb769049317dd.
 Code/package source is 8b352f03; browser test files live in play740 with explicit
 relay=http://127.0.0.1:18738&relaydev=1 parameters for the local service.
-The user asked why the live service is needed and whether older versions break;
-explained online discovery/mod sharing and successful legacy checks. No approval
-for public deployment has been given, so the public service and website remain
-unchanged. The standalone app's public online mode still needs that service
-update. Prepared service bundle: ../outputs/mba-test-1.0.740/p2p-service.
+The user authorized the public server update on 21 September. Website PR14
+(https://github.com/VR48/dunelegacy.com/pull/14) merged as a73ad507 and deployed
+successfully in run35543136731. Installed service release c340772c matches the
+verified 740 snapshot; existing public browser remains 1.0.737. All 207 service
+checks and 80 legacy protocol checks were repeated successfully before deploy.
+Live health, protocol9 directory and content listing pass; foreign origins and
+unknown/private paths remain rejected. A real Dune City mod upload passed the
+142738-byte Apache request (larger than the former bound), uploaded 290 unique
+files/10835830 bytes, committed revision ddcd9b38149235cfbaa455ea8dc43ec9626d965777505777a78b3b3d5fd70617,
+and read back the identical manifest and largest blob with verified SHA256.
+No live rooms or Discord test posts were created. Public online Workshop use is
+now enabled for the standalone candidate. Evidence: ../outputs/mba-test-1.0.740/
+deployment.json, live-endpoint-checks.json and live-service-verification.json.
+Website worktree: ../dunelegacy-workshop-service, clean branch fix/workshop-service-740.
+Prepared service bundle: ../outputs/mba-test-1.0.740/p2p-service.
 
 ## 2026-09-20 — Complete city editor and direct solo campaigns, local 1.0.739
 
