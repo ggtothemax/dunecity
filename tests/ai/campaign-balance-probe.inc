@@ -28,6 +28,7 @@
 #include "campaign-pacing-probe.inc"
 #include "campaign-repair-probe.inc"
 #include "campaign-helper-economy-probe.inc"
+#include "city-income-probe.inc"
 
 int runCampaignBalanceProbe() {
     const int level = std::atoi(std::getenv("BALANCE_LEVEL"));
@@ -106,6 +107,10 @@ int runCampaignBalanceProbe() {
     }
     if(std::getenv("BALANCE_CONTROLS_PROBE")) {
         runControlsProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_CITY_INCOME_PROBE")) {
+        runCityIncomeProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_CITY_PLACEMENT_PROBE")) {

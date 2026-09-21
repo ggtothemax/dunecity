@@ -1,3 +1,31 @@
+## 2026-09-21 — Measured QuantBot and controlled city income; prior forecast withdrawn
+
+The user challenged the unsupported assumption that six zones add30/min. Replaced
+that proposal in docs/quantbot-campaign-economy-proposal.md with actual measurements:
+36 paired vanilla/DuneCity campaign settings plus27 controlled60-minute city fixtures.
+Default7% tax, last10-minute Level2 Atreides samples:2R/2I/2C yielded199.0 net/min;
+3R/1I/2C467.7;2R/2I/2C plus one100%-funded police station94.5. These include actual
+police and power costs. Adding an assumed300/min harvester projects499/768/395 total;
+these are not measured capped-AI gameplay outcomes. Six zones cannot be assumed to
+produce30/min; mix/density/land value/service costs matter. Future caps remain unvalidated.
+
+Current unrestricted AI measurements: Level3 Easy2521.8/min combined versus280.9
+vanilla (+797.8%), with33 peak zones; Level5 Easy4307.5 versus573.2 (+651.5%),63 zones.
+Full36-row matrix sums all enemy houses; per-house CSV available. One seed/first layout
+per level, automated human-side helper, up to10 game minutes; rates use actual elapsed
+cycles when campaigns finish early. No claim of reading the user's unavailable MBA log.
+
+Claude subscription worker produced diagnostic scaffolding within two bounded runs.
+Codex completed/reviewed it: road placement returns no object; player callbacks must be
+suppressed inside House::update; takeCredits drains city cash first, so meter power and
+police costs directly; use minute50–60 for a true10-minute window. Assertions verify
+conservation, no units, fixed structure counts and sufficient power across all27 traces.
+Only diagnostic main TU compiled and linked; dependency audits pass. No shipping runtime,
+save format, app version, service or gameplay balance changes. Current local app remains744.
+Evidence: ../outputs/quantbot-income-measured/{measured-report.md,measured-team-matrix.csv,
+measured-per-house.csv,controlled-zone-income.csv,controlled-fixtures,dunecity-telemetry}.
+Original estimated matrix is superseded; physical caps need a separate verified income policy.
+
 ## 2026-09-21 — Classic campaign results and actual tax receipts, local 1.0.744
 
 Restored the original FAME.CPS framed results artwork replaced by the 716 menu
