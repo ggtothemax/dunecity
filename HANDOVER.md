@@ -9,6 +9,27 @@ Compression changes the spectator checkpoint transfer only; it does not add mod
 uploads or change campaign/lobby policy. Zlib is linked for native and browser
 builds, with the existing negotiated raw-transfer fallback retained.
 
+Combined verification: native and browser builds pass, all eight CTest groups
+pass, and the native ASan/UBSan and wasm32 wire harnesses each pass 92 checks.
+The standalone native harness was launched directly with
+DYLD_LIBRARY_PATH=/opt/homebrew/lib after compilation; passing it only to the
+system bash wrapper loses that variable and leaves SDL2's missing-SDL3 alert open.
+The packaged runtime initialization/rendering check passes independently.
+
+The real solo-host Twin Cities spectator/promotion probe sends 5,976,622 raw
+checkpoint bytes as 100,593 wire bytes and resumes both peers at cycle 1800 with
+217 objects and identical state digests. Actual Chromium clients running play742
+also pass direct Dune City campaign startup and hot joining into live spectating.
+Browser promotion and cross-device/NAT conditions were not repeated in this turn.
+The original compression worktree remains unchanged. Nothing pushed or released;
+no production server update was needed.
+
+Build source: 1a090ec3. Signed/notarized DMG:
+../outputs/mba-test-1.0.742/signed/DuneCity-1.0.742-macOS.dmg
+Download: http://claw.local:18738/DuneCity-1.0.742-macOS.dmg
+Downloaded SHA256: 0836b75ad48bb576d6dcd1171cf40adac4d75d911c42644d2982a225117461e4.
+Evidence: ../outputs/mba-test-1.0.742/verification.json and hot-join/.
+
 ## 2026-09-21 — Spectator transfer compression (isolated development branch)
 
 Branch `improve/snapshot-transfer-compression` starts at main `5848c51`. It is local,
