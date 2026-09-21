@@ -7821,12 +7821,9 @@ void QuantBot::launchGroundHunt() {
     }
     std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return a.id<b.id;});
     if (limited) committedValue=campaignPressure().value;
-    // Easy and Medium custom games also cap the total ground force that may be
-    // committed at once. Hard and Brutal keep the configured percentage alone.
-    const auto customLimits=SimpleArmyPolicy::customAttackLimits(
-        difficulty==Difficulty::Easy ? 0 : difficulty==Difficulty::Medium ? 1 : 2);
-    const int customBudget=std::min(SimpleArmyPolicy::attackBudget(groundArmyValue,percent),
-        std::max(0,customLimits.maxValue));
+    // Every custom difficulty commits its configured percentage of the current
+    // ground army, without any additional unit count or flat value ceiling.
+    const int customBudget=SimpleArmyPolicy::attackBudget(groundArmyValue,percent);
     std::vector<Uint32> selected;
     if (limited) {
         const auto& settings=getQuantBotConfig().getSettings(static_cast<int>(difficulty));
@@ -7864,10 +7861,10 @@ void QuantBot::launchGroundHunt() {
         selected=SimpleArmyPolicy::limitedAttack(armyValue,committedValue,100-profile.reservePercent,candidates);
     } else {
         // A custom wave commits the configured share of the ground army, minus
-        // everything already out there. Survivors keep their place in the cap,
+        // everything already out there. Survivors keep their place in the share,
         // so repeated passes reinforce a wave instead of stacking new ones.
-        selected=SimpleArmyPolicy::customAttack(groundArmyValue,groundCommittedUnits,
-            groundCommittedValue,percent,customLimits,candidates);
+        selected=SimpleArmyPolicy::customAttack(groundArmyValue,groundCommittedValue,
+            percent,candidates);
     }
     int count=0,value=0;
     if (limited && !selected.empty()) {
@@ -7918,8 +7915,10 @@ void QuantBot::launchGroundHunt() {
         .set("ground_army_value",groundArmyValue)
         .set("pressure_units",limited ? campaignPressure().units : groundCommittedUnits+count)
         .set("pressure_value",limited ? campaignPressure().value : groundCommittedValue+value)
-        .set("attack_unit_cap",!custom || customLimits.maxUnits==INT32_MAX ? -1 : customLimits.maxUnits)
-        .set("attack_value_cap",!custom || customLimits.maxValue==INT32_MAX ? -1 : customLimits.maxValue)
+        // Custom attacks have no unit or value ceiling any more; the fields stay
+        // in the record at their existing "no cap" sentinel for audit tooling.
+        .set("attack_unit_cap",-1)
+        .set("attack_value_cap",-1)
         .set("available_value",availableValue).set("required_ready",requiredReady)
         .set("attack_percent",percent).set("attack_budget",limited ? SimpleArmyPolicy::attackBudget(availableValue,percent) : (custom ? customBudget : SimpleArmyPolicy::attackBudget(armyValue,100-profile.reservePercent)))
         .set("active_units",limited ? campaignPressure().units : count)

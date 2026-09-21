@@ -1543,31 +1543,31 @@ TEST_CASE("Medium and Hard campaign waves use fixed credits and independent open
     CHECK(openingDelayMs(2,1599783965,45000,0)!=openingDelayMs(2,1599783965,45000,1));
 }
 
-TEST_CASE("Custom attacks enforce simultaneous caps and strict configured share", "[quantbot][army][regression]") {
+TEST_CASE("Custom attacks commit a strict share of the owned ground army", "[quantbot][army][regression]") {
     using namespace SimpleArmyPolicy;
     std::vector<Responder> infantry;
     for(uint32_t id=1;id<=76;++id) infantry.push_back({id,100,0});
-    const auto easy=customAttackLimits(0), medium=customAttackLimits(1);
-    // Mass infantry hits the count cap even when the value budget has room.
-    REQUIRE(customAttack(18850,0,0,25,easy,infantry).size()==8);
-    REQUIRE(customAttack(18850,0,0,40,medium,infantry).size()==14);
-    REQUIRE(customAttack(18850,8,800,25,easy,infantry).empty());
-    REQUIRE(customAttack(18850,7,700,25,easy,infantry).size()==1);
-    REQUIRE(customAttack(18850,2,2400,25,easy,infantry).empty());
-    REQUIRE(customAttack(18850,2,2300,25,easy,infantry).size()==1);
-    REQUIRE(customAttack(2000,0,0,25,easy,infantry).size()==5);
-    REQUIRE(customAttack(2000,3,300,25,easy,infantry).size()==2);
-    REQUIRE(customAttack(2000,0,0,0,easy,infantry).empty());
-    REQUIRE(customAttack(300,0,0,25,easy,{{7,300,0}}).empty());
-    REQUIRE(customAttack(2000,6,600,25,easy,infantry).empty());
+    // The configured share is the only limit: a large army sends far more than
+    // the retired eight/fourteen units and the retired 2400/4200 value caps.
+    REQUIRE(customAttack(18850,0,25,infantry).size()==47);
+    REQUIRE(customAttack(18850,0,40,infantry).size()==75);
+    // Survivors of earlier waves keep their place inside that same share.
+    REQUIRE(customAttack(18850,4600,25,infantry).size()==1);
+    REQUIRE(customAttack(18850,4712,25,infantry).empty());
+    REQUIRE(customAttack(2000,0,25,infantry).size()==5);
+    REQUIRE(customAttack(2000,300,25,infantry).size()==2);
+    REQUIRE(customAttack(2000,500,25,infantry).empty());
+    REQUIRE(customAttack(2000,0,0,infantry).empty());
+    // Strict budget, no single-unit fallback: too small an army simply waits.
+    REQUIRE(customAttack(300,0,25,{{7,300,0}}).empty());
     std::vector<Responder> heavy;
     for(uint32_t id=1;id<=20;++id) heavy.push_back({id,600,0});
-    REQUIRE(customAttack(18850,0,0,25,easy,heavy).size()==4);
-    REQUIRE(customAttack(18850,0,0,40,medium,heavy).size()==7);
-    REQUIRE(customAttack(2000,0,0,50,customAttackLimits(2),infantry).size()==10);
-    REQUIRE(customAttack(2000,0,0,60,customAttackLimits(3),infantry).size()==12);
+    REQUIRE(customAttack(18850,0,25,heavy).size()==7);
+    REQUIRE(customAttack(18850,0,40,heavy).size()==12);
+    REQUIRE(customAttack(2000,0,50,infantry).size()==10);
+    REQUIRE(customAttack(2000,0,60,infantry).size()==12);
     auto reversed=infantry;std::reverse(reversed.begin(),reversed.end());
-    REQUIRE(customAttack(18850,0,0,25,easy,reversed)==customAttack(18850,0,0,25,easy,infantry));
+    REQUIRE(customAttack(18850,0,25,reversed)==customAttack(18850,0,25,infantry));
     // The deliberately lenient campaign helper remains separate.
     REQUIRE(limitedAttack(300,0,25,{{7,300,0}})==std::vector<uint32_t>{7});
 }

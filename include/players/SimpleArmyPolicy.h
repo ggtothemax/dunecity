@@ -43,33 +43,22 @@ inline std::vector<uint32_t> limitedAttack(int armyValue, int committed, int per
     if (selected.empty() && committed <= 0 && cheapest) selected.push_back(cheapest->id);
     return selected;
 }
-// A custom game commits the configured share of its own ground army. Easy and
-// Medium additionally cap how much ground force may be committed at once, and
-// both limits count the survivors of earlier waves, so waves cannot stack.
-struct CustomAttackLimits { int maxUnits; int maxValue; };
-inline CustomAttackLimits customAttackLimits(int difficulty) {
-    switch (difficulty) {
-        case 0: return {8,2400};
-        case 1: return {14,4200};
-        default: return {INT32_MAX,INT32_MAX};
-    }
-}
-// Strictly min(percentage budget, absolute cap): a dispatch never overshoots,
-// so an army too small for one more unit simply waits instead of attacking.
-inline std::vector<uint32_t> customAttack(int armyValue,int committedUnits,int committedValue,
-                                          int percent,CustomAttackLimits limits,
+// A custom game commits the configured share of its own current ground army,
+// and nothing else: no unit count and no absolute value ceiling. Survivors of
+// earlier waves count against that share, so waves reinforce instead of stack.
+// Strictly the percentage budget: a dispatch never overshoots, so an army too
+// small for one more unit simply waits instead of attacking.
+inline std::vector<uint32_t> customAttack(int armyValue,int committedValue,int percent,
                                           std::vector<Responder> candidates) {
-    const int budget=std::min(attackBudget(armyValue,percent),std::max(0,limits.maxValue));
-    const int unitCap=std::max(0,limits.maxUnits);
-    int value=std::max(0,committedValue), units=std::max(0,committedUnits);
+    const int budget=attackBudget(armyValue,percent);
+    int value=std::max(0,committedValue);
     std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b) {
         return a.id<b.id;
     });
     std::vector<uint32_t> selected;
     for (const auto& candidate : candidates) {
-        if (units>=unitCap) break;
         if (candidate.value<=0 || candidate.value>budget-value) continue;
-        selected.push_back(candidate.id); value+=candidate.value; ++units;
+        selected.push_back(candidate.id); value+=candidate.value;
     }
     return selected;
 }

@@ -29,17 +29,39 @@ void runCustomAttackProbe(Game& game) {
         auto hunters=[&] {
             int n=0;for(auto* unit:army)if(unit->getAttackMode()==HUNT)++n;return n;
         };
+        // Verify compiled defaults and the independently loaded shipped config.
+        // Wave sizes below depend on owned troops, not the production target.
+        const QuantBotConfig defaults;
+        require(defaults.easy.attackForceMilitaryValueRatio==0.25f
+            && defaults.medium.attackForceMilitaryValueRatio==0.40f
+            && defaults.hard.attackForceMilitaryValueRatio==0.50f
+            && defaults.brutal.attackForceMilitaryValueRatio==0.60f,
+            "Default custom attack shares are not 25/40/50/60 percent");
+        require(defaults.easy.militaryValueLimitCustomLargeMap==15000
+            && defaults.easy.militaryValueLimitCustomHugeMap==25000
+            && defaults.medium.militaryValueLimitCustomLargeMap==25000
+            && defaults.medium.militaryValueLimitCustomHugeMap==40000,
+            "Default Easy/Medium large and huge military limits drifted");
+        const auto& loaded=getQuantBotConfig();
+        require(loaded.easy.militaryValueLimitCustomLargeMap==15000
+            && loaded.easy.militaryValueLimitCustomHugeMap==25000
+            && loaded.medium.militaryValueLimitCustomLargeMap==25000
+            && loaded.medium.militaryValueLimitCustomHugeMap==40000,
+            "Shipped config did not load the approved military limits");
+        // An enormous production target must not enlarge this 7600-value army's attack.
+        bot->militaryValueLimit=999999;
         getQuantBotConfig().easy.attackForceMilitaryValueRatio=0.25f;
         getQuantBotConfig().medium.attackForceMilitaryValueRatio=0.40f;
+        // 76 troopers at 100 credits: 25 percent buys 19, 40 percent buys 30.
         reset(QuantBot::Difficulty::Easy);bot->launchGroundHunt();
-        require(hunters()==8,"Custom Easy did not cap mass infantry at eight");
+        require(hunters()==19,"Custom Easy did not send its 25-percent share");
         // Forced movement must not remove survivors from the counted roster.
         for(auto* unit:army)if(unit->getAttackMode()==HUNT)unit->setForced(true);
         bot->launchGroundHunt();
-        require(hunters()==8,"A repeated dispatch or forced hunter bypassed the count cap");
+        require(hunters()==19,"A repeated dispatch or forced hunter exceeded the share");
         reset(QuantBot::Difficulty::Medium);bot->launchGroundHunt();
-        require(hunters()==14,"Custom Medium did not cap mass infantry at fourteen");
-        bot->launchGroundHunt();require(hunters()==14,"Medium stacked waves");
+        require(hunters()==30,"Custom Medium did not send its 40-percent share");
+        bot->launchGroundHunt();require(hunters()==30,"Medium stacked waves");
         for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium}) {
             reset(difficulty);bot->launchGroundHunt();
             auto* reserve=army.back();

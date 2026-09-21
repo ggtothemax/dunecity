@@ -71,8 +71,8 @@ QuantBotConfig::QuantBotConfig() {
     easy.harvesterLimitCustomHugeMap = 15;
     easy.militaryValueLimitCustomSmallMap = 3000;
     easy.militaryValueLimitCustomMediumMap = 8000;
-    easy.militaryValueLimitCustomLargeMap = 20000;
-    easy.militaryValueLimitCustomHugeMap = 30000;
+    easy.militaryValueLimitCustomLargeMap = 15000;
+    easy.militaryValueLimitCustomHugeMap = 25000;
     easy.structureDefenders = 10;
     easy.harvesterDefenders = 5;
     
@@ -91,8 +91,8 @@ QuantBotConfig::QuantBotConfig() {
     medium.harvesterLimitCustomHugeMap = 25;
     medium.militaryValueLimitCustomSmallMap = 5000;
     medium.militaryValueLimitCustomMediumMap = 12000;
-    medium.militaryValueLimitCustomLargeMap = 35000;
-    medium.militaryValueLimitCustomHugeMap = 50000;
+    medium.militaryValueLimitCustomLargeMap = 25000;
+    medium.militaryValueLimitCustomHugeMap = 40000;
     medium.structureDefenders = 15;
     medium.harvesterDefenders = 10;
     

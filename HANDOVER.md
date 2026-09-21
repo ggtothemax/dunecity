@@ -1,3 +1,35 @@
+## 2026-09-21 — Approved custom military targets and percentage-only attacks, 1.0.750
+
+Supersedes749's added custom attack caps. Easy military production target is now
+15000 on Large maps (4097–16384 tiles) and25000 on Huge; Medium25000/40000.
+Small/Medium map buckets, other difficulties and campaign rules are unchanged.
+Both constructor defaults and shipped QuantBot Config.ini.default match. Normal
+version-based official-mod reseeding supplies the defaults on next launch.
+Custom attack budget remains the configured percentage of CURRENT owned ground
+combat value: Easy25%, Medium40%, Hard50%, Brutal60%. Existing hunters, including
+forced/busy survivors, consume that budget. Removed the8/14 headcount and2400/4200
+flat value caps. No replacement headcount/composition restriction. Existing
+Easy/Medium home-reserve behavior retained. Engine/map population rules and
+campaign wave caps are separate and unchanged. No save/network-format change.
+
+Claude supplied the scoped source/config/test patch in its20-turn bounded run
+(turn limit before final report). Codex reviewed it and added loaded-template
+checks plus an oversized production-target fixture proving dispatch still uses
+owned ground troops. All ten CTest groups pass; dependency/version audits pass.
+Real-engine76-trooper fixture sends19 Easy/30 Medium, repeated forced hunters
+cannot stack attacks, and campaign helper rally is unchanged. A fresh20-minute
+Four Quadrants simulation (seed1330896984, AI-controlled test houses, not an
+exact replay of Stefan's human orders) reaches75000 cycles. Both Easy houses
+load15000 targets; all14 dispatches respect owned-ground percentage budgets,
+without count/flat caps. First dispatch6 units/3250 from13000 ground value.
+Evidence: ../outputs/mba-test-1.0.750/validation and /tmp/dunecity-750-balance.
+
+Local Mac package and installation receipts will be recorded in
+../outputs/mba-test-1.0.750/verification.json. Keep the normal app/Desktop shortcut,
+back up749, and never interrupt a running game. No push/public release requested.
+Old saves/replays may pin previous mod configurations; use a new match for these
+updated military targets.
+
 ## 2026-09-21 — Custom Easy/Medium attack pressure, local 1.0.749
 
 Stefan's MBA Four Quadrants128x128 tech8 custom Easy replay (seed1330896984)
