@@ -1,9 +1,12 @@
 # In-game multiplayer controls
 
-Local candidate 1.0.746 adds Pause/Resume to the top bar and multiplayer Options
+Local candidate 1.0.747 includes Pause/Resume to the top bar and multiplayer Options
 menu. Space uses the same action. Every human player occupying a playing seat
 can pause or resume, regardless of which player paused first. Spectators cannot.
-Opening or closing Options does not change an explicit shared pause.
+Opening the host's Options menu (including Escape) requests a shared pause.
+Guest and spectator menus stay local. Opening an already-paused menu or closing
+a menu does not resume the match; any active player can use Resume. The menu
+updates its pause status and button while open.
 
 Game Settings is available during multiplayer. The host can change game speed
 there or with the existing plus/minus shortcuts. Other players see the current
@@ -49,7 +52,8 @@ JOIN_MATCH_CONTROLS=1 JOIN_AT_CYCLE=700 JOIN_CAPTURE_UI=1 \
 ```
 
 It covers client pause/host resume, simultaneous requests/client resume,
-host-only speed edits while paused, menu-close semantics, a spectator joining
+host-only speed edits while paused, host-menu auto-pause, guest-menu isolation,
+menu-close semantics, a spectator joining
 while paused, spectator authority restrictions, malformed control packets,
 and matching world digests after resuming and after spectator departure.
 Screenshots include the toolbar, multiplayer Options and Game Settings.

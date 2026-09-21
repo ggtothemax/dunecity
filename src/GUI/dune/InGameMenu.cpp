@@ -41,7 +41,6 @@ Point InGameMenuButton::getMinimumSize() const {
 
 InGameMenu::InGameMenu(bool bMultiplayer, int color)
  : Window(0,0,0,0), bMultiplayer(bMultiplayer), color(color) {
-    const bool onlineContinues = pNetworkManager && !currentGame->isGamePaused();
     const bool canSkip = currentGame->canSkipMission();
     const bool canJoin=pNetworkManager && pNetworkManager->isServer() && pNetworkManager->getDirectTransport() && pNetworkManager->getDirectTransport()->allowsLateJoin();
     const bool canRequest=currentGame->isSpectating() && pNetworkManager->getDirectTransport();
@@ -63,7 +62,6 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     title.setTextColor(COLOR_RGB(250,248,240),COLOR_TRANSPARENT);
     title.setAlignment(static_cast<Alignment_Enum>(Alignment_HCenter | Alignment_VCenter));
     mainVBox.addWidget(&title,32);
-    onlineNotice.setText(onlineContinues ? _("Online game continues") : currentGame->isGamePaused() ? _("Game paused") : _("Game menu"));
     onlineNotice.setTextColor(COLOR_RGB(197,204,217),COLOR_TRANSPARENT);
     onlineNotice.setTextFontSize(14);
     onlineNotice.setAlignment(static_cast<Alignment_Enum>(Alignment_HCenter | Alignment_VCenter));
@@ -101,14 +99,36 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     }
     gap();addButton(gameSettingsButton,_("Game Settings"),std::bind(&InGameMenu::onSettings,this));
     if (bMultiplayer) {
-        gap();addButton(pauseGameButton,currentGame->isGamePaused() ? _("Resume match") : _("Pause match"),[]() {
+        gap();addButton(pauseGameButton,_("Pause match"),[]() {
             currentGame->toggleMatchPause();
             currentGame->resumeGame(); // Close this menu, preserving the shared pause.
         });
-        pauseGameButton.setEnabled(currentGame->canToggleMatchPause() && (currentGame->isGamePaused() || !currentGame->isPauseRequestPending()));
     }
     gap();addButton(quitButton,_("Quit to Menu"),std::bind(&InGameMenu::onQuit,this));
     mainVBox.addWidget(VSpacer::create(16));
+    updateMatchControls();
+}
+
+void InGameMenu::updateMatchControls() {
+    // The host's own menu requests a shared pause on the way in, and any peer can
+    // pause or resume while this menu is open, so both the notice and the button
+    // follow the live match state instead of the state at construction time.
+    const bool paused = currentGame->isGamePaused();
+    const bool pending = currentGame->isPauseRequestPending();
+    const std::string notice = paused ? _("Game paused")
+        : !pNetworkManager ? _("Game menu")
+        : pending ? _("Pausing...") : _("Online game continues");
+    if(onlineNotice.getText()!=notice) onlineNotice.setText(notice);
+    if(!bMultiplayer) return;
+    const std::string pauseText = paused ? _("Resume match")
+        : pending ? _("Pausing...") : _("Pause match");
+    if(pauseGameButton.getText()!=pauseText) pauseGameButton.setText(pauseText);
+    pauseGameButton.setEnabled(currentGame->canToggleMatchPause() && (paused || !pending));
+}
+
+void InGameMenu::draw(Point position) {
+    updateMatchControls();
+    Window::draw(position);
 }
 
 InGameMenu::~InGameMenu()

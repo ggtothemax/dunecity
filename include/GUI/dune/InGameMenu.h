@@ -44,6 +44,13 @@ public:
     bool handleKeyPress(SDL_KeyboardEvent& key) override;
 
     /**
+        Draws this window. The shared pause can change while the menu is open,
+        so the notice and the Pause/Resume button are refreshed every frame.
+        \param  position    the position of this window
+    */
+    void draw(Point position) override;
+
+    /**
         This method is called, when the child window is about to be closed.
         This child window will be closed after this method returns.
         \param  pChildWindow    The child window that will be closed
@@ -59,6 +66,8 @@ public:
     void onSkipMission();
 
 private:
+    void updateMatchControls();
+
     bool bMultiplayer;
     int color;
 

@@ -19,15 +19,47 @@ static bool probeMatchControls(Game& game, const std::string& role, const std::s
         write(role+"-ready");
         if(!exists("Host-ready") || !exists("Partner-ready")) return true;
     }
+    if(stage==3 && !host && !viewer && !game.isGamePaused() && !exists(mine+"-menu")) {
+        // A player who is not hosting keeps the match running for everyone else.
+        game.onOptions();
+        if(game.isPauseRequestPending() || game.isGamePaused())
+            throw std::runtime_error("non-host Options paused the online game");
+        game.resumeGame(); game.pInGameMenu.reset();
+        write(mine+"-menu");
+    }
     const bool shouldPress=!viewer && ((stage==1 && !host && cycle>=100)
         || (stage==2 && cycle>=300) || (stage==3 && host && cycle>=700));
     if(shouldPress && !exists(mine+"-requested")) {
-        game.toggleMatchPause(); write(mine+"-requested");
+        if(stage==3) {
+            // The host entering Options is what pauses the match in this stage.
+            game.onOptions();
+            if(!game.isPauseRequestPending() && !game.isGamePaused())
+                throw std::runtime_error("host Options did not request the shared pause");
+            auto* menu=dynamic_cast<InGameMenu*>(game.pInGameMenu.get());
+            menu->draw(Point(0,0));
+            if(!game.isGamePaused() && (menu->pauseGameButton.isEnabled()
+                || menu->onlineNotice.getText()!=_("Pausing...")))
+                throw std::runtime_error("host menu did not show pending pause");
+            // Leave this same window open until the network pause takes effect.
+        } else {
+            game.toggleMatchPause();
+        }
+        write(mine+"-requested");
     }
     if(game.isGamePaused()) {
         if(!exists(mine+"-paused")) {
             write(mine+"-paused",std::to_string(cycle));
+            if(stage==3 && host) {
+                auto* menu=dynamic_cast<InGameMenu*>(game.pInGameMenu.get());
+                if(!menu) throw std::runtime_error("host menu was not kept open");
+                menu->draw(Point(0,0));
+                if(!menu->pauseGameButton.isEnabled() || menu->pauseGameButton.getText()!=_("Resume match")
+                    || menu->onlineNotice.getText()!=_("Game paused"))
+                    throw std::runtime_error("open host menu did not refresh after pause");
+            }
             game.onOptions();
+            // Opening the menu again on an already paused match must never resume it.
+            if(!game.isGamePaused()) throw std::runtime_error("opening Options resumed the shared pause");
             joinCapture(game,out+"/controls-menu-"+mine+".bmp");
             dynamic_cast<InGameMenu*>(game.pInGameMenu.get())->onSettings();
             joinCapture(game,out+"/controls-settings-"+mine+".bmp");

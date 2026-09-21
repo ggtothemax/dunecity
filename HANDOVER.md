@@ -1,3 +1,21 @@
+## 2026-09-21 — Host Options auto-pause, local 1.0.747
+
+Opening the host's in-game Options menu (including Escape) requests the existing
+synchronized shared pause. Guest/spectator menus stay local. Entry while paused
+or pending never toggles Resume. Closing Options preserves the shared pause;
+any active player can explicitly resume. Other popups are unchanged. The open
+Options menu refreshes its status and Pause/Resume button as shared state changes.
+
+Claude supplied the four-file patch within its bounded run (turn cap before final
+report); Codex reviewed it and extended the regression to retain the same menu
+through pending -> paused and verify button/notice refresh. All eight CTest groups
+pass. Native three-peer test passes host-menu pause at cycle711, guest-menu
+isolation, repeated paused entry, explicit resume and matching state at1800 and
+after spectator departure at1900. Screenshots checked. No protocol/save change;
+version bump747 includes all746 controls. Browser/ENet interactive play not repeated.
+Evidence: /tmp/dunecity-host-menu-pause and ../outputs/mba-test-1.0.747/validation/.
+Local signed package is being prepared; no public release, push or update feed.
+
 ## 2026-09-21 — Multiplayer host settings and shared pause, local 1.0.746
 
 Implemented host-only game-speed changes during play, exposed Game Settings to

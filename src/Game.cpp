@@ -3919,6 +3919,13 @@ void Game::onOptions()
         // don't show menu
         quitGame();
     } else {
+        // The host stepping into the menu stops the match for everyone; every other
+        // player and spectator keeps the match running while their menu is open.
+        // Only ever a pause request: an explicit shared pause is never lifted here.
+        if(pNetworkManager && pNetworkManager->isServer() && !isGamePaused()
+           && !pauseRequestPending && canToggleMatchPause()) {
+            toggleMatchPause();
+        }
         Uint32 color = getHouseColorRGB(getHouseVisualHouse(pLocalHouse->getHouseID()), 3);
         pInGameMenu = std::make_unique<InGameMenu>((isNetworkGameType(gameType)), color);
         bMenu = true;
