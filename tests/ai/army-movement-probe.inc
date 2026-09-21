@@ -79,6 +79,17 @@ void runArmyMovementProbe(Game& game) {
         require(homeGuard->getDestination()==homeGuard->getLocation(),"Regroup stole assigned base defender");
         bot->checkAllUnits();
         require(homeGuard->getTarget()==threat,"Base defender did not reacquire its live attacker");
+        // Custom raiders retain their offensive slot while dodging a tank.
+        game.gameType=GameType::CustomGame;
+        bot->difficulty=QuantBot::Difficulty::Easy;
+        auto* raider=spawn(owner,Unit_Quad,Coord(6,1));
+        threat->setLocation(origin+Coord(8,1));
+        bot->doSetAttackMode(raider,HUNT);
+        threat->doAttackObject(raider,true);
+        require(bot->findThreateningTank(raider)==threat,"Raider fixture has no threatening tank");
+        bot->checkAllUnits();
+        require(raider->getAttackMode()==HUNT,"Raider dodge released its offensive slot");
+        saved.push_back(raider);
     } catch(...) {unitList=saved;throw;}
     unitList=saved;
     SDL_Log("ARMY_MOVEMENT_PASS: Hunt survives short dodge and arrival; buildings remain siege targets; assault centre excludes home guard/worker; human order preserved");

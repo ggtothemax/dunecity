@@ -7775,6 +7775,7 @@ bool QuantBot::humanControls(const UnitBase* unit) const {
 void QuantBot::launchGroundHunt() {
     if (supportMode) return;
     const bool limited = isCampaignEnemy();
+    const bool custom = !isCampaignGameType(currentGame->gameType);
     if (limited && !campaignCanLaunch()) return;
     const auto profile = limited ? campaignProfile()
         : CampaignDifficultyPolicy::profile(static_cast<int>(difficulty),currentGame->techLevel);
@@ -7786,6 +7787,9 @@ void QuantBot::launchGroundHunt() {
     // Keep an explicit zero as the opt-out; each house uses its own difficulty.
     if (limited && percent>0) percent=profile.enemyCommitPercent;
     int armyValue=0, committedValue=0, availableValue=0, requiredReady=0;
+    // Ground pressure is tracked on its own: ornithopters and other non-ground
+    // troops must not inflate a budget that can only ever buy ground units.
+    int groundArmyValue=0, groundCommittedUnits=0, groundCommittedValue=0;
     std::vector<SimpleArmyPolicy::Responder> candidates;
     for (const auto* unit : getUnitList()) {
         if (unit->getOwner()!=getHouse() || unit->getHealth()<=0 || !unit->isActive() || !unit->isRespondable()
@@ -7796,9 +7800,17 @@ void QuantBot::launchGroundHunt() {
         const int price=std::max(100,currentGame->objectData.data[unit->getItemID()][unit->getOriginalHouseID()].price);
         armyValue+=price;
         if (unit->getAttackMode()==HUNT) committedValue+=price;
-        if (reserveDamagedUnitForRepair(unit) || unit->getAttackMode()==RETREAT) continue;
-        if (unit->hasATarget() || defenceAssignments.count(unit->getObjectID())) continue;
-        if (!limited && (!unit->isAGroundUnit() || unit->getItemID()==Unit_Saboteur
+        const bool ground=unit->isAGroundUnit();
+        if (ground) groundArmyValue+=price;
+        const bool free=!reserveDamagedUnitForRepair(unit) && unit->getAttackMode()!=RETREAT
+            && !unit->hasATarget() && !defenceAssignments.count(unit->getObjectID());
+        // Every existing hunter counts, including forced moves and busy targets.
+        // Never select it again or silently drop it from the pressure budget.
+        if (ground && unit->getAttackMode()==HUNT) {
+            ++groundCommittedUnits; groundCommittedValue+=price;
+        }
+        if (!free || (custom && unit->getAttackMode()==HUNT)) continue;
+        if (!limited && (!ground || unit->getItemID()==Unit_Saboteur
             || (unit->getAttackMode()==HUNT && !unit->wasForced()))) continue;
         if (limited && (scriptedAssaults.count(unit->getObjectID())
             || campaignWave.members.count(unit->getObjectID()))) continue;
@@ -7809,6 +7821,12 @@ void QuantBot::launchGroundHunt() {
     }
     std::stable_sort(candidates.begin(),candidates.end(),[](const auto& a,const auto& b){return a.id<b.id;});
     if (limited) committedValue=campaignPressure().value;
+    // Easy and Medium custom games also cap the total ground force that may be
+    // committed at once. Hard and Brutal keep the configured percentage alone.
+    const auto customLimits=SimpleArmyPolicy::customAttackLimits(
+        difficulty==Difficulty::Easy ? 0 : difficulty==Difficulty::Medium ? 1 : 2);
+    const int customBudget=std::min(SimpleArmyPolicy::attackBudget(groundArmyValue,percent),
+        std::max(0,customLimits.maxValue));
     std::vector<Uint32> selected;
     if (limited) {
         const auto& settings=getQuantBotConfig().getSettings(static_cast<int>(difficulty));
@@ -7844,7 +7862,13 @@ void QuantBot::launchGroundHunt() {
     } else if (isCampaignGameType(currentGame->gameType)) {
         // Shared-house helpers retain a modest home reserve, without enemy caps.
         selected=SimpleArmyPolicy::limitedAttack(armyValue,committedValue,100-profile.reservePercent,candidates);
-    } else for (const auto& candidate : candidates) selected.push_back(candidate.id);
+    } else {
+        // A custom wave commits the configured share of the ground army, minus
+        // everything already out there. Survivors keep their place in the cap,
+        // so repeated passes reinforce a wave instead of stacking new ones.
+        selected=SimpleArmyPolicy::customAttack(groundArmyValue,groundCommittedUnits,
+            groundCommittedValue,percent,customLimits,candidates);
+    }
     int count=0,value=0;
     if (limited && !selected.empty()) {
         campaignWave.launched=getGameCycleCount();
@@ -7888,9 +7912,16 @@ void QuantBot::launchGroundHunt() {
             .set("reason","next_wave_after_dispatch"));
     }
     traceDecision("ground_hunt",AITelemetry::Record().set("members",count).set("value",value)
-        .set("campaign_limited",limited).set("army_value",armyValue).set("committed_value",committedValue)
+        .set("campaign_limited",limited).set("army_value",armyValue)
+        .set("committed_value",custom ? groundCommittedValue : committedValue)
+        .set("committed_units",limited ? campaignPressure().units : groundCommittedUnits)
+        .set("ground_army_value",groundArmyValue)
+        .set("pressure_units",limited ? campaignPressure().units : groundCommittedUnits+count)
+        .set("pressure_value",limited ? campaignPressure().value : groundCommittedValue+value)
+        .set("attack_unit_cap",!custom || customLimits.maxUnits==INT32_MAX ? -1 : customLimits.maxUnits)
+        .set("attack_value_cap",!custom || customLimits.maxValue==INT32_MAX ? -1 : customLimits.maxValue)
         .set("available_value",availableValue).set("required_ready",requiredReady)
-        .set("attack_percent",percent).set("attack_budget",limited ? SimpleArmyPolicy::attackBudget(availableValue,percent) : armyValue)
+        .set("attack_percent",percent).set("attack_budget",limited ? SimpleArmyPolicy::attackBudget(availableValue,percent) : (custom ? customBudget : SimpleArmyPolicy::attackBudget(armyValue,100-profile.reservePercent)))
         .set("active_units",limited ? campaignPressure().units : count)
         .set("active_value",limited ? campaignPressure().value : value)
         .set("alliance_units",pressure.units).set("alliance_value",pressure.value)
@@ -8247,8 +8278,8 @@ Coord QuantBot::findBestDeathHandTarget(int enemyHouseID) {
 }
 
 
-Coord QuantBot::findSquadCenter(int houseID) {
-    int count=0, x=0, y=0, huntingCount=0, huntingX=0, huntingY=0;
+Coord QuantBot::findSquadCenter(int houseID, bool preferHunting) {
+    int count=0, x=0, y=0, huntingCount=0, huntingX=0, huntingY=0, homeCount=0, homeX=0, homeY=0;
     for (const auto* unit : getUnitList()) {
         if (!unit || !unit->getOwner() || unit->getOwner()->getHouseID()!=houseID
             || !unit->isActive() || !unit->isRespondable() || !unit->isAGroundUnit()
@@ -8257,10 +8288,14 @@ Coord QuantBot::findSquadCenter(int houseID) {
         ++count; x+=unit->getX(); y+=unit->getY();
         if (unit->getAttackMode()==HUNT) {
             ++huntingCount; huntingX+=unit->getX(); huntingY+=unit->getY();
+        } else {
+            ++homeCount; homeX+=unit->getX(); homeY+=unit->getY();
         }
     }
     // Reinforcements and home guards must not drag an attacking army backwards.
-    if (huntingCount) return Coord(huntingX/huntingCount,huntingY/huntingCount);
+    if (preferHunting && huntingCount) return Coord(huntingX/huntingCount,huntingY/huntingCount);
+    // The troops that stayed behind are the anchor for everyone still at home.
+    if (!preferHunting) return homeCount ? Coord(homeX/homeCount,homeY/homeCount) : Coord::Invalid();
     return count ? Coord(x/count,y/count) : Coord::Invalid();
 }
 
@@ -8312,8 +8347,10 @@ void QuantBot::kiteAwayFromThreat(const UnitBase* pUnit, const ObjectBase* pThre
 		return;
 	}
 
-	// Short combat spacing follows the fighting army, never the home rally.
-	Coord squadCenter = findSquadCenter(getHouse()->getHouseID());
+	// Short combat spacing follows the fighting army, never the home rally. A
+	// unit that was not sent on the wave backs onto the body it belongs to.
+	Coord squadCenter = findSquadCenter(getHouse()->getHouseID(),
+        gameMode!=GameMode::Custom || difficulty>Difficulty::Medium || pUnit->getAttackMode()==HUNT);
 
 	// If no squad center, just move directly away from threat
 	if (!squadCenter.isValid()) {
@@ -8402,8 +8439,14 @@ void QuantBot::moveToOptimalSquadPosition(const UnitBase* unit, FixPoint radius,
     if (!unit || unit->getItemID()==Unit_Saboteur || !unit->isRespondable() || humanControls(unit) || unit->hasATarget()
         || defenceAssignments.count(unit->getObjectID())
         || unit->wasForced() || unit->isMoving() || unit->getAttackMode()==HUNT) return;
-    Coord regroup = unit->getAttackMode()==RETREAT ? squadRallyLocation : findSquadCenter(getHouse()->getHouseID());
-    if (regroup.isInvalid()) regroup=squadRallyLocation;
+    // Easy and Medium keep their reserve at home. Only the units actually sent
+    // on a wave advance, and this function never touches a hunting unit.
+    const bool homeAnchored = gameMode==GameMode::Custom
+        && (difficulty==Difficulty::Easy || difficulty==Difficulty::Medium);
+    Coord regroup = (unit->getAttackMode()==RETREAT || homeAnchored)
+        ? squadRallyLocation : findSquadCenter(getHouse()->getHouseID());
+    if (regroup.isInvalid()) regroup = homeAnchored
+        ? findSquadCenter(getHouse()->getHouseID(),false) : squadRallyLocation;
     if (regroup.isInvalid()) return;
     const_cast<UnitBase*>(unit)->setGuardPoint(regroup);
     if (unit->getAttackMode()!=RETREAT && unit->getAttackMode()!=AREAGUARD) doSetAttackMode(unit,AREAGUARD);
@@ -8568,7 +8611,10 @@ void QuantBot::retreatAllUnits() {
                 && pUnit->isRespondable() && pUnit->isActive()
                 && QuantBotBuildPolicy::isLightRaider(pUnit->getItemID())) {
                 if (const UnitBase* tank = findThreateningTank(pUnit)) {
-                    doSetAttackMode(pUnit, AREAGUARD);
+                    // A short dodge does not release an offensive slot. Keep
+                    // custom hunters in their wave just like artillery kiting.
+                    if (isCampaignGameType(currentGame->gameType) || pUnit->getAttackMode()!=HUNT)
+                        doSetAttackMode(pUnit, AREAGUARD);
                     kiteAwayFromThreat(pUnit, tank, tank->getWeaponRange() + 2);
                     traceDecision("light_raider_evade", AITelemetry::Record().set("unit", pUnit->getObjectID())
                         .set("threat", tank->getObjectID()).set("reason", "tank_targeting_in_range")
@@ -8772,8 +8818,10 @@ void QuantBot::retreatAllUnits() {
                                 moveToOptimalSquadPosition(pUnit, squadRadius + 2,&rallyOrdersRemaining);
                             }
 
-                            // Check if we've reached the retreat position
-                            Coord actualSquadCenter = findSquadCenter(getHouse()->getHouseID());
+                            // Check if we've reached the retreat position. An
+                            // attack centroid is not a place to end a retreat.
+                            Coord actualSquadCenter = findSquadCenter(getHouse()->getHouseID(),
+                                gameMode!=GameMode::Custom || difficulty>Difficulty::Medium);
                             FixPoint distToSquadCenter = actualSquadCenter.isValid() ? 
                                 blockDistance(pUnit->getLocation(), actualSquadCenter) : FixPt_MAX;
                             FixPoint distToRallyPoint = squadRallyLocation.isValid() ? 

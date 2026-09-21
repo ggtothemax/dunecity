@@ -19,6 +19,7 @@
 #include "shared-spending-probe.inc"
 #include "opening-economy-probe.inc"
 #include "army-movement-probe.inc"
+#include "custom-attack-probe.inc"
 #include "factory-recovery-probe.inc"
 #include "radar-power-probe.inc"
 #include "campaign-stats-probe.inc"
@@ -132,6 +133,10 @@ int runCampaignBalanceProbe() {
     }
     if (std::getenv("BALANCE_ARMY_PROBE")) {
         runArmyMovementProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_CUSTOM_ATTACK_PROBE")) {
+        runCustomAttackProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_RADAR_PROBE")) {

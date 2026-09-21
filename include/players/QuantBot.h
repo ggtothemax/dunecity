@@ -226,7 +226,9 @@ private:
                                       int* crimeBenefit = nullptr, int* crimeHotspot = nullptr);
 
     Coord findEffectiveTurretPlaceLocation(Uint32 itemID);
-    Coord findSquadCenter(int houseID);
+    // preferHunting=false returns the body at home instead of the attack
+    // centroid, for troops that must not be dragged towards the front.
+    Coord findSquadCenter(int houseID, bool preferHunting = true);
     Coord findBaseCentre(int houseID);
     Coord findBestDeathHandTarget(int enemyHouseID);
     const UnitBase* findLightRaiderTarget(const UnitBase* raider) const;

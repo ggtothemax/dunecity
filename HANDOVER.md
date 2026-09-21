@@ -1,3 +1,37 @@
+## 2026-09-21 — Custom Easy/Medium attack pressure, local 1.0.749
+
+Stefan's MBA Four Quadrants128x128 tech8 custom Easy replay (seed1330896984)
+reproduces76 attackers /17650 value at cycle37695 in748. The configured25%
+was computed then ignored by the custom dispatch branch. Campaign selectors
+already applied separate wave limits. Custom now strictly honors configured
+percentage of ground combat value, subtracting existing hunters; Easy also caps
+simultaneous hunters at8/2400 value, Medium14/4200. Both caps apply, including
+forced/busy survivors; no oversized-single-unit exception. Hard/Brutal use their
+configured percentages without new absolute caps. No campaign economy, attack
+schedule, save or network format change. Easy/Medium idle reserves use the home
+rally instead of following the HUNT centroid. Their defensive kiting/retreat
+centers exclude hunters. Custom light raider dodges preserve HUNT so they remain
+counted. Telemetry adds ground budget, simultaneous pressure and explicit caps.
+
+Claude supplied a partial implementation in the bounded retry (both runs hit
+turn limits). Codex reviewed/completed survivor accounting, isolated changed
+rally behavior to Easy/Medium, preserved raider membership, added regressions,
+and verified the actual replay. Ten CTest groups pass including new real-engine
+custom-attack fixture; unit budget/count/zero/determinism cases pass. Existing
+army movement fixture plus raider dodge passes at level9. Campaign pressure
+fixture passes at level9 with explicit harvester limit7 (its prerequisites;
+default level4 lacks required houses and default unlimited workers violates its
+worker-cap assertion). Replay through85000 cycles passes: first attack4/2400,
+all10 dispatches keep total committed pressure <=8 units and <=2400 value.
+These are simulations of recorded commands under the new AI, not a claim that
+the changed match follows the original state after the first behavior change.
+
+Build/dependency audit/version checks pass. Local Mac package/delivery receipts
+will be recorded in ../outputs/mba-test-1.0.749/verification.json. Do not replace
+or interrupt the currently running748 on the Air. Nothing pushed or publicly
+released. Restart into749/new match for the new behavior; loading a pre-fix save
+does not automatically recall units that were already attacking.
+
 ## 2026-09-21 — Four Quadrants crash, menu resume and mod choices, local 1.0.748
 
 Reproduced Stefan's actual MBA replay from 1.0.747: Four Quadrants, seed545318708,
