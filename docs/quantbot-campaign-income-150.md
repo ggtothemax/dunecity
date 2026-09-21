@@ -45,7 +45,7 @@ orders for disallowed RTS structures are cancelled when the builder is next plan
 
 ## Validation and limits
 
-- Claude produced the pure decision table and 10 unit cases, including all 36 matrix cells;
+- Claude produced the pure decision table and 11 unit cases, including all 36 matrix cells;
   Codex completed integration, reviewed the patch and ran verification.
 - Native build and all eight CTest suites pass. The unit suite was rerun after the final
   legacy-save correction. Dependency audits pass before and after the build.

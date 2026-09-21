@@ -12,13 +12,21 @@ through the campaign-specific resource loader. New saves need the newer app.
 
 Claude's bounded core implementation and completion attempts hit their turn caps;
 Codex finished integration and review. A separate bounded Claude task delivered
-10 unit cases including all36 matrix entries. Eight CTest groups pass, plus
+11 unit cases including all36 matrix entries. Eight CTest groups pass, plus
 real-engine Easy2/Hard5/Brutal9 probes. Three ordinary campaign runs checked134
 enemy snapshots with no cap violations or new RTS types. Hard5/Brutal5 observed
 net income1748/3030 per minute versus goals1800/3150; not a full balance study.
 Evidence and measured limitations are documented alongside the matrix.
 Native spectator hot-join also passes with matching state at cycle1800.
 No browser-crossplay or public release claim.
+
+Local delivery complete: Developer ID signed, app and DMG accepted by Apple,
+stapled and Gatekeeper-verified. Mounted package runtime/portable-library checks
+pass. Download verified byte-for-byte at
+http://claw.local:18738/DuneCity-1.0.745-macOS.dmg.
+Package: ../outputs/mba-test-1.0.745/final-signed/DuneCity-1.0.745-macOS.dmg.
+Source implementation835b5794; verification.json records SHA256 and Apple receipts.
+Nothing pushed or published to the public release/update channels.
 
 ## 2026-09-21 — User target: 150% combined income; post-spice expansion
 
