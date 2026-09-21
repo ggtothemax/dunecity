@@ -1,3 +1,31 @@
+## 2026-09-21 — Revised joint harvester / shared-zone balance proposal
+
+User rejected fixed R/I/C quotas, treating six as an Easy requirement, absent harvester
+substitution and inadequate tax scaling by difficulty. Revised proposal is in
+`docs/quantbot-campaign-balance-proposal.md`; it is not implemented. Shared TOTAL RCI
+caps let QuantBot choose residential-heavy mixes. Normal tax remains; previous artificial
+AI tax-cap suggestion withdrawn. Level2 proposed1H/1zone Easy,1H/2zones Medium,
+1H/5zones Hard,1H/6zones Brutal; early two-harvester observed Hard/Brutal reference
+trades one harvester for taxes. Later references adapt to larger vanilla fleets;
+late Easy1H/3zones, Medium2H/8zones, Hard2H/12zones, Brutal2H/20zones. One-refinery
+level9 Easy/Medium houses need lower1H/1zone and1H/3zone allowances. Preserve actual
+starting assets and RTS-type restrictions; caps do not grant harvesters/factories.
+
+Collected28 additional one-hour real-engine controlled residential-heavy cases on
+Atreides level2/9, last10-minute income. Level2:1R31.8net/min,2R66.5, fivezones315–389,
+six361–468. Level9:threezones335.7,eight533–633,twelve829–862,twenty1628–1755.
+These are sampled mixes/layouts, not guaranteed yield ranges for all cities. Full
+matrix is a starting balance proposal requiring live capped-AI verification. Early
+fleets are observed in one opening sample, not universally proven harvester ceilings.
+
+Used claude-engineering shared-memory wrapper with projectdunecity/Max auth for bounded
+12-turn worker; it extended diagnostic capacity/power provisioning, exhausted its turns.
+Codex added missing ZonePower include, compiled diagnosticTU, ran28 cases and checked
+cash reconciliation, sufficient power, no units and fixed structures. Dependency audit
+passes. No shipping gameplay, version, saves, deployments or user game changed.
+Evidence: ../outputs/quantbot-ric-balance-proposal/{proposal.md,proposed-joint-matrix.csv,
+results.csv,results.json,measurements}. Diagnostic capacity raised12→20zones.
+
 ## 2026-09-21 — Measured QuantBot and controlled city income; prior forecast withdrawn
 
 The user challenged the unsupported assumption that six zones add30/min. Replaced

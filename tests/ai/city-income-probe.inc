@@ -14,6 +14,7 @@
 #include <dunecity/CityEffects.h>
 #include <dunecity/CitySimulation.h>
 #include <dunecity/CityStructurePopulation.h>
+#include <dunecity/ZonePower.h>
 #include <structures/StructureBase.h>
 #include <structures/ZoneStructure.h>
 #include <Map.h>
@@ -60,7 +61,7 @@ void runCityIncomeProbe(Game& game) {
     const int taxOverride = cityIncomeEnvInt("CITY_INCOME_TAX", -1);
     const int fixtureCash = cityIncomeEnvInt("CITY_INCOME_CASH", 10000);
     const std::string label = std::getenv("CITY_INCOME_LABEL") ? std::getenv("CITY_INCOME_LABEL") : "fixture";
-    require(!mix.empty() && mix.size() <= 12, "Zone mix must hold 1-12 lots");
+    require(!mix.empty() && mix.size() <= 20, "Zone mix must hold 1-20 lots");
     require(minutes >= 1 && minutes <= 120, "Use 1-120 simulated minutes");
 
     // The city simulation is constructed on the first real game update, so take
@@ -146,10 +147,23 @@ void runCityIncomeProbe(Game& game) {
     }
 
     // --- Power: windtraps well clear of the lots, plus optional services. ---
+    // Enough windtraps that the fixture stays powered once every lot reaches
+    // density 3, so a large fixture is not silently measured power-starved.
+    // Windtraps only add production, never powerRequirement, and House::update
+    // charges powerRequirement/32, so this cannot inflate the metered cost.
+    int fullyGrownPower = 0;
+    for(const auto& lot : lots) fullyGrownPower += DuneCity::getZonePower(lot.itemID, 3);
+    const int windtrapSlots = std::max(4, (kPlotWidth - 3) / 3 + 1);
     int windtraps = 0;
-    for(int slot = 0; slot < 4; ++slot)
+    for(int slot = 0; slot < windtrapSlots && house->getProducedPower() < fullyGrownPower; ++slot)
         if(house->placeStructure(NONE_ID, Structure_WindTrap, plot.x + 1 + slot * 3, plot.y + 10, false, true))
             ++windtraps;
+    while(windtraps < 4 && windtraps < windtrapSlots) {
+        if(!house->placeStructure(NONE_ID, Structure_WindTrap, plot.x + 1 + windtraps * 3, plot.y + 10, false, true)) break;
+        ++windtraps;
+    }
+    SDL_Log("CITY_INCOME_POWER: windtraps=%d slots=%d produced=%d fully_grown_requirement=%d",
+            windtraps, windtrapSlots, house->getProducedPower(), fullyGrownPower);
     int police = 0;
     for(int slot = 0; slot < policeStations; ++slot)
         if(house->placeStructure(NONE_ID, Structure_PoliceStation, plot.x + 1 + slot * 3, plot.y + 7, false, true))
