@@ -1,3 +1,30 @@
+## 2026-09-21 — Corrected refinery-based campaign economy comparison
+
+User identified wrong balance denominator: previous proposal used observed opening
+fleets instead of refinery multiplier/minimum rules. Supersedes that matrix with
+`docs/quantbot-campaign-economy-comparison.md` and
+`../outputs/quantbot-ric-balance-comparison/complete-per-house-comparison.csv`.
+Verified source + actual paired-run configs: Easy1x/min0, Medium2x/min0,
+Hard text2.5 parsed integer2x/min2; mission21+ explicitly sets Hard refinery
+allowance2. Brutal ini999x/min4 is superseded at runtime by enemy target7.
+Spice/options/house ceilings also apply. The old diagnostic field named
+configured_harvester_limit is maximum runtime harvester_ai_limit, not raw config.
+48 paired house rows match formula; fleets remain separate from limits. A new
+refinery can grant a harvester checked only against engine ceiling; do not claim
+the observed16-worker event chain was proven or permitted by the AI target.
+
+Revised proposal, still unimplemented: per economic enemy house, Level2
+Easy1H/1zone, Medium2H/2zones, Hard3H/5zones, Brutal6H/6zones. Later normal-budget
+Easy1H/3zones, Medium2H/8zones, Hard2H/12zones, Brutal3H/20zones; smaller original
+level9 houses scale down. Counts are permissions, not grants. Preserve starting
+RTS-type restrictions, no economy for scripted zero-economy houses, no deletion
+of initial workers, no artificial income/tax cap. Full-fleet projection uses
+300/min per worker consistently plus controlled net-city samples; NOT actual
+future AI average income. Target tests/release remain pending. Source audit used
+one bounded Claude Max worker plus one focused retry; Codex rejected unsupported
+worker inferences about over-limit harvesters and checked parser/config/runtime
+source independently. No runtime edits, app build, version change or deployment.
+
 ## 2026-09-21 — Revised joint harvester / shared-zone balance proposal
 
 User rejected fixed R/I/C quotas, treating six as an Easy requirement, absent harvester

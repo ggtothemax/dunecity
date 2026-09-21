@@ -1,5 +1,7 @@
 # Revised QuantBot campaign balance proposal — 21 September 2026
 
+**Superseded:** this matrix incorrectly used observed opening fleets as vanilla limits. Use [the corrected refinery-formula comparison](quantbot-campaign-economy-comparison.md), which includes current limits, observed counts, revised targets and combined-income deltas.
+
 Proposal only. This supersedes the chat proposal with fixed per-type R/I/C quotas and an artificial AI tax cap. No gameplay changes are included.
 
 ## Design
