@@ -16,6 +16,15 @@ Evidence is in ../outputs/mba-test-1.0.743/command-probe/. The prior compression
 fast campaign startup, lobby policy and complete editor changes are retained.
 This is a local Mac candidate; no push or public release.
 
+Final source: 54ec0573. All eight CTest groups pass; after the final Escape
+dispatch correction, the command probe passes using actual SDL Return/Escape
+events. Signed/notarized app and DMG plus packaged runtime checks pass.
+Final package: ../outputs/mba-test-1.0.743/final-signed/DuneCity-1.0.743-macOS.dmg
+Download: http://claw.local:18738/DuneCity-1.0.743-macOS.dmg
+Downloaded SHA256: 06455eac013ceccfb4272a0d01129e4d4f350deb28374bcf91aa49d16fca64a6.
+Evidence: ../outputs/mba-test-1.0.743/verification.json. Earlier staging folders
+native/ and signed/ were superseded by native-final/ and final-signed/.
+
 ## 2026-09-21 — Compression integrated into the MBA candidate, local 1.0.742
 
 Imported 7979748be11131e8813925e09325308606b1c5ab from the separate local
