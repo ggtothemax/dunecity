@@ -1,3 +1,25 @@
+## 2026-09-21 — User target: 150% combined income; post-spice expansion
+
+New design in `docs/quantbot-campaign-income-150.md` supersedes lower-income targets.
+User requests50% more TOTAL harvesting+tax income versus the original vanilla
+house budget, plus more RCI after map spice exhaustion on higher difficulties.
+Interpret higher as Hard/Brutal (proposal assumption). Freeze original budget;
+do not rebase against zero spice income or add a second50% boost. Hard/Brutal
+post-spice taxes aim to replace lost harvesting within the SAME total goal.
+Easy/Medium retain normal zone allowance. Counts/shared caps remain flexiblemix;
+no fixedRCI quotas, no fakecash/tax clipping, no new RTS building-type permission.
+
+Exact DESIGN GOALS for vanilla1/2/4/7worker budgets are450/900/1800/3150credits/min,
+using the prior300perworker planning assumption. Revised harvest/tax split and
+all36settings/48house budgets in ../outputs/quantbot-income-150/per-house-budget.csv.
+These are targets, not measured future incomes. Old physical zonecaps require
+recalibration:20testedzones yielded1628–1755/min, not proof of3150Brutal tax-only.
+Do not claim an untested30/40zone count will hit it. Proposed post-spice guard
+uses fresh sustained mapwide zero, allworker/cargo accounting, savedinvestment
+funds, gradualfinitecap expansion and handling of spice blooms restoring income.
+Claude boundedread-only audit hitturnlimit; Codex reviewed identifiedsourcepaths.
+Arithmetic assertions pass. Proposal/docs only; no game/build/deployment change.
+
 ## 2026-09-21 — Corrected refinery-based campaign economy comparison
 
 User identified wrong balance denominator: previous proposal used observed opening

@@ -1,5 +1,7 @@
 # Corrected QuantBot campaign economy proposal
 
+**Income targets superseded:** the user now requests +50% combined income and post-spice expansion on higher difficulties. See [the 150% income proposal](quantbot-campaign-income-150.md). Source formulas and measured observations below remain reference evidence; the lower-income target matrix is historical.
+
 Replaces the earlier observed-fleet balance matrix. Proposal only; no game changes. Source reviewed at 04dbf22a, 21 September 2026. All counts and income are per enemy house, using the same Atreides first-layout samples as the existing measurements.
 
 ## Correct harvester baseline
