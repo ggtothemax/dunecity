@@ -41,11 +41,11 @@ Point InGameMenuButton::getMinimumSize() const {
 
 InGameMenu::InGameMenu(bool bMultiplayer, int color)
  : Window(0,0,0,0), bMultiplayer(bMultiplayer), color(color) {
-    const bool onlineContinues = pNetworkManager && pNetworkManager->isRoomSession();
+    const bool onlineContinues = pNetworkManager && !currentGame->isGamePaused();
     const bool canSkip = currentGame->canSkipMission();
     const bool canJoin=pNetworkManager && pNetworkManager->isServer() && pNetworkManager->getDirectTransport() && pNetworkManager->getDirectTransport()->allowsLateJoin();
     const bool canRequest=currentGame->isSpectating() && pNetworkManager->getDirectTransport();
-    const int buttons = ((canJoin || canRequest) ? 4 : 3) + (bMultiplayer ? 0 : 3) + (canSkip ? 1 : 0);
+    const int buttons = ((canJoin || canRequest) ? 4 : 3) + (bMultiplayer ? 2 : 3) + (canSkip ? 1 : 0);
     const int width = std::min(440,getRendererWidth()-32);
     const int height = 92 + buttons*40 + (buttons-1)*6;
     sdl2::surface_ptr background{SDL_CreateRGBSurfaceWithFormat(0,width,height,32,SCREEN_FORMAT)};
@@ -63,7 +63,7 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     title.setTextColor(COLOR_RGB(250,248,240),COLOR_TRANSPARENT);
     title.setAlignment(static_cast<Alignment_Enum>(Alignment_HCenter | Alignment_VCenter));
     mainVBox.addWidget(&title,32);
-    onlineNotice.setText(onlineContinues ? _("Online game continues") : _("Game menu"));
+    onlineNotice.setText(onlineContinues ? _("Online game continues") : currentGame->isGamePaused() ? _("Game paused") : _("Game menu"));
     onlineNotice.setTextColor(COLOR_RGB(197,204,217),COLOR_TRANSPARENT);
     onlineNotice.setTextFontSize(14);
     onlineNotice.setAlignment(static_cast<Alignment_Enum>(Alignment_HCenter | Alignment_VCenter));
@@ -76,7 +76,7 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
         mainVBox.addWidget(&button,40);
     };
     auto gap=[&]() { mainVBox.addWidget(VSpacer::create(6)); };
-    addButton(resumeButton,onlineContinues ? _("Back to Game") : _("Resume Game"),std::bind(&InGameMenu::onResume,this));
+    addButton(resumeButton,bMultiplayer ? _("Back to Game") : _("Resume Game"),std::bind(&InGameMenu::onResume,this));
     if(canJoin) {
         gap(); addButton(joinRequestsButton,"Join requests ("+std::to_string(pNetworkManager->getDirectTransport()->joinRequests().size())+")",[this](){openWindow(JoinRequestsWindow::create());});
     }
@@ -93,12 +93,19 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     }
     gap();addButton(saveGameButton,_("Save Game"),std::bind(&InGameMenu::onSave,this));
     loadGameButton.setVisible(!bMultiplayer);loadGameButton.setEnabled(!bMultiplayer);
-    gameSettingsButton.setVisible(!bMultiplayer);gameSettingsButton.setEnabled(!bMultiplayer);
+
     restartGameButton.setVisible(!bMultiplayer);restartGameButton.setEnabled(!bMultiplayer);
     if(!bMultiplayer) {
         gap();addButton(loadGameButton,_("Load Game"),std::bind(&InGameMenu::onLoad,this));
-        gap();addButton(gameSettingsButton,_("Game Settings"),std::bind(&InGameMenu::onSettings,this));
         gap();addButton(restartGameButton,_("Restart Game"),std::bind(&InGameMenu::onRestart,this));
+    }
+    gap();addButton(gameSettingsButton,_("Game Settings"),std::bind(&InGameMenu::onSettings,this));
+    if (bMultiplayer) {
+        gap();addButton(pauseGameButton,currentGame->isGamePaused() ? _("Resume match") : _("Pause match"),[]() {
+            currentGame->toggleMatchPause();
+            currentGame->resumeGame(); // Close this menu, preserving the shared pause.
+        });
+        pauseGameButton.setEnabled(currentGame->canToggleMatchPause() && (currentGame->isGamePaused() || !currentGame->isPauseRequestPending()));
     }
     gap();addButton(quitButton,_("Quit to Menu"),std::bind(&InGameMenu::onQuit,this));
     mainVBox.addWidget(VSpacer::create(16));

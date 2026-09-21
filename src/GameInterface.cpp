@@ -103,6 +103,12 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
 
     topBarHBox.addWidget(Spacer::create());
 
+    pauseButton.setText(_("Pause"));
+    pauseButton.setTooltipText(_("Pause or resume the match (Space). Any active player can use this."));
+    pauseButton.setOnClick(std::bind(&Game::toggleMatchPause, currentGame));
+    topBarHBox.addWidget(&pauseButton);
+    topBarHBox.addWidget(Spacer::create());
+
     optionsButton.setText(_("Options"));
     optionsButton.setOnClick(std::bind(&Game::onOptions, currentGame));
     topBarHBox.addWidget(&optionsButton);
@@ -329,6 +335,10 @@ GameInterface::~GameInterface() {
 }
 
 void GameInterface::draw(Point position) {
+    const std::string pauseText=currentGame->isGamePaused() ? _("Resume")
+        : (currentGame->isPauseRequestPending() ? _("Pausing...") : _("Pause"));
+    if(pauseButton.getText()!=pauseText) pauseButton.setText(pauseText);
+    pauseButton.setEnabled(currentGame->canToggleMatchPause() && (currentGame->isGamePaused() || !currentGame->isPauseRequestPending()));
     updateJoinRequestButton();
     const bool dune2rActive = ModManager::instance().isInitialized()
         && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Dune2R";

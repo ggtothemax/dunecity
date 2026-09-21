@@ -135,6 +135,8 @@ const GAME = Object.freeze({
   MOD_ACK: 18,
   KEEPALIVE: 19,
   COOP_MISSION: 20,
+  MATCH_CONTROL: 23,
+  MATCH_RESUME_REQUEST: 24,
 });
 
 // Relay authorisation matrix, keyed by game packet id.
@@ -166,6 +168,12 @@ const GAME_POLICY = new Map([
   // Campaign continuation, including the empty settings that mean "exit", arrives after the
   // previous match while the session is still in-game, so it is allowed in both phases.
   [GAME.COOP_MISSION, { sender: 'host', phase: 'any', destination: 'any' }],
+  // Shared match settings: the host decides the speed and the pause state and broadcasts them.
+  [GAME.MATCH_CONTROL, { sender: 'host', phase: 'match', destination: 'any' }],
+  // The other half is a request rather than an order, so it is addressed to the host alone.
+  // Only the host acts on one (classifyPacket refuses it anywhere else), and a client that
+  // could broadcast one would be telling other clients to leave a pause it does not control.
+  [GAME.MATCH_RESUME_REQUEST, { sender: 'client', phase: 'match', destination: 'host' }],
 ]);
 
 // RELAY envelope flags. Bit 0 records that the sender asked for reliable delivery; the

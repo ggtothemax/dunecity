@@ -389,6 +389,8 @@ Game::~Game() {
         pNetworkManager->setOnPeerDisconnected(std::function<void (const std::string&, bool, int)>());
         pNetworkManager->setOnReceiveClientStats({});
         pNetworkManager->setOnReceiveSetPathBudget({});
+        pNetworkManager->setOnReceiveMatchControl({});
+        pNetworkManager->setOnReceiveMatchResumeRequest({});
         pNetworkManager->setOnReceiveRelayDiagnostic({});
     }
 
@@ -3004,7 +3006,7 @@ void Game::runMainLoop() {
             if(!pNetworkManager || !pNetworkManager->lateJoinPaused()) cmdManager.update();
             commandsMsThisFrame+=getElapsedMs(commandsStart,SDL_GetPerformanceCounter());
 
-            if(!bWaitForNetwork && !bPause && (!pNetworkManager || !pNetworkManager->lateJoinPaused())) {
+            if(!bWaitForNetwork && !isGamePaused() && (!pNetworkManager || !pNetworkManager->lateJoinPaused())) {
                 // Time the core simulation step for CPU load detection
                 const Uint64 simStart = SDL_GetPerformanceCounter();
                 try {
@@ -3040,7 +3042,7 @@ void Game::runMainLoop() {
                 } else {
                     frameTime -= getGameSpeed();
                 }
-            } else if(bWaitForNetwork || bPause || (pNetworkManager && pNetworkManager->lateJoinPaused())) {
+            } else if(bWaitForNetwork || isGamePaused() || (pNetworkManager && pNetworkManager->lateJoinPaused())) {
                 // When waiting for network or paused, measure the wait time
                 if(bWaitForNetwork) {
                     Uint64 networkWaitEnd = SDL_GetPerformanceCounter();
@@ -3052,7 +3054,7 @@ void Game::runMainLoop() {
                     // Don't reset frameTime - let the game catch up naturally.
                     // The guardrail (10 cycles/frame max) prevents excessive catch-up.
                 }
-                else if (bPause){
+                else if (isGamePaused()){
                     // Pause in single player shouldn't jump after resuming
                     frameTime = 0;
                 }
@@ -3364,7 +3366,7 @@ void Game::processInput() {
 }
 
 void Game::updateGameState() {
-    if(bPause) {
+    if(isGamePaused()) {
         return;
     }
 
@@ -3601,6 +3603,14 @@ void Game::initializeNetwork() {
             std::bind(&Game::handleSetPathBudget, this,
             std::placeholders::_1, std::placeholders::_2));
 
+        pNetworkManager->setOnReceiveMatchControl([this](Uint32 revision, Uint32 speed, Uint32 pause, Uint32 resumed) {
+            handleMatchControl(revision, speed, pause, resumed);
+        });
+        pNetworkManager->setOnReceiveMatchResumeRequest([this](const std::string& name, Uint32 pause) {
+            handleMatchResumeRequest(name, pause);
+        });
+        if (pNetworkManager->isServer()) matchControl.revision = 1;
+
         // Deterministic state digests travel in the relay diagnostic envelope, not as a game
         // packet, so the ENet wire format and NETWORK_PROTOCOL_VERSION are untouched.
         pNetworkManager->setOnReceiveRelayDiagnostic(
@@ -3657,8 +3667,8 @@ void Game::initializeNetwork() {
 void Game::resumeGame()
 {
     bMenu = false;
-    // Relay menus never stop lockstep, so closing one must not enqueue a resume command.
-    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
+    // Closing a network menu never changes the explicit shared pause state.
+    if(pNetworkManager != nullptr) {
         return;
     }
     if(bPause && settings.general.diagnosticLogs) {
@@ -3667,22 +3677,13 @@ void Game::resumeGame()
     }
     bPause = false;
     
-    // Notify other players in multiplayer that we resumed
-    if(pNetworkManager != nullptr) {
-        Player* pLocalPlayer = getPlayerByName(localPlayerName);
-        if(pLocalPlayer != nullptr) {
-            cmdManager.addCommand(Command(pLocalPlayer->getPlayerID(), CMD_PLAYER_RESUME));
-            
-            // Remove ourselves from paused players set
-            pausedPlayers.erase(pLocalPlayer->getPlayerID());
-        }
-    }
+
 }
 
 void Game::pauseGame(const char* source) {
-    // A local pause freezes the cycle that would transmit the pause command itself.
-    // Until a synchronized pause protocol exists, relay games continue behind menus.
-    if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
+    // Menus stay local in multiplayer. The explicit Pause button uses lockstep
+    // to stop the match and a host control message to resume it.
+    if(pNetworkManager != nullptr) {
         return;
     }
     if(!bPause && settings.general.diagnosticLogs) {
@@ -3691,16 +3692,7 @@ void Game::pauseGame(const char* source) {
     }
     bPause = true;
     
-    // Notify other players in multiplayer that we paused
-    if(pNetworkManager != nullptr) {
-        Player* pLocalPlayer = getPlayerByName(localPlayerName);
-        if(pLocalPlayer != nullptr) {
-            cmdManager.addCommand(Command(pLocalPlayer->getPlayerID(), CMD_PLAYER_PAUSE));
-            
-            // Add ourselves to paused players set
-            pausedPlayers.insert(pLocalPlayer->getPlayerID());
-        }
-    }
+
 }
 
 void Game::logFrameTiming() {
@@ -5172,25 +5164,13 @@ void Game::handleKeyInput(SDL_KeyboardEvent& keyboardEvent)
 
         case SDLK_KP_MINUS:
         case SDLK_MINUS: {
-            if(!isNetworkGameType(gameType)) {
-                settings.gameOptions.gameSpeed = std::min(settings.gameOptions.gameSpeed+1,GAMESPEED_MAX);
-                INIFile myINIFile(getConfigFilepath());
-                myINIFile.setIntValue("Game Options","Game Speed", settings.gameOptions.gameSpeed);
-                myINIFile.saveChangesTo(getConfigFilepath());
-                currentGame->addToNewsTicker(fmt::sprintf(_("Game speed") + ": %d", settings.gameOptions.gameSpeed));
-            }
+            requestGameSpeed(std::min(getGameSpeed()+1, GAMESPEED_MAX));
         } break;
 
         case SDLK_KP_PLUS:
         case SDLK_PLUS:
         case SDLK_EQUALS: {
-            if(!isNetworkGameType(gameType)) {
-                settings.gameOptions.gameSpeed = std::max(settings.gameOptions.gameSpeed-1,GAMESPEED_MIN);
-                INIFile myINIFile(getConfigFilepath());
-                myINIFile.setIntValue("Game Options","Game Speed", settings.gameOptions.gameSpeed);
-                myINIFile.saveChangesTo(getConfigFilepath());
-                currentGame->addToNewsTicker(fmt::sprintf(_("Game speed") + ": %d", settings.gameOptions.gameSpeed));
-            }
+            requestGameSpeed(std::max(getGameSpeed()-1, GAMESPEED_MIN));
         } break;
 
         case SDLK_b: {
@@ -5472,27 +5452,7 @@ void Game::handleKeyInput(SDL_KeyboardEvent& keyboardEvent)
         } break;
 
         case SDLK_SPACE: {
-            if(pNetworkManager != nullptr && pNetworkManager->isRoomSession()) {
-                pInterface->getChatManager().addInfoMessage(_("Online games cannot be paused."));
-                break;
-            }
-            bool isMultiplayer = (isNetworkGameType(gameType));
-
-            if(bPause) {
-                resumeGame();
-                const std::string message = _("Game resumed!");
-                pInterface->getChatManager().addInfoMessage(message);
-                if(isMultiplayer && pNetworkManager != nullptr) {
-                    pNetworkManager->sendChatMessage(message);
-                }
-            } else {
-                pauseGame(keyboardEvent.repeat ? "space_repeat" : "space");
-                const std::string message = _("Game paused!");
-                pInterface->getChatManager().addInfoMessage(message);
-                if(isMultiplayer && pNetworkManager != nullptr) {
-                    pNetworkManager->sendChatMessage(message);
-                }
-            }
+            if (!keyboardEvent.repeat) toggleMatchPause();
         } break;
 
         default: {
@@ -6238,12 +6198,96 @@ int Game::getGameSpeed() const {
     }
 }
 
+bool Game::canChangeGameSettings() const {
+    return !bReplay && !isSpectating() && (!pNetworkManager || pNetworkManager->isServer());
+}
+
+bool Game::requestGameSpeed(int speed) {
+    if (!canChangeGameSettings() || speed < GAMESPEED_MIN || speed > GAMESPEED_MAX) return false;
+    if (isNetworkGameType(gameType)) {
+        gameInitSettings.setGameSpeed(speed);
+        ++matchControl.revision;
+        publishMatchControl();
+    }
+    settings.gameOptions.gameSpeed = speed;
+    INIFile config(getConfigFilepath());
+    config.setIntValue("Game Options", "Game Speed", speed);
+    config.saveChangesTo(getConfigFilepath());
+    WebRuntime::syncPersistentFiles();
+    addToNewsTicker(fmt::sprintf(_("Game speed") + ": %d", speed));
+    return true;
+}
+
+bool Game::canToggleMatchPause() const {
+    return !bReplay && !finished && !isSpectating() && pLocalPlayer
+        && dynamic_cast<const HumanPlayer*>(pLocalPlayer)
+        && (!pNetworkManager || !pNetworkManager->lateJoinPaused());
+}
+
+void Game::toggleMatchPause() {
+    if (!canToggleMatchPause() || (pauseRequestPending && !isGamePaused())) return;
+    if (!pNetworkManager) {
+        if (bPause) resumeGame(); else pauseGame("pause_button");
+        return;
+    }
+    if (matchControl.pausedAt(gameCycleCount)) {
+        if (pNetworkManager->isServer()) handleMatchResumeRequest(localPlayerName, matchControl.pauseCycle);
+        else pNetworkManager->requestMatchResume(matchControl.pauseCycle);
+    } else {
+        pauseRequestPending = true;
+        cmdManager.addCommand(Command(pLocalPlayer->getPlayerID(), CMD_MATCH_PAUSE, gameCycleCount));
+    }
+}
+
+void Game::executeMatchPause(Uint8 issuer, Uint32 requestCycle) {
+    const auto* player = dynamic_cast<const HumanPlayer*>(getPlayerByID(issuer));
+    // A replay preserves world commands, not the original players' waiting time.
+    if (bReplay || !pNetworkManager || !player || !player->getHouse() || finished) return;
+    if (player->getPlayername() == localPlayerName) pauseRequestPending = false;
+    // Coalesce overlapping button presses, including ones still queued when the
+    // first pause is resumed. A new press at the resumed boundary remains valid.
+    if (requestCycle > gameCycleCount || requestCycle < matchControl.pauseCycle) return;
+    matchControl.pauseAfter(gameCycleCount + 1);
+    if (pNetworkManager->isServer()) { ++matchControl.revision; publishMatchControl(); }
+    addToNewsTicker(player->getPlayername() + _(" paused the game"));
+}
+
+void Game::handleMatchControl(Uint32 revision, Uint32 speed, Uint32 pause, Uint32 resumed) {
+    if (!pNetworkManager || pNetworkManager->isServer() || speed < GAMESPEED_MIN || speed > GAMESPEED_MAX) return;
+    const bool wasPaused = matchControl.pausedAt(gameCycleCount);
+    const int previousSpeed = getGameSpeed();
+    if (!matchControl.receive(revision, pause, resumed)) return;
+    gameInitSettings.setGameSpeed(int(speed));
+    if (previousSpeed != int(speed)) addToNewsTicker(fmt::sprintf(_("Game speed") + ": %d", speed));
+    if (wasPaused && !matchControl.pausedAt(gameCycleCount)) addToNewsTicker(_("Game resumed"));
+}
+
+void Game::handleMatchResumeRequest(const std::string& name, Uint32 pause) {
+    if (!pNetworkManager || !pNetworkManager->isServer() || finished) return;
+    const auto* player = dynamic_cast<const HumanPlayer*>(getPlayerByName(name));
+    if (!player || !player->getHouse() || pNetworkManager->isSpectator(name)) return;
+    if (matchControl.resume(pause)) {
+        ++matchControl.revision;
+        addToNewsTicker(player->getPlayername() + _(" resumed the game"));
+    }
+    publishMatchControl();
+}
+
+void Game::publishMatchControl() {
+    if (!pNetworkManager || !pNetworkManager->isServer()) return;
+    pNetworkManager->sendMatchControl(matchControl.revision, getGameSpeed(),
+        matchControl.pauseCycle, matchControl.resumedPauseCycle);
+    lastMatchControlBroadcast = SDL_GetTicks();
+}
+
 bool Game::handleNetworkUpdates() {
     if(pNetworkManager == nullptr) {
         return false;
     }
 
     pNetworkManager->update();
+    // Runs while paused as well: keep late joiners and slow peers up to date.
+    if (pNetworkManager->isServer() && SDL_GetTicks()-lastMatchControlBroadcast >= 1000) publishMatchControl();
     if(auto* direct=pNetworkManager->getDirectTransport(); direct && pNetworkManager->isServer()) {
         for(const auto& request : direct->joinRequests()) {
             if(request.spectator) {
@@ -6705,7 +6749,7 @@ void Game::prepareObserverStreams() {
 
 std::string Game::saveObserverRuntime() const {
     OMemoryStream out; out.open();
-    out.writeUint32(3); out.writeUint32(gameCycleCount);
+    out.writeUint32(4); out.writeUint32(gameCycleCount);
     out.writeUint32(negotiatedBudget); out.writeUint32(cmdManager.getNetworkCycleBuffer());
     out.writeUint32(currentGameMap->getPathingRevision());
     out.writeUint32(targetRequestQueue.size());
@@ -6725,12 +6769,17 @@ std::string Game::saveObserverRuntime() const {
     }
     out.writeBool(citySimulation_ != nullptr);
     if(citySimulation_) citySimulation_->saveObserverRuntime(out);
+    out.writeUint32(matchControl.revision);
+    out.writeUint32(matchControl.pauseCycle);
+    out.writeUint32(matchControl.resumedPauseCycle);
+    out.writeUint32(getGameSpeed());
     return std::string(out.getData(),out.getDataLength());
 }
 
 void Game::loadObserverRuntime(const std::string& bytes) {
     IMemoryStream in(bytes.data(),bytes.size());
-    if(in.readUint32()!=3 || in.readUint32()!=gameCycleCount) throw std::runtime_error("Invalid spectator checkpoint cycle");
+    const auto runtimeVersion=in.readUint32();
+    if((runtimeVersion!=3 && runtimeVersion!=4) || in.readUint32()!=gameCycleCount) throw std::runtime_error("Invalid spectator checkpoint cycle");
     negotiatedBudget=in.readUint32(); const auto buffer=in.readUint32();
     if(negotiatedBudget<kMinBudget || negotiatedBudget>kMaxBudget || buffer>1000) throw std::runtime_error("Invalid spectator checkpoint budget");
     cmdManager.setNetworkCycleBuffer(buffer);
@@ -6760,6 +6809,13 @@ void Game::loadObserverRuntime(const std::string& bytes) {
     }
     if(in.readBool() != (citySimulation_ != nullptr)) throw std::runtime_error("Invalid spectator city state");
     if(citySimulation_) citySimulation_->loadObserverRuntime(in);
+    if(runtimeVersion>=4) {
+        matchControl.revision=in.readUint32(); matchControl.pauseCycle=in.readUint32();
+        matchControl.resumedPauseCycle=in.readUint32(); const auto speed=in.readUint32();
+        if(matchControl.resumedPauseCycle>matchControl.pauseCycle || speed<GAMESPEED_MIN || speed>GAMESPEED_MAX)
+            throw std::runtime_error("Invalid spectator match controls");
+        gameInitSettings.setGameSpeed(int(speed));
+    }
     // Zone constructors restore occupancy but do not register its dynamic power
     // draw. Rebuild that derived house total without running city growth.
     for(auto* structure : structureList)

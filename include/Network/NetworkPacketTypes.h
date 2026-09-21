@@ -55,11 +55,19 @@
 #define NETWORKPACKET_JOIN_SYNC             21
 #define NETWORKPACKET_JOIN_ACK              22
 
+#define NETWORKPACKET_MATCH_CONTROL         23  // Host -> Clients: authoritative speed/pause state
+#define NETWORKPACKET_MATCH_RESUME_REQUEST  24  // Client -> Host: ask to leave a pause
+
 // Network protocol version - increment when packet formats change
 // Version 2: Added simMsAvg to NETWORKPACKET_CLIENTSTATS (5 fields instead of 4)
 // Version 3: Added mod transfer packets (MOD_INFO, MOD_REQUEST, MOD_CHUNK, MOD_COMPLETE)
 // Version 4: Fixed nine-house deterministic state and versioned visibility storage
-#define NETWORK_PROTOCOL_VERSION            10
+// Version 11: Added MATCH_CONTROL and MATCH_RESUME_REQUEST. A paused simulation sends no
+//             command lists, so the resume request cannot travel in the command stream and
+//             needs its own packet; the authoritative reply carries the shared match settings
+//             (wall-clock tick pacing and the pause/resume revision) a peer on version 10
+//             would silently ignore.
+#define NETWORK_PROTOCOL_VERSION            11
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

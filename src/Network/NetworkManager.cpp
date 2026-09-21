@@ -1218,6 +1218,8 @@ NetworkSessionCallbacks NetworkManager::sessionCallbacks() const {
     callbacks.onReceiveSelectionList   = &pOnReceiveSelectionList;
     callbacks.onReceiveClientStats     = &pOnReceiveClientStats;
     callbacks.onReceiveSetPathBudget   = &pOnReceiveSetPathBudget;
+    callbacks.onReceiveMatchControl    = &pOnReceiveMatchControl;
+    callbacks.onReceiveMatchResumeRequest = &pOnReceiveMatchResumeRequest;
     callbacks.onReceiveCoopMission     = &pOnReceiveCoopMissionBridge;
     callbacks.onConfigMismatch         = &pOnConfigMismatch;
     return callbacks;
@@ -2616,6 +2618,62 @@ void NetworkManager::broadcastPathBudget(size_t newBudget, Uint32 applyCycle) {
     packetStream.writeUint32(applyCycle);
 
     sendPacketToAllConnectedPeers(packetStream);
+}
+
+void NetworkManager::sendMatchControl(Uint32 revision, Uint32 speed, Uint32 pauseCycle, Uint32 resumedPauseCycle) {
+    // Host → everyone in the session, spectators included: they follow the host's pacing and
+    // pause state, they just never originate it.
+    if(!bIsServer) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Client trying to send match control (only the host decides the shared settings)");
+        return;
+    }
+    // The same bounds every receiver applies. Sending a state that would be refused would only
+    // cost every peer a refusal against its abuse budget.
+    if(revision == 0 || speed < static_cast<Uint32>(GAMESPEED_MIN) || speed > static_cast<Uint32>(GAMESPEED_MAX)
+       || resumedPauseCycle > pauseCycle) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Refusing to broadcast an out-of-range match control state");
+        return;
+    }
+
+    const auto send = [&](Uint32 recipient, Uint32 seed) {
+        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
+        packetStream.writeUint32(NETWORKPACKET_MATCH_CONTROL);
+        packetStream.writeUint32(seed);
+        packetStream.writeUint32(revision);
+        packetStream.writeUint32(speed);
+        packetStream.writeUint32(pauseCycle);
+        packetStream.writeUint32(resumedPauseCycle);
+        if(recipient) sendPacketOverRelay(packetStream, 0, recipient);
+        else sendPacketToAllConnectedPeers(packetStream);
+    };
+    send(0, simulationSeed);
+    // Direct player broadcasts intentionally exclude spectators. Deliver control
+    // state to their established snapshot streams separately; a connecting or
+    // slow spectator must never hold up the active players. Their network seed is
+    // the snapshot epoch established by takeLateJoin(), not the players' seed.
+    if(getDirectTransport()) {
+        for(const auto& entry : observerTransfers) if(entry.second.ready) send(entry.first, entry.second.epoch);
+    }
+}
+
+void NetworkManager::requestMatchResume(Uint32 pauseCycle) {
+    // A paused simulation produces no command cycles, so this cannot travel in the command
+    // stream: it goes straight to the host, which answers with sendMatchControl().
+    if(isSpectating()) return;
+    if(bIsServer) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Host trying to request a resume from itself");
+        return;
+    }
+    if(pauseCycle == 0) {
+        return;
+    }
+
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
+    packetStream.writeUint32(NETWORKPACKET_MATCH_RESUME_REQUEST);
+    packetStream.writeUint32(simulationSeed);
+    packetStream.writeUint32(pauseCycle);
+
+    sendPacketToHost(packetStream);
 }
 
 void NetworkManager::sendModInfoToPeer(NetPeer* peer, const std::string& modName, const std::string& modChecksum) {

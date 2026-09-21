@@ -71,7 +71,10 @@ InGameSettingsMenu::InGameSettingsMenu() : Window(0,0,0,0) {
 InGameSettingsMenu::~InGameSettingsMenu() = default;
 
 void InGameSettingsMenu::init() {
-    newGamespeed = settings.gameOptions.gameSpeed;
+    newGamespeed = currentGame->getGameSpeed();
+    const bool mayChangeSpeed=currentGame->canChangeGameSettings();
+    gameSpeedMinus.setEnabled(mayChangeSpeed);gameSpeedPlus.setEnabled(mayChangeSpeed);
+    gameSpeedLabel.setText(mayChangeSpeed ? _("Game speed") : _("Game speed (host only)"));
     gameSpeedBar.setProgress(100.0 - ((newGamespeed-GAMESPEED_MIN)*100.0)/(GAMESPEED_MAX - GAMESPEED_MIN));
 
     previousVolume = volume = soundPlayer->getSfxVolume();
@@ -117,14 +120,14 @@ void InGameSettingsMenu::onOK() {
     settings.audio.sfxVolume = soundPlayer->getSfxVolume();
     settings.audio.musicVolume = musicPlayer->getMusicVolume();
     settings.audio.playCreditsSFX = playCreditsSFXCheckbox.isChecked();
-    settings.gameOptions.gameSpeed = newGamespeed;
+    if (currentGame->canChangeGameSettings() && newGamespeed != currentGame->getGameSpeed())
+        currentGame->requestGameSpeed(newGamespeed);
 
     INIFile myINIFile(getConfigFilepath());
     myINIFile.setIntValue("General","Scroll Speed", settings.general.scrollSpeed);
     myINIFile.setIntValue("Audio","Music Volume", settings.audio.musicVolume);
     myINIFile.setIntValue("Audio","SFX Volume", settings.audio.sfxVolume);
     myINIFile.setBoolValue("Audio","Play Credits SFX", settings.audio.playCreditsSFX);
-    myINIFile.setIntValue("Game Options","Game Speed", settings.gameOptions.gameSpeed);
     myINIFile.saveChangesTo(getConfigFilepath());
     WebRuntime::syncPersistentFiles();
 
@@ -135,6 +138,7 @@ void InGameSettingsMenu::onOK() {
 }
 
 void InGameSettingsMenu::onGameSpeedPlus() {
+    if (!currentGame->canChangeGameSettings()) return;
     if(newGamespeed > GAMESPEED_MIN)
         newGamespeed -= 1;
 
@@ -142,6 +146,7 @@ void InGameSettingsMenu::onGameSpeedPlus() {
 }
 
 void InGameSettingsMenu::onGameSpeedMinus() {
+    if (!currentGame->canChangeGameSettings()) return;
     if(newGamespeed < GAMESPEED_MAX)
         newGamespeed += 1;
 

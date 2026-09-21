@@ -70,6 +70,8 @@ typedef enum {
 
     CMD_CAMPAIGN_SKIP,                ///< CAMPAIGN_SKIP(), human campaign-house controllers only
 
+    CMD_MATCH_PAUSE,                  ///< MATCH_PAUSE(), any active human; freezes after this tick
+
     CMD_MAX
 } CMDTYPE;
 

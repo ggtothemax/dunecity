@@ -35,6 +35,8 @@ if args.four_corners and args.twin_cities:
     parser.error('Choose one map: --four-corners or --twin-cities')
 if os.environ.get('JOIN_FAST_WARMUP') and (not args.solo or args.mode not in ('spectate', 'reject_spectate')):
     parser.error('JOIN_FAST_WARMUP requires --solo and a spectator-only mode')
+if os.environ.get('JOIN_MATCH_CONTROLS') and (args.solo or args.browser or args.mode!='spectate'):
+    parser.error('JOIN_MATCH_CONTROLS requires two native players and --mode spectate')
 build = args.build_dir.resolve()
 out = args.output_dir.resolve() if args.output_dir else Path(tempfile.mkdtemp(prefix='dunecity-late-join-probe-'))
 out.mkdir(parents=True, exist_ok=True)

@@ -36,6 +36,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 
 namespace {
 
@@ -45,6 +46,18 @@ constexpr Uint32 kMaxPathBudgetOrder = 1000000;
 constexpr Uint32 kMaxStartGameCountdownMs = 30000;
 /// Longest chat message accepted from a peer.
 constexpr std::size_t kMaxChatMessageLength = 512;
+
+/**
+    True when the whole payload has been consumed.
+
+    Match control packets are fixed-size records, so anything left over is not a packet this
+    build produced. Streams that cannot say how much is left (getRemainingLength() returns
+    size_t's maximum) are accepted: there is nothing to compare against there.
+*/
+bool payloadFullyConsumed(const InputStream& stream) {
+    const std::size_t remaining = stream.getRemainingLength();
+    return remaining == std::numeric_limits<std::size_t>::max() || remaining == 0;
+}
 
 // A refused or corrupt map must not reach the accepted callback or overwrite local history.
 bool storeReceivedMap(const GameInitSettings& init, GamePayloadPeer& peer) {
@@ -364,6 +377,70 @@ bool GamePayloadRouter::handle(Uint32 packetType, InputStream& stream, GamePaylo
             }
             if(callbacks.onReceiveSetPathBudget && *callbacks.onReceiveSetPathBudget) {
                 (*callbacks.onReceiveSetPathBudget)(newBudget, applyCycle);
+            }
+        } return true;
+
+        case NETWORKPACKET_MATCH_CONTROL: {
+            // Read the whole record before anything is judged: a truncated payload has to leave
+            // through the outer handler's bounded-reader path, not through a half-applied state.
+            const Uint32 seed              = stream.readUint32();
+            const Uint32 revision          = stream.readUint32();
+            const Uint32 speed             = stream.readUint32();
+            const Uint32 pauseCycle        = stream.readUint32();
+            const Uint32 resumedPauseCycle = stream.readUint32();
+
+            if(seed != context.simulationSeed) {
+                // A packet from a previous match of this session. Silent, like the other
+                // seed-tagged in-match packets: it is an ordering artefact, not abuse.
+                return true;
+            }
+            if(!payloadFullyConsumed(stream)) {
+                peer.refuse("match control packet has trailing data");
+                return true;
+            }
+            // Revisions are monotonic and start at one, so zero can never be a real state; the
+            // game does the actual "is this newer than what I have" comparison.
+            if(revision == 0) {
+                peer.refuse("match control revision out of range");
+                return true;
+            }
+            // Speed is the wall-clock milliseconds per tick, not a simulation timestep.
+            if(speed < static_cast<Uint32>(GAMESPEED_MIN) || speed > static_cast<Uint32>(GAMESPEED_MAX)) {
+                peer.refuse("match control game speed out of range");
+                return true;
+            }
+            // A pause can only be resumed once it exists. Equal means "the pause that started at
+            // this cycle has been lifted"; both zero is the normal running state.
+            if(resumedPauseCycle > pauseCycle) {
+                peer.refuse("match control resumes a pause that has not started");
+                return true;
+            }
+            if(callbacks.onReceiveMatchControl && *callbacks.onReceiveMatchControl) {
+                (*callbacks.onReceiveMatchControl)(revision, speed, pauseCycle, resumedPauseCycle);
+            }
+        } return true;
+
+        case NETWORKPACKET_MATCH_RESUME_REQUEST: {
+            const Uint32 seed       = stream.readUint32();
+            const Uint32 pauseCycle = stream.readUint32();
+
+            if(seed != context.simulationSeed) {
+                return true;
+            }
+            if(!payloadFullyConsumed(stream)) {
+                peer.refuse("match resume request has trailing data");
+                return true;
+            }
+            // There is nothing to resume from before the first pause exists.
+            if(pauseCycle == 0) {
+                peer.refuse("match resume request without a pause");
+                return true;
+            }
+            // No upper bound here on purpose: whether this names the pause the match is actually
+            // in is something only the game's current state can answer, and it does.
+            if(callbacks.onReceiveMatchResumeRequest && *callbacks.onReceiveMatchResumeRequest) {
+                // The connection's bound name, never an identity the sender put in the payload.
+                (*callbacks.onReceiveMatchResumeRequest)(peer.name(), pauseCycle);
             }
         } return true;
 

@@ -1,3 +1,26 @@
+## 2026-09-21 — Multiplayer host settings and shared pause, local 1.0.746
+
+Implemented host-only game-speed changes during play, exposed Game Settings to
+all peers for personal sound/scroll/credits-sound controls, and added top-bar and
+Options Pause/Resume buttons plus Space. Any human playing seat can pause/resume;
+spectators cannot. Closing Options does not lift an explicit shared pause.
+See docs/multiplayer-match-controls.md for protocol, synchronization and tests.
+Protocol11; observer runtime4 (reader also accepts3). Existing source/build745
+features remain included. Everyone in a test match must use the new app.
+
+Claude's bounded network implementation and focused completion run hit their
+turn limits without a final report; Codex reviewed and completed integration,
+UI, regression coverage and the spectator-specific control delivery/epoch fix.
+All eight CTest groups pass across the full run and corrected unit rerun; 200
+Node relay tests pass. Real native three-peer WebRTC test passes client pause,
+host resume/speed, concurrent pause requests/client resume, menu-close behavior,
+malformed payload validation, and spectator admission at paused cycle711.
+Host/Partner/Newcomer match at cycle1800 and original peers match after departure.
+Screenshots reviewed for toolbar and host-only settings. Evidence:
+/tmp/dunecity-multiplayer-controls/live-4 and ctest*.log, relay-tests-2.log.
+Interactive browser crossplay and ENet LAN play were not repeated.
+Local signed package is being prepared; no public release, push or update feed.
+
 ## 2026-09-21 — Implemented QuantBot city campaign economy, local 1.0.745
 
 Implemented the accepted 150%-of-vanilla planning target and the level/difficulty

@@ -29,6 +29,7 @@ static void joinCapture(Game& game, const std::string& path) {
     if(!image || SDL_RenderReadPixels(renderer,nullptr,image->format->format,image->pixels,image->pitch)!=0
        || SDL_SaveBMP(image.get(),path.c_str())!=0) throw std::runtime_error("could not capture join UI");
 }
+#include "match-controls-probe.inc"
 static void joinCheckpointTrace(Game& game, const std::string& role, const std::string& out) {
     if(!std::getenv("JOIN_CHECKPOINT_TRACE")) return;
     const auto dir=out+"/checkpoint-"+std::to_string(game.getGameCycleCount())+"-"+role;
@@ -162,7 +163,7 @@ int runLateJoinProbe() {
         if(observer && !cancelled && ((!sawProgress && network.observerTotal>48u*1024) || network.lateJoinPercent()!=100))
             throw std::runtime_error("download progress did not report actual transfer completion");
         if(cancelled && mode=="abort") { joinWrite(out+"/Newcomer-cancelled","yes"); network.setOnPeerDisconnected({}); pNetworkManager.reset(); return MENU_QUIT_DEFAULT; }
-        if(observer) {
+        if(observer && !std::getenv("JOIN_MATCH_CONTROLS")) {
             joinWrite(out+"/observer-delaying",std::to_string(network.observerFrontier()));
             SDL_Delay(std::getenv("JOIN_STALL") ? 40000 : 5000); // Deliberately stop reading: the players must keep simulating.
             if(!std::filesystem::exists(out+"/Host-advanced") || (!solo && !std::filesystem::exists(out+"/Partner-advanced"))) throw std::runtime_error("players waited for spectator loading");
@@ -247,6 +248,7 @@ int runLateJoinProbe() {
         }
         const Uint32 target=std::getenv("JOIN_BROWSER") ? 30000 : (checkDeparture && !newcomer && std::filesystem::exists(out+"/Newcomer-left") ? verifyCycle+100 : verifyCycle);
         const bool waiting=game->handleNetworkUpdates();
+        const bool controlsHold=probeMatchControls(*game,role,out);
         if(!network.observerTransfers.empty()) warmupReleased=true;
         if(host) for(const auto& transfer : network.observerTransfers)
             if(!transfer.second.began) { joinCheckpointTrace(*game,role,out); break; }
@@ -277,7 +279,8 @@ int runLateJoinProbe() {
             }
             joinWrite(out+"/"+role+"-loaded","yes");
         }
-        if(host && !requested && game->getGameCycleCount()>=joinCycle) {
+        if(host && !requested && game->getGameCycleCount()>=joinCycle
+           && (!std::getenv("JOIN_MATCH_CONTROLS") || (game->isGamePaused() && game->getGameCycleCount()>=700))) {
             if(std::getenv("JOIN_DEVIATED_UNIT") && !deviationInjected) {
                 for(auto* unit : unitList) if(unit->getOriginalHouseID()==HOUSE_ATREIDES) {
                     unit->deviate(game->getHouse(HOUSE_HARKONNEN));
@@ -350,7 +353,7 @@ int runLateJoinProbe() {
                         Uint32((game->getGameCycleCount()/150)%2 ? 42 : 8),Uint32(15),Uint32(1)));
             }
             game->cmdManager.update();
-            if(!waiting && game->getGameCycleCount()<target && (resumed || game->getGameCycleCount()<65)
+            if(!controlsHold && !waiting && game->getGameCycleCount()<target && (resumed || game->getGameCycleCount()<65)
                && (!fastWarmup || !host || game->getGameCycleCount()<joinCycle || warmupReleased)) game->updateGameState();
         }
         if(checkDeparture && !newcomer && game->getGameCycleCount()==verifyCycle+100) {

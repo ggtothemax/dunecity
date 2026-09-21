@@ -57,6 +57,15 @@ struct NetworkSessionCallbacks {
     const std::function<void (const std::string&, const std::set<Uint32>&, int)>* onReceiveSelectionList = nullptr;
     const std::function<void (Uint32, Uint32, float, float, Uint32, Uint32)>*     onReceiveClientStats = nullptr;
     const std::function<void (size_t, Uint32)>*                                   onReceiveSetPathBudget = nullptr;
+    /// Host's authoritative match state: (revision, speed, pauseCycle, resumedPauseCycle).
+    const std::function<void (Uint32, Uint32, Uint32, Uint32)>*                   onReceiveMatchControl = nullptr;
+    /**
+        A peer asks the host to leave a pause: (peer name, pauseCycle).
+
+        The name is the one bound to the connection the request arrived on, never one the
+        sender supplied, so the game can check it against its own active-player roster.
+    */
+    const std::function<void (const std::string&, Uint32)>*                       onReceiveMatchResumeRequest = nullptr;
     /// Campaign continuation chosen by the host; empty settings mean "leave the campaign".
     const std::function<void (const GameInitSettings&)>*                          onReceiveCoopMission = nullptr;
     const std::function<void (Uint32, Uint32, Uint32, Uint32, const std::string&)>* onJoinSync = nullptr;
@@ -192,6 +201,8 @@ inline bool handles(Uint32 packetType) {
         case NETWORKPACKET_SELECTIONLIST:
         case NETWORKPACKET_CLIENTSTATS:
         case NETWORKPACKET_SETPATHBUDGET:
+        case NETWORKPACKET_MATCH_CONTROL:
+        case NETWORKPACKET_MATCH_RESUME_REQUEST:
         case NETWORKPACKET_KEEPALIVE:
             return true;
         default:

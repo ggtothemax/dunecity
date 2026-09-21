@@ -442,6 +442,26 @@ public:
     }
 
     /**
+        Sets the function called when the host's authoritative match control state arrives
+        (client and spectator only).
+        \param  pOnReceiveMatchControl  function to call with (revision, speed, pauseCycle, resumedPauseCycle)
+    */
+    inline void setOnReceiveMatchControl(std::function<void (Uint32, Uint32, Uint32, Uint32)> pOnReceiveMatchControl) {
+        this->pOnReceiveMatchControl = pOnReceiveMatchControl;
+    }
+
+    /**
+        Sets the function called when a peer asks to leave a pause (host only).
+
+        The name passed to the callback is bound to the connection the request arrived on, so
+        the game can check it against the active human players.
+        \param  pOnReceiveMatchResumeRequest function to call with (peer name, pauseCycle)
+    */
+    inline void setOnReceiveMatchResumeRequest(std::function<void (const std::string&, Uint32)> pOnReceiveMatchResumeRequest) {
+        this->pOnReceiveMatchResumeRequest = pOnReceiveMatchResumeRequest;
+    }
+
+    /**
         Sends client performance stats to host (client → host).
         \param  avgFps          Average FPS (legacy metric)
         \param  simMsAvg        Average simulation time per tick in ms (primary metric)
@@ -457,6 +477,28 @@ public:
         \param  applyCycle      Game cycle to apply the change
     */
     void broadcastPathBudget(size_t newBudget, Uint32 applyCycle);
+
+    /**
+        Broadcasts the authoritative match control state to every connected peer, spectators
+        included (host → all).
+
+        Only the host decides the shared settings. Resume travels this way rather than as a
+        synchronized command because a paused simulation no longer produces command cycles.
+        \param  revision            monotonic state revision, never zero
+        \param  speed               wall-clock milliseconds per tick, GAMESPEED_MIN..GAMESPEED_MAX
+        \param  pauseCycle          cycle the current pause started at, 0 when never paused
+        \param  resumedPauseCycle   pause cycle that has been lifted, never above pauseCycle
+    */
+    void sendMatchControl(Uint32 revision, Uint32 speed, Uint32 pauseCycle, Uint32 resumedPauseCycle);
+
+    /**
+        Asks the host to lift a pause (client → host).
+
+        The host decides: it checks that the sender is an active human player of this match and
+        answers everybody with sendMatchControl().
+        \param  pauseCycle  the pause this client believes the match is in, never 0
+    */
+    void requestMatchResume(Uint32 pauseCycle);
 
     // === Mod Transfer Methods ===
 
@@ -777,6 +819,8 @@ private:
     std::function<void (const std::string&)>                                 pOnConfigMismatch;
     std::function<void (Uint32, Uint32, float, float, Uint32, Uint32)>     pOnReceiveClientStats;      // Host: (clientId, gameCycle, avgFps, simMsAvg, queueDepth, currentBudget)
     std::function<void (size_t, Uint32)>                                     pOnReceiveSetPathBudget;    // Client: (newBudget, applyCycle)
+    std::function<void (Uint32, Uint32, Uint32, Uint32)>                    pOnReceiveMatchControl;     // Client: (revision, speed, pauseCycle, resumedPauseCycle)
+    std::function<void (const std::string&, Uint32)>                        pOnReceiveMatchResumeRequest; // Host: (bound peer name, pauseCycle)
     std::function<void (const std::string&, const std::string&)>            pOnReceiveModInfo;          // Client: (modName, modChecksum)
     std::function<void (size_t, size_t)>                                     pOnModDownloadProgress;     // Client: (bytesReceived, totalBytes)
     std::function<void (bool, const std::string&)>                          pOnModDownloadComplete;     // Client: (success, errorMsg)

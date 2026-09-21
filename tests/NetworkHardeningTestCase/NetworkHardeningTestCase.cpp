@@ -289,7 +289,7 @@ TEST_CASE("Admission: in-game traffic is refused while still in the lobby",
 }
 
 TEST_CASE("Admission: unknown packet types are refused", "[network][security][admission]") {
-    for(const Uint32 packetType : {0u, 23u, 999u, 0xFFFFFFFFu}) {
+    for(const Uint32 packetType : {0u, 25u, 999u, 0xFFFFFFFFu}) {
         INFO("packet type " << packetType);
         REQUIRE(NetworkPacketPolicy::classifyPacket(
                     context(packetType, LocalRole::Client, SessionPhase::Lobby,
@@ -1191,7 +1191,7 @@ TEST_CASE("Command authorization: every object action is covered, control comman
 
     // Commands that carry no acting object: they are authorized by issuer identity alone.
     const CMDTYPE nonObjectCommands[] = {
-        CMD_PLAYER_PAUSE, CMD_PLAYER_RESUME, CMD_TEST_SYNC, CMD_HOUSE_AUTO_REPAIR, CMD_CAMPAIGN_SKIP,
+        CMD_PLAYER_PAUSE, CMD_PLAYER_RESUME, CMD_TEST_SYNC, CMD_HOUSE_AUTO_REPAIR, CMD_CAMPAIGN_SKIP, CMD_MATCH_PAUSE,
         CMD_CITY_PLACE_ZONE, CMD_CITY_SET_TAX_RATE, CMD_CITY_SET_BUDGET, CMD_CITY_TOOL
     };
     for(const CMDTYPE commandID : nonObjectCommands) {
@@ -1776,4 +1776,17 @@ TEST_CASE("Running discovery carries map mod and elapsed time without admitting 
     REQUIRE(RoomAdmission::parseAdmissionResponse("status=ok\nprotocol=1\nrequest="+std::string(64,'a')+"\nrequestState=pending\n",response,error,false,AdmissionOperation::JoinRequest));
     REQUIRE(response.grant.empty());
     REQUIRE_FALSE(RoomAdmission::parseAdmissionResponse("status=ok\nprotocol=1\nrequestState=approved\n",response,error,false,AdmissionOperation::JoinStatus));
+}
+
+TEST_CASE("Shared match controls require the correct role and a live admitted match", "[network][pause][security]") {
+    for(bool host : {false,true}) for(bool fromHost : {false,true})
+    for(bool live : {false,true}) for(bool established : {false,true}) {
+        const auto admission=established ? PeerAdmission::Established : PeerAdmission::Handshaking;
+        const auto role=host ? LocalRole::Host : LocalRole::Client;
+        const auto phase=live ? SessionPhase::InGame : SessionPhase::Lobby;
+        REQUIRE((NetworkPacketPolicy::classifyPacket(context(NETWORKPACKET_MATCH_CONTROL,
+            role,phase,admission,fromHost))==PacketVerdict::Accept) == (!host && fromHost && live && established));
+        REQUIRE((NetworkPacketPolicy::classifyPacket(context(NETWORKPACKET_MATCH_RESUME_REQUEST,
+            role,phase,admission,fromHost))==PacketVerdict::Accept) == (host && live && established));
+    }
 }

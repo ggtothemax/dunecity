@@ -79,6 +79,7 @@ inline int exactParameterCount(CMDTYPE commandID) {
         case CMD_ZONE_DEMOLISH:                 return 1;
         case CMD_STRUCTURE_DEMOLISH:            return 1;
         case CMD_CAMPAIGN_SKIP:                 return 0;
+        case CMD_MATCH_PAUSE:                   return 1;
 
         // The city commands read up to three optional parameters
         // (CitySimulation::executeCityCommand substitutes 0 for missing ones).
