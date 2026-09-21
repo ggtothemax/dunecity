@@ -20,7 +20,16 @@ groups pass across full run and focused fixture corrections. Tests cover the
 matrix, boundary/queued admission, real Easy growth blocking, uncapped Brutal,
 and human-shared/campaign exemptions. Initial60-minute FourQuadrants run reached
 48 queued-inclusive zones and20020 population; final queue reservation correction
-and follow-up simulation evidence recorded with local delivery below.
+and follow-up simulation passed:225000 cycles/60 simulated minutes,67919 enemy
+house events, max20000 displayed population and48 queued-inclusive zones.
+The other house is a human-shared helper and intentionally remains unrestricted.
+Receipts: ../outputs/mba-test-1.0.752/validation/city-cap-simulation.json.
+
+752 delivery: sourcee1e468bb, app notarization Accepted. Installed and verified
+/Applications/dunecity.app on Stefans-MacBook-Air.local; existing Desktop shortcut
+preserved,751 backed up, game not launched. Signed-archive/installed executable
+SHA256 b650b94f6077cd8924535a4c8f6ed70f0fc97e7b213864a1e44bc2bbb538395d.
+Receipts: ../outputs/mba-test-1.0.752/verification.json and air-install.json.
 
 ## 2026-09-21 — Local751: mod identity, lobby admission and building caps
 
