@@ -22,6 +22,22 @@ Two native peers hot join/promote with matching cycle-1800 state:
 76292739 / 215 objects / 15a4cab16d7019d4 / 454ef57cf3e1da2b.
 Evidence: ../outputs/mba-test-1.0.744/{stats-city-final,stats-compact,stats-vanilla-9,hot-join}.
 
+Local 1.0.744 delivery is complete: Developer ID signed; app and DMG notarization
+Accepted, stapled, Gatekeeper accepted. Full LAN-download SHA256 verified:
+82643de359daad46de2965124018783f11564ad80c4bbc55edc7e062af4ca13c.
+Download http://claw.local:18738/DuneCity-1.0.744-macOS.dmg.
+Evidence: ../outputs/mba-test-1.0.744/verification.json. No public release/update feed changed.
+
+Economy investigation: 36/36 unchanged-vanilla simulations completed (Atreides,
+first layout per level, seed486409243, up to10 game minutes, automated human-side
+helper). See docs/quantbot-campaign-economy-proposal.md for the requested full
+level1–9 Easy–Brutal matrix, explicit modeled-income assumptions, actual sample
+results, conditional tax/harvester substitution, and limitations. The matrix is
+not implemented. Easy can have two harvesters in later layouts (one per initial
+refinery); Brutal samples exceeded its nominal7 ceiling, peaking16. Source path
+city campaigns bypasses restricted rebuild planner; original MBA logs unavailable.
+Raw telemetry/CSV and repeatable runner are under ../outputs/mba-test-1.0.744/economy-matrix.
+
 The campaign AI economy/base-size issue is a separate requested investigation
 and proposal; no QuantBot balance changes are included in this build. User wants
 combined RCI caps (level2 Easy example6), modest total-income uplift over vanilla,
