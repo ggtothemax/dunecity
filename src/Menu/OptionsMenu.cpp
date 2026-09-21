@@ -741,6 +741,7 @@ void OptionsMenu::saveConfiguration2File() {
     myINIFile.setBoolValue("Game Options","Manual Carryall Drops",settings.gameOptions.manualCarryallDrops);
     myINIFile.setIntValue("Game Options","Maximum Number of Units Override",settings.gameOptions.maximumNumberOfUnitsOverride);
     myINIFile.setIntValue("Game Options","Maximum Number of Harvesters Override",settings.gameOptions.maximumNumberOfHarvestersOverride);
+    myINIFile.setIntValue("Game Options","Maximum Number of Construction Yards Override",settings.gameOptions.maximumNumberOfConstructionYardsOverride);
     myINIFile.setBoolValue("Game Options","Immortal Human Player",settings.gameOptions.immortalHumanPlayer);
 
     myINIFile.setIntValue("Network","ServerPort",settings.network.serverPort);

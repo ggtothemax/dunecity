@@ -174,15 +174,15 @@ TEST_CASE("Workshop revisions survive game settings and checkpoint copies", "[wo
     REQUIRE(next.getModRevisionHash() == original.getModRevisionHash());
 }
 
-TEST_CASE("Legacy MOD3 remains readable and truncated MOD4 fails closed", "[workshop][save]") {
+TEST_CASE("Legacy MOD3 remains readable and truncated MOD5 fails closed", "[workshop][save]") {
     auto original = makeCoop(false, true);
     OMemoryStream out; out.open(); original.save(out);
     std::string bytes(reinterpret_cast<const char*>(out.getData()), out.getDataLength());
-    const auto marker = bytes.find("4DOM");
+    const auto marker = bytes.find("5DOM");
     REQUIRE(marker != std::string::npos);
     SECTION("old graphics marker") {
         bytes[marker] = '3';
-        bytes.resize(bytes.size() - 20); // three empty string lengths and two version integers
+        bytes.resize(bytes.size() - 24); // three strings, two revision integers, yard limit
         IMemoryStream in(bytes.data(), bytes.size());
         GameInitSettings restored(in);
         REQUIRE(restored.getModRevisionHash().empty());

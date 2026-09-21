@@ -21,6 +21,33 @@ TEST_CASE("QuantBot respects the single-palace option even in a large city", "[q
     REQUIRE(palaceTarget(false, true, 60000) == 3);
 }
 
+TEST_CASE("QuantBot caps palaces per difficulty without loosening stricter rules", "[quantbot][production]") {
+    // Difficulty values match QuantBot::Difficulty: Easy 0, Medium 1, Hard 2,
+    // Brutal 3, Defend 4.
+    REQUIRE(difficultyPalaceCap(0) == 1);
+    REQUIRE(difficultyPalaceCap(1) == 3);
+    REQUIRE(difficultyPalaceCap(2) > 3);
+    REQUIRE(difficultyPalaceCap(3) > 3);
+
+    // Easy never exceeds one palace, Medium never exceeds three, however large
+    // the city grows.
+    REQUIRE(palaceTarget(false, true, 300000, 0) == 1);
+    REQUIRE(palaceTarget(false, true, 60000, 1) == 3);
+    REQUIRE(palaceTarget(false, true, 300000, 1) == 3);
+
+    // Below the cap the population target still governs.
+    REQUIRE(palaceTarget(false, true, 30000, 1) == 2);
+
+    // Hard and Brutal keep the unchanged target.
+    REQUIRE(palaceTarget(false, true, 300000, 2) == palaceTarget(false, true, 300000));
+    REQUIRE(palaceTarget(false, true, 300000, 3) == palaceTarget(false, true, 300000));
+
+    // Stricter existing rules win at every difficulty.
+    REQUIRE(palaceTarget(true, true, 300000, 2) == 1);
+    REQUIRE(palaceTarget(true, true, 300000, 3) == 1);
+    REQUIRE(palaceTarget(false, false, 300000, 1) == 1);
+}
+
 TEST_CASE("QuantBot strategic savings leave excess funds available for tanks", "[quantbot][production]") {
     REQUIRE(spendableCredits(59044, 2000) == 57044);
     REQUIRE(spendableCredits(1000, 2000) == 0);

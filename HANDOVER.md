@@ -1,3 +1,41 @@
+## 2026-09-21 — Local751: mod identity, lobby admission and building caps
+
+Dune City mod is Stefan's independently versioned1.001 (`DUNECITY_MOD_VERSION`),
+not the app's1.0.751. Picker and in-game MOD label use mod metadata; main menu
+labels app version explicitly. GameVersion remains installer-refresh metadata.
+Hotjoin approval verifies actual payload against installed defaults/bundled assets,
+including metadata, rule files and asset content; folder name alone is insufficient.
+Changed/new mods use pregame lobby. No startup upload added. Cached per-file hashes
+avoid repeatedly reading unchanged assets; directory/file stamps rechecked. Optional
+Dune2R packs differing from installer fail closed into lobby. Existing snapshot dedup
+and pinned revisions remain. Full AI rosters can create lobby; existing AI takeover
+and spectator paths retained. UI guidance no longer demands an Open seat.
+
+QuantBot palace ceiling: Easy1, Medium3, Hard/Brutal no additional difficulty cap.
+Existing population target and stricter scenario rules still apply; owned/queued
+items count across yards. Central production guard also covers campaign rebuild.
+Game Rules adds construction-yard limit per house (-1/0 unlimited, positive1..999).
+Both humans/bots: MCV deployment at cap refuses without consuming MCV, including
+same-tick subsequent deploys. QuantBot avoids ordering unusable extra MCVs.
+Persisted defaults, mod settings, equality/hash, network validation all carry option.
+MOD5 setup extension, save9843, network12: old saves load unlimited; old clients
+cannot join new games because they cannot enforce the new rule. No service update.
+
+Claude bounded investigations hit turn limits; palace worker supplied policy/tests,
+yard worker partial initializer. Codex completed/reviewed implementation and tests.
+City-cap analysis worker produced telemetry aggregate/report. Population caps are
+PROPOSED ONLY, not implemented. Last MBA game1789987534476330-0: FourQuadrants128²,
+Easy house4, seed852790524, build750. Peak displayedpop234500, peak queued-inclusive
+zones471, end actualzones463, yards8/palaces8; grosscitytax719574, net628469,
+spicerefined814320, endingcredits823411. No custom population/zone cap currently.
+Do not conflate this with campaign-only50percent-income/zone policy.
+
+Validation receipts and signed local build: ../outputs/mba-test-1.0.751/validation.
+All ten CTest groups passed across full run plus focused corrective reruns. Added
+modifiedrules/metadata/assets and extra-payload rejection, AI-filledlobby, modidentity,
+yardUI, actualMCV preservation/deployment and MOD4/MOD5 tests. Native dependencies
+and sourceversion audits pass. No push or public release. Installation receipt follows.
+
 ## 2026-09-21 — Approved custom military targets and percentage-only attacks, 1.0.750
 
 Supersedes749's added custom attack caps. Easy military production target is now

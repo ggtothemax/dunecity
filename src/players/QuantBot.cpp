@@ -3459,9 +3459,12 @@ void QuantBot::build(int militaryValue) {
 
 	const bool customStrategicPlanning = gameMode == GameMode::Custom && !supportMode;
 	const bool stablePower = getHouse()->hasPower();
+	// itemCount already includes every queued and unplaced palace from all
+	// builders, so parallel construction yards cannot exceed the target.
 	const int palaceTarget = QuantBotBuildPolicy::palaceTarget(
 		getGameInitSettings().getGameOptions().onlyOnePalace, citySimEnabled,
-		ownTotalPop * DuneCity::CitySimulation::kPopDisplayMultiplier);
+		ownTotalPop * DuneCity::CitySimulation::kPopDisplayMultiplier,
+		static_cast<int>(difficulty));
 	const bool palaceAllowedNow = itemCount[Structure_Palace] < palaceTarget;
 	const bool ixEligible = customStrategicPlanning
 		&& itemCount[Structure_IX] == 0
@@ -3668,6 +3671,8 @@ void QuantBot::build(int militaryValue) {
     int cityYardTarget = citySimEnabled ? QuantBotBuildPolicy::cityConstructionYardTarget(
         money, ownResValve, ownComValve, ownIndValve) : 0;
     if(rockExpansionNeeded)cityYardTarget=std::max(cityYardTarget,getHouse()->getNumItems(Structure_ConstructionYard)+1);
+    const int yardLimit = getGameInitSettings().getGameOptions().maximumNumberOfConstructionYardsOverride;
+    if(yardLimit > 0) cityYardTarget = std::min(cityYardTarget, yardLimit);
     const int cityConstructionCapacity = itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV];
 
     auto decisionState = [&]() {
@@ -5110,6 +5115,11 @@ void QuantBot::build(int militaryValue) {
                 // Record actual queue acceptance for unit and structure production.
 				auto produceItemWithLogging = [&](Uint32 itemID, int sourceLine, const char* rule = "unit_mix_or_prerequisite") {
                     if (itemID==Structure_RepairYard && !canAddRepairYard(itemCount[Structure_RepairYard])) return false;
+                    // Also cover campaign rebuild orders, which bypass the strategic planner.
+                    if (itemID==Structure_Palace && itemCount[Structure_Palace] >=
+                        QuantBotBuildPolicy::difficultyPalaceCap(static_cast<int>(difficulty))) return false;
+                    if(itemID == Unit_MCV && yardLimit > 0
+                       && itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV] >= yardLimit) return false;
                     const int quotedPrice=purchasePrice(pBuilder,itemID);
                     const bool emergencyGenerator=!getHouse()->hasPower()
                         && (itemID==Structure_WindTrap || itemID==Structure_NuclearPlant);

@@ -7,6 +7,9 @@
 #include <GUI/QstBox.h>
 #include <FileClasses/LoadSavePNG.h>
 #include <units/UnitBase.h>
+#include <units/MCV.h>
+#include <misc/OMemoryStream.h>
+#include <misc/IMemoryStream.h>
 #include <structures/BuilderBase.h>
 #include <Map.h>
 #include <ScreenBorder.h>
@@ -44,6 +47,56 @@ int runOwnershipProbe() {
     auto* coopPlayer = game->getPlayerByName("Coop");
     auto* enemyPlayer = game->getPlayerByName("Enemy");
     if(!hostPlayer || !coopPlayer || !enemyPlayer) throw std::runtime_error("ownership fixture players missing");
+    {
+        auto rules = game->gameInitSettings.getGameOptions();
+        rules.maximumNumberOfConstructionYardsOverride = -1;
+        game->gameInitSettings.setGameOptions(rules);
+        auto* mcv = static_cast<MCV*>(owner->createUnit(Unit_MCV, true));
+        Coord site = Coord::Invalid();
+        for(int y=1; y<currentGameMap->getSizeY()-3 && !site.isValid(); ++y)
+            for(int x=1; x<currentGameMap->getSizeX()-3; ++x)
+                if(mcv->canDeploy(x,y)) { site=Coord(x,y); break; }
+        if(!site.isValid()) throw std::runtime_error("No yard fixture site");
+        if(owner->getNumItems(Structure_ConstructionYard) == 0) {
+            if(!owner->placeStructure(NONE_ID,Structure_ConstructionYard,site.x,site.y,false,true))
+                throw std::runtime_error("Cannot create initial fixture yard");
+            site = Coord::Invalid();
+            for(int y=1; y<currentGameMap->getSizeY()-3 && !site.isValid(); ++y)
+                for(int x=1; x<currentGameMap->getSizeX()-3; ++x)
+                    if(mcv->canDeploy(x,y)) { site=Coord(x,y); break; }
+            if(!site.isValid()) throw std::runtime_error("No second yard fixture site");
+        }
+        mcv->deploy(site);
+        const int before = owner->getNumItems(Structure_ConstructionYard);
+        if(before < 1) throw std::runtime_error("Yard fixture needs initial yard");
+        rules.maximumNumberOfConstructionYardsOverride = before;
+        game->gameInitSettings.setGameOptions(rules);
+        if(mcv->canDeploy(site.x,site.y) || mcv->doDeploy()
+           || owner->getNumItems(Structure_ConstructionYard) != before)
+            throw std::runtime_error("MCV bypassed yard cap");
+        // The same MCV remains alive and can deploy when the rule permits it.
+        rules.maximumNumberOfConstructionYardsOverride = before + 1;
+        game->gameInitSettings.setGameOptions(rules);
+        if(!mcv->doDeploy() || owner->getNumItems(Structure_ConstructionYard) != before+1)
+            throw std::runtime_error("Blocked MCV lost or could not deploy below cap");
+        OMemoryStream output; output.open();
+        game->gameInitSettings.save(output);
+        IMemoryStream input(output.getData(), output.getDataLength());
+        GameInitSettings copy(input);
+        if(copy.getGameOptions().maximumNumberOfConstructionYardsOverride != before+1)
+            throw std::runtime_error("Yard cap lost in network/save setup");
+        std::string legacy(output.getData(),output.getDataLength());
+        const auto marker = legacy.rfind("5DOM");
+        if(marker == std::string::npos) throw std::runtime_error("MOD5 fixture missing");
+        legacy[marker]='4'; legacy.resize(legacy.size()-4);
+        IMemoryStream oldInput(legacy.data(),legacy.size());
+        GameInitSettings old(oldInput);
+        if(old.getGameOptions().maximumNumberOfConstructionYardsOverride != -1)
+            throw std::runtime_error("Older setup did not default to unlimited yards");
+        rules.maximumNumberOfConstructionYardsOverride = -1;
+        game->gameInitSettings.setGameOptions(rules);
+        SDL_Log("YARD_CAP_PROBE_PASS: refused deployment preserves MCV; MOD5 roundtrip and MOD4 default pass");
+    }
     UnitBase* unit = owner->createUnit(Unit_Tank, true);
     unit->doSetAttackMode(GUARD);
     auto order=[&](Uint8 player, Uint32 mode) { Command(player, CMD_UNIT_SETMODE, unit->getObjectID(), mode).executeCommand(); };

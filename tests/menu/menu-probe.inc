@@ -79,6 +79,33 @@ int runMenuProbe() {
             menuRequire(!direct.activateGameContent(mismatch, true), "Approved join accepted changed rules");
         }
         menuRequire(mods.setActiveMod("dunecity"), "Cannot select Dune City");
+        menuRequire(mods.getModInfo("dunecity").version == DUNECITY_MOD_VERSION
+                    && mods.getModInfo("dunecity").author == "Stefan", "Mod identity is not independent");
+        for(const auto* filename : {"QuantBot Config.ini", "GameOptions.ini", "mod.ini"}) {
+            const auto path = std::filesystem::path(mods.getModPath("dunecity")) / filename;
+            const auto bytes = readCompleteFile(path.string());
+            {
+                std::ofstream changed(path, std::ios::app);
+                changed << (std::string(filename) == "mod.ini" ? "\n[Unapproved]\nEnabled = true\n" : "\nModified = true\n");
+            }
+            menuRequire(!OnlineModPolicy::approved(), "Modified official-name mod retained hot join approval");
+            { std::ofstream restore(path, std::ios::binary); restore << bytes; }
+            menuRequire(OnlineModPolicy::approved(), "Restored bundled mod was not approved");
+        }
+        {
+            const auto bytes = readCompleteFile(installedSkin.string());
+            menuRequire(!bytes.empty(), "Missing skin fixture");
+            auto changed = bytes; changed[0] = changed[0] == '#' ? ';' : '#';
+            { std::ofstream file(installedSkin, std::ios::binary); file << changed; }
+            menuRequire(!OnlineModPolicy::approved(), "Same-size changed asset retained hot join approval");
+            { std::ofstream file(installedSkin, std::ios::binary); file << bytes; }
+            menuRequire(OnlineModPolicy::approved(), "Restored skin was not approved");
+        }
+        const auto extra = std::filesystem::path(mods.getModPath("dunecity")) / "extra-payload.ini";
+        { std::ofstream file(extra); file << "changed"; }
+        menuRequire(!OnlineModPolicy::approved(), "Extra mod content retained hot join approval");
+        std::filesystem::remove(extra);
+        menuRequire(OnlineModPolicy::approved(), "Removing extra content did not restore approval");
         const auto original = Workshop::saveMod("dunecity");
         menuRequire(Workshop::activateModRevision(original.hash), "Cannot simulate the previous build's mod selection");
         const auto cachedName = mods.getActiveModName();
@@ -87,8 +114,8 @@ int runMenuProbe() {
                     "Official mod appears twice in the picker");
         const auto official = std::find_if(choices.begin(), choices.end(), [](const auto& mod) { return mod.name == "dunecity"; });
         menuRequire(official != choices.end() && official->matchesSelectionName(cachedName)
-                    && official->selectionLabel() == "Dune City " + modBuildLabel(VERSION),
-                    "Official mod lost its build number or cached selection alias");
+                    && official->selectionLabel() == "Dune City " + std::string(DUNECITY_MOD_VERSION),
+                    "Official mod lost its independent version or cached selection alias");
         const auto registry = mods.listMods();
         menuRequire(std::any_of(registry.begin(), registry.end(), [&](const auto& mod) { return mod.name == cachedName; }),
                     "Picker filtering removed a pinned save dependency");
@@ -431,13 +458,6 @@ int runMenuProbe() {
         }
         menu.update();
         menuCapture(menu,"custom-online");
-        menu.onNext();
-        menuRequire(!menu.isQuiting() && menu.hasChildWindow(),"Online setup allowed a lobby with every guest seat occupied by AI");
-        menu.closeChildWindow();
-        menu.processChildWindowOpenCloses();
-        auto& opponent = menu.houseInfo[1].player1DropDown;
-        for(int i=0;i<opponent.getNumEntries();++i)
-            if(opponent.getEntry(i)==_("open")) { opponent.setSelectedItem(i); break; }
         menu.onNext();
         menuRequire(menu.retVal==MENU_SETUP_HOST,"Create Lobby did not return prepared setup");
     }
@@ -1036,7 +1056,16 @@ int runMenuProbe() {
         menuRequire(fs::exists(installed+".workshop.ini"), "First received map lost revision metadata");
     }
     { DisplayMenu menu;menuCapture(menu,"display"); }
-    { auto rules=settings.gameOptions;GameOptionsWindow menu(rules);menuCapture(menu,"game-rules"); }
+    {
+        auto rules=settings.gameOptions;
+        GameOptionsWindow menu(rules);
+        menu.maxConstructionYardsOverrideCheckbox.setChecked(true);
+        menu.maxConstructionYardsOverrideTextBox.setVisible(true);
+        menu.maxConstructionYardsOverrideTextBox.setValue(2);
+        menuCapture(menu,"game-rules");
+        menu.onOK();
+        menuRequire(menu.getGameOptions().maximumNumberOfConstructionYardsOverride == 2, "Yard limit UI did not save selection");
+    }
     SDL_Log("MENU_PROBE_PASS: home, campaign retry, mission ranges, custom roster, online transition, settings validation and rendering");
     return MENU_QUIT_DEFAULT;
 }

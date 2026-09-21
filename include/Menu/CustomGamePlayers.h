@@ -84,6 +84,7 @@ private:
     bool restoringSetup = false;
     bool startImmediately = false;
     bool automaticStartPending = false;
+    bool installerApprovedForDisplay = false;
     StaticContainer launchWidget;
     Label launchTitle;
     TextView launchStatus;

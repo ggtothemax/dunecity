@@ -145,6 +145,7 @@ void writeGameOptionsToConfig(INIFile& config, const std::string& section, const
     config.setBoolValue(section, "Manual Carryall Drops", options.manualCarryallDrops);
     config.setIntValue(section, "Maximum Number of Units Override", options.maximumNumberOfUnitsOverride);
     config.setIntValue(section, "Maximum Number of Harvesters Override", options.maximumNumberOfHarvestersOverride);
+    config.setIntValue(section, "Maximum Number of Construction Yards Override", options.maximumNumberOfConstructionYardsOverride);
     config.setBoolValue(section, "Immortal Human Player", options.immortalHumanPlayer);
     config.setBoolValue(section, "City Effects", options.cityEffects);
 }
@@ -172,6 +173,7 @@ void applyGameOptionsFromConfig(const INIFile& config, const std::string& sectio
     readBool("Manual Carryall Drops", options.manualCarryallDrops);
     readInt("Maximum Number of Units Override", options.maximumNumberOfUnitsOverride);
     readInt("Maximum Number of Harvesters Override", options.maximumNumberOfHarvestersOverride);
+    readInt("Maximum Number of Construction Yards Override", options.maximumNumberOfConstructionYardsOverride);
     readBool("Immortal Human Player", options.immortalHumanPlayer);
     readBool("City Effects", options.cityEffects);
 }

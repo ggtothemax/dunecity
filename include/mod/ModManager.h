@@ -62,6 +62,9 @@ public:
      * \return true if initialize() has been called
      */
     bool isInitialized() const;
+
+    // Empty unless this mod exactly matches the installer payload; never trusts user metadata.
+    std::string installerContentHash(const std::string& name) const;
     
     /**
      * Get the name of the currently active mod.

@@ -277,7 +277,7 @@ void MainMenu::refreshModVersionLabel()
         try {
             ModInfo info = modManager.getModInfo(activeModName);
             if (!info.displayName.empty()) {
-                modDisplayName = info.displayName;
+                modDisplayName = info.displayName + (info.version.empty() ? "" : " " + info.version);
             } else if (!info.name.empty()) {
                 modDisplayName = info.name;
             } else if (!activeModName.empty()) {
@@ -303,7 +303,7 @@ void MainMenu::refreshModVersionLabel()
             --bannerFontSize;
         activeModLabel.setTextFontSize(bannerFontSize);
         activeModLabel.setText(bannerText);
-        modVersionLabel.setText("v" + std::string(VERSION));
+        modVersionLabel.setText("App v" + std::string(VERSION));
     } catch (const std::exception& e) {
         SDL_Log("MainMenu: setText failed: %s", e.what());
     }

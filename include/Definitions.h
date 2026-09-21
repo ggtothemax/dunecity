@@ -75,7 +75,8 @@
 // 9840: Exact Workshop map and mod revisions.
 // 9841: Cumulative gross city tax receipts per house (debriefing statistic).
 // 9842: QuantBot original campaign economy, building permissions and depletion state.
-#define SAVEGAMEVERSION     9842
+// 9843: MOD5 setup extension stores the construction-yard limit.
+#define SAVEGAMEVERSION     9843
 
 // v1.0.0–v1.0.7 shipped SAVEGAMEVERSION 9810 with Num_ItemID=48.
 // v1.0.8–v1.0.10 also used 9810 but with Num_ItemID=52 (4 items added

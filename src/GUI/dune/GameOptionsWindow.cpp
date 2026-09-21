@@ -24,7 +24,7 @@
 
 
 GameOptionsWindow::GameOptionsWindow(SettingsClass::GameOptionsClass& initialGameOptions)
- : Window(50,50,626,340), gameOptions(initialGameOptions) {
+ : Window(50,50,626,370), gameOptions(initialGameOptions) {
 
     setWindowWidget(&vbox);
     vbox.addWidget(VSpacer::create(6));
@@ -101,6 +101,18 @@ GameOptionsWindow::GameOptionsWindow(SettingsClass::GameOptionsClass& initialGam
     maxHarvestersOverrideTextBox.setVisible(gameOptions.maximumNumberOfHarvestersOverride >= 0);
     maxHarvestersOverrideHBox.addWidget(&maxHarvestersOverrideTextBox);
     vboxLeft.addWidget(&maxHarvestersOverrideHBox, 24);
+    vboxLeft.addWidget(VSpacer::create(6));
+
+    maxConstructionYardsOverrideCheckbox.setText(_("Limit construction yards per house"));
+    maxConstructionYardsOverrideCheckbox.setTooltipText(_("Unchecked or 0 means unlimited. At the limit, MCVs cannot deploy. Existing yards stay."));
+    maxConstructionYardsOverrideCheckbox.setChecked(gameOptions.maximumNumberOfConstructionYardsOverride >= 0);
+    maxConstructionYardsOverrideCheckbox.setOnClick([this]() { maxConstructionYardsOverrideTextBox.setVisible(maxConstructionYardsOverrideCheckbox.isChecked()); });
+    maxConstructionYardsOverrideHBox.addWidget(&maxConstructionYardsOverrideCheckbox);
+    maxConstructionYardsOverrideTextBox.setMinMax(0,999);
+    maxConstructionYardsOverrideTextBox.setValue( (gameOptions.maximumNumberOfConstructionYardsOverride < 0) ? 0 : gameOptions.maximumNumberOfConstructionYardsOverride );
+    maxConstructionYardsOverrideTextBox.setVisible(gameOptions.maximumNumberOfConstructionYardsOverride >= 0);
+    maxConstructionYardsOverrideHBox.addWidget(&maxConstructionYardsOverrideTextBox);
+    vboxLeft.addWidget(&maxConstructionYardsOverrideHBox, 24);
     vboxLeft.addWidget(VSpacer::create(6));
 
     vboxLeft.addWidget(VSpacer::create(14));
@@ -191,6 +203,7 @@ void GameOptionsWindow::onOK() {
     gameOptions.immortalHumanPlayer = immortalHumanPlayerCheckbox.isChecked();
     gameOptions.maximumNumberOfUnitsOverride = maxUnitsOverrideCheckbox.isChecked() ? maxUnitsOverrideTextBox.getValue() : -1;
     gameOptions.maximumNumberOfHarvestersOverride = maxHarvestersOverrideCheckbox.isChecked() ? maxHarvestersOverrideTextBox.getValue() : -1;
+    gameOptions.maximumNumberOfConstructionYardsOverride = maxConstructionYardsOverrideCheckbox.isChecked() ? maxConstructionYardsOverrideTextBox.getValue() : -1;
 
     if(rememberDefaults.isChecked()) saveGameOptionsAsDefaults(gameOptions);
     Window* pParentWindow = dynamic_cast<Window*>(getParent());

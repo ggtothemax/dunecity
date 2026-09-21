@@ -84,7 +84,9 @@ bool MCV::doDeploy() {
     }
 
     if(getOwner() == pLocalHouse) {
-        currentGame->addToNewsTicker(_("You cannot deploy here."));
+        const int limit = currentGame->getGameInitSettings().getGameOptions().maximumNumberOfConstructionYardsOverride;
+        currentGame->addToNewsTicker(limit > 0 && getOwner()->getNumItems(Structure_ConstructionYard) >= limit
+            ? _("Construction yard limit reached.") : _("You cannot deploy here."));
     }
 
     return false;
@@ -110,6 +112,8 @@ void MCV::destroy() {
 }
 
 bool MCV::canDeploy(int x, int y) const {
+    const int limit = currentGame->getGameInitSettings().getGameOptions().maximumNumberOfConstructionYardsOverride;
+    if(limit > 0 && getOwner()->getNumItems(Structure_ConstructionYard) >= limit) return false;
     for(int i = 0; i < getStructureSize(Structure_ConstructionYard).x; i++) {
         for(int j = 0; j < getStructureSize(Structure_ConstructionYard).y; j++) {
             if(!currentGameMap->tileExists(x+i, y+j)) {

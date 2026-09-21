@@ -66,6 +66,47 @@ static const char* QUANTBOT_CONFIG_DEFAULT = "QuantBot Config.ini.default";
 static const char* CUSTOM_HOUSE_CONFIG = "CustomHouse.ini";
 
 namespace {
+std::string vanillaOptions() {
+    std::ostringstream out;
+    out << "# Vanilla Game Options (default values)\n";
+    out << "[Game Options]\n";
+    out << "Game Speed = 16\n";
+    out << "Concrete Required = true\n";
+    out << "Structures Degrade On Concrete = true\n";
+    out << "Fog of War = false\n";
+    out << "Start with Explored Map = false\n";
+    out << "Instant Build = false\n";
+    out << "Only One Palace = false\n";
+    out << "Rocket-Turrets Need Power = false\n";
+    out << "Sandworms Respawn = false\n";
+    out << "Killed Sandworms Drop Spice = false\n";
+    out << "Manual Carryall Drops = false\n";
+    out << "Maximum Number of Units Override = 0\n";
+    out << "Maximum Number of Harvesters Override = -1\n";
+    out << "City Effects = false\n";
+    return out.str();
+}
+std::string cityOptions() {
+    std::ostringstream out;
+    out << "# Dune City Game Options (default values)\n";
+    out << "[Game Options]\n";
+    out << "Game Speed = 16\n";
+    out << "Concrete Required = true\n";
+    out << "Structures Degrade On Concrete = false\n";
+    out << "Fog of War = false\n";
+    out << "Start with Explored Map = true\n";
+    out << "Instant Build = false\n";
+    out << "Only One Palace = false\n";
+    out << "Rocket-Turrets Need Power = true\n";
+    out << "Sandworms Respawn = true\n";
+    out << "Killed Sandworms Drop Spice = true\n";
+    out << "Manual Carryall Drops = false\n";
+    out << "Maximum Number of Units Override = 0\n";
+    out << "Maximum Number of Harvesters Override = -1\n";
+    out << "Immortal Human Player = false\n";
+    out << "City Effects = true\n";  // dunecity mod opts in
+    return out.str();
+}
 
 std::filesystem::path findBundledModPath(const std::string& modName) {
     const std::filesystem::path dataRoot = getDuneLegacyDataDir();
@@ -285,6 +326,93 @@ bool ModManager::isInitialized() const {
 }
 
 ModManager::~ModManager() = default;
+
+std::string ModManager::installerContentHash(const std::string& name) const {
+    namespace fs = std::filesystem;
+    if(name != VANILLA_MOD_NAME && name != DUNECITY_MOD_NAME
+       && name != TORNIE_MOD_NAME && name != DUNE2R_MOD_NAME) return {};
+    try {
+        // Cache individual file digests, not approval: every check enumerates the
+        // payload again and invalidates changed files. No upload or profile stamp
+        // can grant approval. The trusted side always comes from the installer.
+        struct Cached { fs::file_time_type time; uintmax_t size; std::string hash; };
+        static std::map<std::string, Cached> cache;
+        const auto digest = [&](const fs::path& path) {
+            if(!fs::is_regular_file(path) || fs::is_symlink(path))
+                throw std::runtime_error("Missing or linked mod payload");
+            const auto time = fs::last_write_time(path);
+            const auto size = fs::file_size(path);
+            auto& entry = cache[path.string()];
+            if(entry.hash.empty() || entry.time != time || entry.size != size) {
+                std::ifstream input(path, std::ios::binary);
+                if(!input) throw std::runtime_error("Unreadable mod payload");
+                std::ostringstream bytes; bytes << input.rdbuf();
+                if(input.bad()) throw std::runtime_error("Cannot read mod payload");
+                entry = {time, size, Workshop::hashBytes(bytes.str())};
+            }
+            return entry.hash;
+        };
+        const auto metadata = [](const INIFile& ini) {
+            std::map<std::string, std::string> values;
+            for(auto section = ini.begin(); section != ini.end(); ++section)
+                for(auto key = section->begin(); key != section->end(); ++key)
+                    values[section->getSectionName()+"/"+key->getKeyName()] = key->getStringValue();
+            return values;
+        };
+        const auto collect = [&](const fs::path& root) {
+            std::map<std::string, std::string> files;
+            if(!fs::is_directory(root)) throw std::runtime_error("Missing installer payload");
+            for(const auto& entry : fs::recursive_directory_iterator(root)) {
+                if(entry.is_symlink()) throw std::runtime_error("Linked mod payload");
+                if(!entry.is_regular_file()) continue;
+                const auto relative = entry.path().lexically_relative(root).generic_string();
+                if(relative == "mod.ini" || relative == "workshop-revision.ini"
+                   || relative == MANAGED_MOD_STAMP || entry.path().filename() == ".DS_Store") continue;
+                files[relative] = digest(entry.path());
+            }
+            return files;
+        };
+        const fs::path installed = getModPath(name);
+        std::map<std::string, std::string> expected;
+        INIFile expectedMetadata(false, "Installer mod");
+        std::map<std::string, std::string> expectedValues;
+        if(name == VANILLA_MOD_NAME || name == DUNECITY_MOD_NAME) {
+            const bool city = name == DUNECITY_MOD_NAME;
+            if(city) expected = collect(findBundledModPath(name));
+            expectedMetadata.setStringValue("Mod", "Display Name", city ? "Dune City" : "Vanilla");
+            expectedMetadata.setStringValue("Mod", "Author", city ? "Stefan" : "Dune City");
+            expectedMetadata.setStringValue("Mod", "Description", city
+                ? "Hybrid RTS + city-builder mode (zones, overlays, city sim)." : "Default game settings");
+            expectedMetadata.setStringValue("Mod", "Version", city ? DUNECITY_MOD_VERSION : "");
+            expectedMetadata.setStringValue("Mod", "Game Version", VERSION);
+            expectedMetadata.setStringValue("Mod", "Base Mod", "");
+            expectedMetadata.setBoolValue("Mod", "Enables City Mode", city);
+            expected[GAME_OPTIONS_FILE] = Workshop::hashBytes(city ? cityOptions() : vanillaOptions());
+        } else {
+            const auto bundled = findBundledModPath(name);
+            expected = collect(bundled);
+            expectedValues = metadata(INIFile((bundled / MOD_INI_FILE).string()));
+        }
+        if(expectedValues.empty()) expectedValues = metadata(expectedMetadata);
+        const fs::path defaults = getInstallConfigPath();
+        if(!expected.count(OBJECT_DATA_FILE)) expected[OBJECT_DATA_FILE] = digest(defaults / OBJECT_DATA_DEFAULT);
+        if(!expected.count(QUANTBOT_CONFIG_FILE)) expected[QUANTBOT_CONFIG_FILE] = digest(defaults / QUANTBOT_CONFIG_DEFAULT);
+        if(!expected.count(GAME_OPTIONS_FILE)) expected[GAME_OPTIONS_FILE] = Workshop::hashBytes(vanillaOptions());
+        if(!fs::is_regular_file(installed / MOD_INI_FILE)
+           || metadata(INIFile((installed / MOD_INI_FILE).string())) != expectedValues) return {};
+        auto actual = collect(installed);
+        // Managed graphics mods can legitimately inherit the default rules.
+        for(const auto* file : {OBJECT_DATA_FILE, QUANTBOT_CONFIG_FILE, GAME_OPTIONS_FILE})
+            if(!actual.count(file)) actual[file] = digest(fs::path(getModPath(VANILLA_MOD_NAME)) / file);
+        if(actual != expected) return {};
+        std::string manifest;
+        for(const auto& file : expected) manifest += file.first + "\n" + file.second + "\n";
+        for(const auto& value : expectedValues) manifest += value.first + "=" + value.second + "\n";
+        return Workshop::hashBytes(manifest);
+    } catch(const std::exception&) {
+        return {}; // Custom/missing/changed content remains usable through a lobby.
+    }
+}
 
 void ModManager::initialize() {
     activeContentBase.clear();
@@ -653,10 +781,8 @@ ModInfo ModManager::getModInfo(const std::string& name) const {
         }
     }
 
-    // The bundled official mod is identified by the application build it ships with, not by a
-    // Workshop revision counter that publishing it would otherwise add: 1.0.748 reads as
-    // "Dune City 1.748". Installed copies keep their revision label and stay distinguishable.
-    if(name == DUNECITY_MOD_NAME) info.officialVersion = modBuildLabel(VERSION);
+    // Mod releases are independent of application builds and Workshop revisions.
+    if(name == DUNECITY_MOD_NAME) info.officialVersion = info.version;
     return info;
 }
 
@@ -787,6 +913,7 @@ SettingsClass::GameOptionsClass ModManager::loadEffectiveGameOptions(
             else if (key == "Manual Carryall Drops") result.manualCarryallDrops = parseBool(value);
             else if (key == "Maximum Number of Units Override") result.maximumNumberOfUnitsOverride = std::stoi(value);
             else if (key == "Maximum Number of Harvesters Override") result.maximumNumberOfHarvestersOverride = std::stoi(value);
+            else if (key == "Maximum Number of Construction Yards Override") result.maximumNumberOfConstructionYardsOverride = std::stoi(value);
             else if (key == "Immortal Human Player") result.immortalHumanPlayer = parseBool(value);
             else if (key == "City Effects") result.cityEffects = parseBool(value);
         }
@@ -1361,22 +1488,7 @@ void ModManager::seedVanillaFromDefaults() {
     std::string gameOptionsPath = vanillaPath + "/" + GAME_OPTIONS_FILE;
     std::ofstream gameOptionsFile(gameOptionsPath);
     if (gameOptionsFile.is_open()) {
-        gameOptionsFile << "# Vanilla Game Options (default values)\n";
-        gameOptionsFile << "[Game Options]\n";
-        gameOptionsFile << "Game Speed = 16\n";
-        gameOptionsFile << "Concrete Required = true\n";
-        gameOptionsFile << "Structures Degrade On Concrete = true\n";
-        gameOptionsFile << "Fog of War = false\n";
-        gameOptionsFile << "Start with Explored Map = false\n";
-        gameOptionsFile << "Instant Build = false\n";
-        gameOptionsFile << "Only One Palace = false\n";
-        gameOptionsFile << "Rocket-Turrets Need Power = false\n";
-        gameOptionsFile << "Sandworms Respawn = false\n";
-        gameOptionsFile << "Killed Sandworms Drop Spice = false\n";
-        gameOptionsFile << "Manual Carryall Drops = false\n";
-        gameOptionsFile << "Maximum Number of Units Override = 0\n";
-        gameOptionsFile << "Maximum Number of Harvesters Override = -1\n";
-        gameOptionsFile << "City Effects = false\n";
+        gameOptionsFile << vanillaOptions();
         gameOptionsFile.close();
         SDL_Log("ModManager: Created %s", GAME_OPTIONS_FILE);
     }
@@ -1428,23 +1540,7 @@ void ModManager::seedDunecityFromDefaults() {
     std::string gameOptionsPath = dunecityPath + "/" + GAME_OPTIONS_FILE;
     std::ofstream gameOptionsFile(gameOptionsPath);
     if (gameOptionsFile.is_open()) {
-        gameOptionsFile << "# Dune City Game Options (default values)\n";
-        gameOptionsFile << "[Game Options]\n";
-        gameOptionsFile << "Game Speed = 16\n";
-        gameOptionsFile << "Concrete Required = true\n";
-        gameOptionsFile << "Structures Degrade On Concrete = false\n";
-        gameOptionsFile << "Fog of War = false\n";
-        gameOptionsFile << "Start with Explored Map = true\n";
-        gameOptionsFile << "Instant Build = false\n";
-        gameOptionsFile << "Only One Palace = false\n";
-        gameOptionsFile << "Rocket-Turrets Need Power = true\n";
-        gameOptionsFile << "Sandworms Respawn = true\n";
-        gameOptionsFile << "Killed Sandworms Drop Spice = true\n";
-        gameOptionsFile << "Manual Carryall Drops = false\n";
-        gameOptionsFile << "Maximum Number of Units Override = 0\n";
-        gameOptionsFile << "Maximum Number of Harvesters Override = -1\n";
-        gameOptionsFile << "Immortal Human Player = false\n";
-        gameOptionsFile << "City Effects = true\n";  // dunecity mod opts in
+        gameOptionsFile << cityOptions();
         gameOptionsFile.close();
         SDL_Log("ModManager: Created %s (dunecity)", GAME_OPTIONS_FILE);
     }
@@ -1452,7 +1548,8 @@ void ModManager::seedDunecityFromDefaults() {
     ModInfo info;
     info.name = DUNECITY_MOD_NAME;
     info.displayName = "Dune City";
-    info.author = "Dune City";
+    info.author = "Stefan";
+    info.version = DUNECITY_MOD_VERSION;
     info.description = "Hybrid RTS + city-builder mode (zones, overlays, city sim).";
     info.gameVersion = VERSION;
     info.enablesCityMode = true;

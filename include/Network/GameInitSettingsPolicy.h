@@ -168,6 +168,12 @@ inline bool isAcceptableReceivedGameInitSettings(const GameInitSettings& setting
         return false;
     }
 
+    if(options.maximumNumberOfConstructionYardsOverride < -1
+       || options.maximumNumberOfConstructionYardsOverride > 999) {
+        reason = "construction yard limit out of range";
+        return false;
+    }
+
     reason.clear();
     return true;
 }

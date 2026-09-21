@@ -302,7 +302,7 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         if (modManager.isInitialized()) {
             ModInfo info = modManager.getModInfo(currentGame->getGameInitSettings().getModName());
             if (!info.displayName.empty()) {
-                modDisplayName = info.displayName;
+                modDisplayName = info.displayName + (info.version.empty() ? "" : " " + info.version);
             } else if (!info.name.empty()) {
                 modDisplayName = info.name;
             }
@@ -311,7 +311,7 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         std::transform(modDisplayName.begin(), modDisplayName.end(), modDisplayName.begin(),
             [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         modVersionLabel.setTextFontSize(10);
-        modVersionLabel.setText("MOD: " + modDisplayName + "  v" + std::string(VERSION));
+        modVersionLabel.setText("MOD: " + modDisplayName);
         modVersionLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
         modVersionLabel.setAlignment(static_cast<Alignment_Enum>(Alignment_Left | Alignment_VCenter));
 

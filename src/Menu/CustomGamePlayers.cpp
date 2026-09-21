@@ -188,6 +188,7 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         } else WorkshopGameContent::resolveMod(gameInitSettings);
         duneCitySkinControls = ModManager::instance().isCityModeActive();
     }
+    installerApprovedForDisplay = OnlineModPolicy::approved();
     const bool compactPlayers = getRendererWidth() < 800;
 
     // set up window
@@ -898,12 +899,12 @@ void CustomGamePlayers::update() {
         const int partner = houseInfo[0].player2DropDown.getSelectedEntryIntData();
         const bool solo = partner == PLAYER_OPEN || partner == PLAYER_CLOSED;
         nextButton.setEnabled(houseInfo[0].player1DropDown.getSelectedEntryIntData() == PLAYER_HUMAN);
-        readinessLabel.setText(!OnlineModPolicy::approved()
+        readinessLabel.setText(!installerApprovedForDisplay
             ? _("Players must join this lobby before you start. Hot joining is unavailable for new mods.")
             : solo ? _("Start now. Others can watch or ask to join while you play.") : _("Your co-op partner is ready."));
     } else if(!bServer && startGameTime == 0) readinessLabel.setText(_("Waiting for the host to start."));
     else if(setup) readinessLabel.setText(setup->online
-        ? _("Leave an open player slot for a friend. Create Lobby when ready.")
+        ? _("Create Lobby when ready. Friends can replace an AI; hot join also allows spectators.")
         : _("Choose your map and opponents, then Start Game."));
 
     if(startGameTime > 0) {
@@ -1711,16 +1712,6 @@ void CustomGamePlayers::onNext()
         return;
     }
     if(setup && setup->online) {
-        bool hasOpenSeat = false;
-        for(int i = 0; i < numHouses; ++i) {
-            hasOpenSeat |= houseInfo[i].player1DropDown.getSelectedEntryIntData() == PLAYER_OPEN;
-            if(gameInitSettings.isMultiplePlayersPerHouse())
-                hasOpenSeat |= houseInfo[i].player2DropDown.getSelectedEntryIntData() == PLAYER_OPEN;
-        }
-        if(!hasOpenSeat) {
-            openWindow(MsgBox::create(_("Choose Open for a player slot before creating an online lobby.\nLeave a place for another player to join.")));
-            return;
-        }
         setup->players = getChangeEventList();
         quit(MENU_SETUP_HOST);
         return;

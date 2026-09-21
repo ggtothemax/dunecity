@@ -20,6 +20,9 @@
 
 #include <mod/ModMentatConfig.h>
 
+// Increment when Stefan releases changed Dune City mod content, independently of the app.
+inline constexpr const char* DUNECITY_MOD_VERSION = "1.001";
+
 #include <algorithm>
 #include <functional>
 #include <map>
@@ -84,7 +87,7 @@ struct ModInfo {
     bool matchesSelectionName(const std::string& value) const {
         return name == value || std::find(selectionAliases.begin(), selectionAliases.end(), value) != selectionAliases.end();
     }
-    std::string officialVersion;  ///< Build label for bundled official content ("1.748"); wins over revisionVersion.
+    std::string officialVersion;  ///< Independent bundled mod version ("1.001"); wins over revisionVersion.
     std::string selectionLabel() const {
         if(!officialVersion.empty()) return displayName + " " + officialVersion;
         return displayName + (revisionVersion ? " v" + std::to_string(revisionVersion) : "");
@@ -96,26 +99,6 @@ struct ModInfo {
 
     bool enablesCityMode = false; ///< When true, DuneCity city-sim features are active for this mod.
 };
-
-/**
- * Build label for bundled official content: the application version "1.0.748" is presented as
- * "1.748". Only the historically always-zero middle component is folded away; anything that is
- * not MAJOR.0.PATCH with numeric parts is shown unchanged rather than guessed at.
- */
-inline std::string modBuildLabel(const std::string& gameVersion) {
-    const auto numeric = [](const std::string& part) {
-        return !part.empty() && part.find_first_not_of("0123456789") == std::string::npos;
-    };
-    const auto first = gameVersion.find('.');
-    if(first == std::string::npos) return gameVersion;
-    const auto second = gameVersion.find('.', first + 1);
-    if(second == std::string::npos) return gameVersion;
-    const auto major = gameVersion.substr(0, first);
-    const auto minor = gameVersion.substr(first + 1, second - first - 1);
-    const auto patch = gameVersion.substr(second + 1);
-    if(minor != "0" || !numeric(major) || !numeric(patch)) return gameVersion;
-    return major + "." + patch;
-}
 
 /** True for the immutable "ws-<hash>" folders that installed Workshop revisions live in. */
 inline bool isWorkshopSnapshotMod(const std::string& name) {

@@ -14,7 +14,7 @@ inline const std::array<std::string, 4>& approvedMods() {
     return names;
 }
 inline bool approved(const std::string& name) {
-    for(const auto& candidate : approvedMods()) if(name == candidate) return true;
+    for(const auto& candidate : approvedMods()) if(name == candidate) return !ModManager::instance().installerContentHash(name).empty();
     return false;
 }
 inline bool approved() { return approved(ModManager::instance().getActiveModName()); }
@@ -28,14 +28,14 @@ inline std::string fingerprint() {
     auto& mods = ModManager::instance();
     const auto name = mods.getActiveModName();
     for(size_t i = 0; i < approvedMods().size(); ++i) {
-        if(name != approvedMods()[i]) continue;
+        if(name != approvedMods()[i] || !approved(name)) continue;
         const auto checksum = mods.getEffectiveChecksums().combined;
         if(checksum.size() != 16 || checksum.find_first_not_of("0123456789abcdef") != std::string::npos)
             throw std::runtime_error("Could not verify the approved mod's rules.");
         // Domain-separated, self-identifying content token, not a Workshop revision.
-        // Only small rule checksums are needed: the approved assets ship with every client.
+        // Include the installer payload digest as well as the effective rules.
         return "d00ec17a0000000" + std::to_string(i+1)
-            + Workshop::hashBytes("approved/" + name + "/" + checksum).substr(0, 48);
+            + Workshop::hashBytes("approved/" + name + "/" + checksum + "/" + mods.installerContentHash(name)).substr(0, 48);
     }
     return Workshop::saveMod(name).hash;
 }
