@@ -36,6 +36,13 @@ modifiedrules/metadata/assets and extra-payload rejection, AI-filledlobby, modid
 yardUI, actualMCV preservation/deployment and MOD4/MOD5 tests. Native dependencies
 and sourceversion audits pass. No push or public release. Installation receipt follows.
 
+751 delivery verified: source3fa6c862, Apple accepted app and DMG. Installed
+/Applications/dunecity.app on Stefans-MacBook-Air.local with existing Desktop
+shortcut;750 backed up, game not launched. ExecutableSHA256
+7c29b73f87b3f05633738c0ce32da80cbc7f464a955f494a92ae9dc470cfa331
+matches signed archive. Receipts: ../outputs/mba-test-1.0.751/verification.json.
+Population proposal: ../outputs/mba-test-1.0.751/city-cap-proposal.md.
+
 ## 2026-09-21 — Approved custom military targets and percentage-only attacks, 1.0.750
 
 Supersedes749's added custom attack caps. Easy military production target is now
