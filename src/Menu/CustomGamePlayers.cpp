@@ -1277,7 +1277,7 @@ void CustomGamePlayers::onReceiveModInfo(const std::string& modName, const std::
     hostModName = modName;
     hostModChecksum = modChecksum;
     if(!gameInitSettings.getModRevisionHash().empty()) {
-        if(modName != "ws-" + gameInitSettings.getModRevisionHash()) {
+        if(!WorkshopGameContent::announcesRevision(modName, gameInitSettings)) {
             onConfigMismatch(_("The host announced a different mod from the selected revision."));
             if(pNetworkManager) pNetworkManager->sendModAck(false, "");
             return;

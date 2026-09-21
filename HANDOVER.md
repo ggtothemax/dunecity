@@ -1,3 +1,16 @@
+## 2026-09-21 — Public753 release preparation and bundled-mod lobby repair
+
+User authorized public installers/browser deployment; bumped app752->753 so Air
+can test its real updater. Keep Air752 installed; nuclear remains tech6, mod1.002.
+Preflight real browser pairing exposed stale onReceiveModInfo ws-hash-name-only
+guard rejecting identical installer Vanilla content. Claude supplied a helper;
+Codex wired it into lobby handling and tests. Bundled names now require installer
+approval AND exact pinned content hash; ws aliases still undergo following full
+content/checksum checks. Both fresh bundled and11MiB custom-mod browser runs pass
+pair/cancel/retry/lobby/start/commands/quit/reload, zero command drops. Updated
+smoke expectations: bundled start performs zero uploads; custom remains published.
+Release PR66. CI/publication receipts follow after successful deployment.
+
 ## 2026-09-21 — Local752 custom QuantBot city ceilings
 
 Implements approved displayed-population ceilings per AI house, by map tile area:

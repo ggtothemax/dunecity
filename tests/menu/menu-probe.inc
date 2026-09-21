@@ -71,6 +71,20 @@ int runMenuProbe() {
                         "Approved campaign created a Workshop dependency");
             menuRequire(Workshop::store().list("mod").size() == revisions,
                         "Approved campaign copied its assets into Workshop");
+            // A lobby may pin the bytes of a bundled mod while retaining its
+            // installer name, rather than activating a ws-<hash> alias.
+            const auto bundled = Workshop::saveMod(name);
+            GameInitSettings pinned = campaign;
+            pinned.setModRevision(bundled.hash, bundled.version);
+            menuRequire(WorkshopGameContent::announcesRevision(name, pinned),
+                        "Bundled lobby mod rejected under its installer name");
+            menuRequire(WorkshopGameContent::announcesRevision("ws-"+bundled.hash, pinned),
+                        "Exact workshop alias rejected");
+            pinned.setModRevision(std::string(64,'0'), bundled.version);
+            menuRequire(!WorkshopGameContent::announcesRevision(name, pinned),
+                        "Installer name bypassed pinned content verification");
+            menuRequire(!WorkshopGameContent::announcesRevision("unapproved-mod", pinned),
+                        "Unapproved name bypassed pinned content verification");
             CrossplayMenu direct(campaign, true, {}, true, true);
             menuRequire(direct.startImmediately && direct.allowLateJoin, "Approved campaign lost direct start or hot joining");
             menuRequire(direct.activateGameContent(token, true), "Approved hot join requires the community service");

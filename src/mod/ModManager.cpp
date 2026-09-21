@@ -374,7 +374,7 @@ std::string ModManager::installerContentHash(const std::string& name) const {
         };
         const fs::path installed = getModPath(name);
         std::map<std::string, std::string> expected;
-        INIFile expectedMetadata(false, "Installer mod");
+        INIFile expectedMetadata(false, std::string("Installer mod"));
         std::map<std::string, std::string> expectedValues;
         if(name == VANILLA_MOD_NAME || name == DUNECITY_MOD_NAME) {
             const bool city = name == DUNECITY_MOD_NAME;
@@ -2053,7 +2053,7 @@ bool ModManager::writeModInfo(const std::string& modPath, const ModInfo& info) c
     const auto path = std::filesystem::path(modPath) / MOD_INI_FILE;
     const auto temp = (path.parent_path() / ".mod-metadata-writing").string();
     try {
-        INIFile ini = std::filesystem::exists(path) ? INIFile(path.string()) : INIFile(false, "Mod metadata");
+        INIFile ini = std::filesystem::exists(path) ? INIFile(path.string()) : INIFile(false, std::string("Mod metadata"));
         ini.setStringValue("Mod", "Display Name", info.displayName);
         ini.setStringValue("Mod", "Author", info.author);
         ini.setStringValue("Mod", "Description", info.description);

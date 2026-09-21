@@ -112,8 +112,9 @@ try {
   await host.screenshot({path: resolve(output, 'host-map.png')});
   await click(host, 1112, 748); // Default two-player map -> Players
   await guest.waitForFunction(() => Module.dunecityWebrtcStats().messages.some(m => m.dir === 'recv' && m.packetId === 4), null, {timeout: 120000});
-  assert.ok(contentRequests.filter(r => r.path === '/v1/content/commit' && r.status === 200).length >= 2,
-    'Find Match must publish the exact mod and map before sending game setup');
+  const commits = contentRequests.filter(r => r.path === '/v1/content/commit' && r.status === 200).length;
+  if (largeMod) assert.ok(commits >= 2, 'Custom content must publish its exact mod and map');
+  else assert.equal(commits, 0, 'Installer-matched content must start without publishing bundled files');
   await host.waitForFunction(() => Module.dunecityWebrtcStats().messages.some(m => m.dir === 'recv' && m.packetId === 18), null, {timeout: 120000});
   if (largeMod) {
     assert.ok(contentRequests.some(r => r.path === '/v1/content/blob' && r.status === 200),
@@ -144,7 +145,8 @@ try {
   // Exercise the real client teardown, including the nested-menu pacing regression.
   await guest.evaluate(() => { window.longGameSleeps = []; });
   await guest.keyboard.press('Escape'); await guest.waitForTimeout(300);
-  await click(guest, 640, 500); // Quit to Menu
+  await guest.screenshot({path: resolve(output, 'guest-menu.png')});
+  await click(guest, 640, 560); // Quit to Menu
   await click(guest, 595, 436); // Confirm
   await guest.waitForFunction(() => Module.dunecityWebrtcStats().peerConnectionState === 'idle', null, {timeout: 10000});
   await guest.waitForTimeout(1000);
@@ -155,7 +157,7 @@ try {
     return fs.readdir(root).filter(name => name.endsWith('.ini')).sort()
       .map(name => ({name,bytes:Array.from(fs.readFile(root+'/'+name))}));
   });
-  assert.ok(savedMaps.some(map => map.name.endsWith('.workshop.ini')), 'Received map needs revision metadata');
+  if (largeMod) assert.ok(savedMaps.some(map => map.name.endsWith('.workshop.ini')), 'Received custom map needs revision metadata');
   await guest.reload();
   await guest.waitForFunction(() => document.querySelector('#loading').hidden, null, {timeout:90000});
   assert.deepEqual(await guest.evaluate(() => {

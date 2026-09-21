@@ -123,6 +123,18 @@ inline void pin(GameInitSettings& init, bool publish = false, bool queue = false
         if(publish) { map = Workshop::store().get(map.hash); init.setMapRevision(map.hash, map.version, map.manifest); }
     }
 }
+// Does the mod name the host announced denote this game's pinned revision?
+// A captured revision is activated under its hash name, but an approved mod keeps
+// its shipped installer name (see resolveMod), so the name alone cannot identify
+// it. Accept that name only when the locally installed bytes of that very mod
+// hash to the pinned revision - the same verification joining already performs.
+inline bool announcesRevision(const std::string& modName, const GameInitSettings& init) {
+    if(init.getModRevisionHash().empty()) return true;
+    if(modName == "ws-" + init.getModRevisionHash()) return true;
+    if(!OnlineModPolicy::approved(modName)) return false;
+    try { return Workshop::saveMod(modName).hash == init.getModRevisionHash(); }
+    catch(const std::exception&) { return false; }
+}
 inline bool matches(const GameInitSettings& init) {
     if(init.getModRevisionHash().empty()) return true;
     try {

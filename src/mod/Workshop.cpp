@@ -32,7 +32,7 @@ void atomicWrite(const fs::path& path,const std::string& data) {
     } catch(...) { std::error_code e;fs::remove(temp,e);throw; }
 }
 void pointer(const fs::path& path,const Revision& r,bool immutable=false) {
-    INIFile ini(false, "Workshop revision");ini.setStringValue("Workshop","ID",r.id);
+    INIFile ini(false, std::string("Workshop revision"));ini.setStringValue("Workshop","ID",r.id);
     ini.setIntValue("Workshop","Version",r.version);ini.setStringValue("Workshop","Hash",r.hash);
     ini.setStringValue("Workshop","Base",r.base);ini.setBoolValue("Workshop","Immutable",immutable);
     if(immutable && r.kind=="mod") ini.setStringValue("Workshop","Manifest",hex(r.manifest));
@@ -54,7 +54,7 @@ Revision saveMod(const std::string& modName) {
     auto& manager=ModManager::instance();
     if(!manager.isValidModName(modName)||!manager.modExists(modName)) throw std::runtime_error("Choose an installed mod first.");
     const fs::path path=manager.getModPath(modName), metadata=path/"workshop-revision.ini";
-    INIFile meta=fs::exists(metadata)?INIFile(metadata.string()):INIFile(false, "Workshop revision");
+    INIFile meta=fs::exists(metadata)?INIFile(metadata.string()):INIFile(false, std::string("Workshop revision"));
     const auto knownHash=meta.getStringValue("Workshop","Hash","");
     if(meta.getBoolValue("Workshop","Immutable",false)) {
         auto r=store().get(knownHash);
@@ -76,7 +76,10 @@ Revision saveMod(const std::string& modName) {
     }
     auto r=store().capture("mod",id,info.displayName.empty()?modName:info.displayName,
                            manager.getContentBase(modName),"",path);
-    pointer(metadata,r); return r;
+    // Bundled identities derive from content; writing a pointer would alter
+    // integrity-checked installer payloads such as Tornie.
+    if(!bundled) pointer(metadata,r);
+    return r;
 }
 Revision saveMapData(const std::string& name,const std::string& data,const std::string& modHash) {
     if(data.empty()||data.size()>1024*1024) throw std::runtime_error("Map content is empty or too large.");
