@@ -27,6 +27,7 @@
 #include <units/MCV.h>
 class Harvester;
 #include <players/QuantBotConfig.h>
+#include <players/QuantBotCityCampaignPolicy.h>
 #include <players/CampaignDifficultyPolicy.h>
 #include <players/AIDecisionLog.h>
 
@@ -77,6 +78,15 @@ public:
     int harvesterCountCeiling() const;
     int campaignAllyHarvesterLimit() const;
     bool canAddRepairYard(int includingQueued) const;
+
+    // Only opposing QuantBots in Dune City campaigns use this policy.
+    QuantBotCityCampaignPolicy::Limits campaignCityLimits() const;
+    bool campaignCityEconomy() const;
+    bool campaignPermitsStructure(Uint32 itemID) const;
+    bool campaignAllowsZone(int zonesIncludingQueued) const;
+    bool campaignCanAddHarvester() const;
+    int campaignHarvesterCeiling() const; // -1 outside policy; zero forbids new workers
+    void doProduceItem(const BuilderBase* builder, Uint32 itemID) const;
 
     void onObjectWasBuilt(const ObjectBase* pObject) override;
     void onDecrementStructures(int itemID, const Coord& location) override;
@@ -133,6 +143,17 @@ private:
     CampaignDifficultyPolicy::Wave campaignWave;
     std::set<Uint32> scriptedAssaults;
     bool isCampaignEnemy() const;
+    QuantBotCityCampaignPolicy::Baseline campaignBaseline;
+    std::set<Uint32> campaignOriginalStructures;
+    bool campaignBaselineCaptured = false;
+    bool campaignMapHasSpice = true;
+    Uint32 campaignSpiceZeroSince = std::numeric_limits<Uint32>::max();
+    void noteCampaignOriginalState(bool legacySave = false);
+    int campaignIncomeForecastPerMinute() const;
+    int campaignCommittedCount(Uint32 itemID) const;
+    int campaignHarvesterTarget() const;
+    bool campaignPostSpice() const;
+    bool campaignAvailableToBuild(const BuilderBase* builder, Uint32 itemID) const;
     CampaignDifficultyPolicy::Profile campaignProfile() const;
     CampaignDifficultyPolicy::Pressure campaignPressure() const;
     bool campaignCanLaunch() const;

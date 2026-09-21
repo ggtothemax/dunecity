@@ -888,6 +888,13 @@ void House::lose(bool bSilent) {
 
 
 void House::freeHarvester(int xPos, int yPos) {
+    // An AI difficulty target also applies to the worker delivered with a new
+    // refinery. Initial authored workers and human/allied houses remain intact.
+    if (currentGame && currentGame->gameState != GameState::Start)
+        for (const auto& player:getPlayerList()) if (const auto* bot=dynamic_cast<const QuantBot*>(player.get())) {
+            if (!bot->campaignCanAddHarvester()) return;
+        }
+
     // Don't spawn free harvester if at harvester limit
     if(isHarvesterLimitReached()) {
         return;

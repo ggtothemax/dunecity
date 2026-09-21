@@ -1,3 +1,25 @@
+## 2026-09-21 — Implemented QuantBot city campaign economy, local 1.0.745
+
+Implemented the accepted 150%-of-vanilla planning target and the level/difficulty
+shared RCI matrix; see docs/quantbot-campaign-income-150.md for exact counts and
+validation. Frozen original refinery multiplier/minimum budget; no new RTS types;
+shared placed+queued caps; queued workers reserve refinery delivery slots. Hard/
+Brutal get total caps24/40 only after30 game seconds without map spice or owned
+cargo. New blooms remove extra future expansion. Normal earned income is untouched.
+Scope is Dune City campaign enemy QuantBot only. Starting assets are retained.
+Save9842 stores policy state; older saves recover original authored permissions
+through the campaign-specific resource loader. New saves need the newer app.
+
+Claude's bounded core implementation and completion attempts hit their turn caps;
+Codex finished integration and review. A separate bounded Claude task delivered
+10 unit cases including all36 matrix entries. Eight CTest groups pass, plus
+real-engine Easy2/Hard5/Brutal9 probes. Three ordinary campaign runs checked134
+enemy snapshots with no cap violations or new RTS types. Hard5/Brutal5 observed
+net income1748/3030 per minute versus goals1800/3150; not a full balance study.
+Evidence and measured limitations are documented alongside the matrix.
+Native spectator hot-join also passes with matching state at cycle1800.
+No browser-crossplay or public release claim.
+
 ## 2026-09-21 — User target: 150% combined income; post-spice expansion
 
 New design in `docs/quantbot-campaign-income-150.md` supersedes lower-income targets.

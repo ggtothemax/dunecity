@@ -1,3 +1,78 @@
+# Implemented candidate — 1.0.745
+
+The matrix below is now implemented for **Dune City campaign enemy QuantBot only**.
+Vanilla, custom games, other city mods, and the human-side helper keep their existing policies.
+The older design discussion follows as historical rationale; its “not implemented” wording
+records the earlier proposal, not the current status.
+
+| Campaign level | Easy H / total RCI | Medium H / total RCI | Hard H / total RCI | Brutal H / total RCI |
+|---:|---:|---:|---:|---:|
+| 1 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| 2 | 1 / 4 | 2 / 5 | 3 / 12 | 6 / 18 |
+| 3 | 1 / 4 | 1 / 8 | 3 / 12 | 5 / 20 |
+| 4 | 1 / 4 | 1 / 8 | 2 / 16 | 4 / 24 |
+| 5 | 1 / 8 | 2 / 16 | 1 / 20 | 3 / 28 |
+| 6 | 1 / 8 | 2 / 16 | 1 / 20 | 3 / 28 |
+| 7 | 1 / 8 | 2 / 16 | 1 / 20 | 3 / 28 |
+| 8 | 1 / 8 | 2 / 16 | 1 / 20 | 3 / 28 |
+| 9 | 1 / 8 | 2 / 16 | 1 / 20 | 3 / 28 |
+
+H is a production ceiling, not a grant or an order to remove starting workers. It cannot
+exceed the original refinery multiplier/minimum allowance, the positive Game Options
+ceiling, or current spice capacity. On levels 5–9, small original budgets use Easy
+1H/4 zones (one original worker allowance), or Medium 1H/8 zones (at most two).
+Original zero-refinery houses receive neither workers nor zones, regardless of difficulty.
+
+The income goal is frozen at 450 credits/min per original allowed worker: 150% of the
+300-credit reference. Discretionary zone orders stop at either the shared placed+queued
+physical cap or the combined income forecast. That forecast uses current tax/population/
+land value, city police/power costs, a conservative half-weight forecast for queued and
+developing zones, and the larger of planned versus committed workers while spice remains.
+The AI chooses its R/I/C mix. Earned revenue is never clipped or granted by this policy;
+normal maturation, combat, storage losses and harvesting paths can change actual income.
+
+No new harvesting capacity is ordered once a fresh map-wide scan finds no spice. After
+30 game seconds of sustained zero, with no cargo left in any owned harvester (fractional
+spice and inactive/transit cargo count), Hard's **total** zone cap becomes 24 and Brutal's
+40. Easy/Medium retain their normal zone cap. The original income goal stays fixed.
+A fresh spice bloom removes the additional expansion allowance without demolishing zones.
+
+RTS building types must have existed at mission start; replacement is allowed. A military
+factory's city employment role does not grant permission. City-only zones, roads, nuclear
+power and civic services remain eligible. Actual production checks aggregate all builders;
+refinery worker deliveries also respect paid/queued worker reservations. Older pending
+orders for disallowed RTS structures are cancelled when the builder is next planned.
+
+## Validation and limits
+
+- Claude produced the pure decision table and 10 unit cases, including all 36 matrix cells;
+  Codex completed integration, reviewed the patch and ran verification.
+- Native build and all eight CTest suites pass. The unit suite was rerun after the final
+  legacy-save correction. Dependency audits pass before and after the build.
+- Real-engine probes pass on Easy level 2, Hard level 5 and Brutal level 9: two-yard RCI
+  ordering, queued-worker/refinery delivery reservation, original building permissions,
+  scope exclusion, fractional spice/cargo, the depletion delay, bloom recovery, new-save
+  round trip, and old-save permission recovery.
+- In fixed-seed ordinary campaigns, 134 enemy snapshots stayed within the shared cap and
+  introduced no unauthored RTS types. Easy L2 peaked at 2 committed zones/1 worker before
+  defeat at 7.9 minutes; Hard L5 reached 15/1 over 15 minutes; Brutal L5 reached 19/3 before
+  winning at 14.27 minutes. Observed whole-run net harvest+city income was approximately
+  353, 1748 and 3030 credits/min, respectively. The reference goals were 450, 1800 and 3150.
+  These runs include opening/combat effects and are not paired vanilla calibration runs.
+- Local native spectator hot-join passed with matching resumed state at cycle 1800.
+  Browser crossplay was not rerun for this native candidate.
+- Large post-spice caps are provisional. The probes verify enforcement and transitions;
+  they do not prove that 40 zones will produce the desired tax revenue on every map.
+- Save format 9842 stores the original budget, building types and exhaustion state.
+  This app reads older saves; older apps cannot read its new saves. For bundled older
+  campaign saves, recover the authored layout through `openCampaignFile` (not generic
+  file lookup, which can select another mod's same-named scenario). Missing external
+  scenario content falls back to saved permissions and emits a warning.
+
+Evidence: `../outputs/mba-test-1.0.745/validation/`.
+
+---
+
 # QuantBot campaign: 150% income target and post-spice expansion
 
 User-confirmed direction on 21 September 2026: target 50% more combined income than vanilla; higher difficulties may expand R/I/C after map spice is exhausted. This is a revised design target, not an implemented or measured gameplay result. It supersedes the previous lower-income target matrix. The source-verified refinery formulas and historical measurements in the previous comparison remain valid.
