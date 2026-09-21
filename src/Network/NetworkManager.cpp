@@ -31,6 +31,9 @@
 #include <misc/fnkdat.h>
 
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
+#include <Network/OnlineModPolicy.h>
+#include <mod/WorkshopClient.h>
 #include <mod/ModTransferValidation.h>
 
 #include <globals.h>
@@ -77,6 +80,7 @@ public:
         std::string* gameVersion        = nullptr;
         std::string* quantBotConfigHash = nullptr;
         std::string* objectDataHash     = nullptr;
+        std::string* modRevisionHash = nullptr;
     };
 
     PayloadPeerAdapter(const Fields& fields,
@@ -120,6 +124,7 @@ public:
     std::string& gameVersion() override { return field(fields_.gameVersion); }
     std::string& quantBotConfigHash() override { return field(fields_.quantBotConfigHash); }
     std::string& objectDataHash() override { return field(fields_.objectDataHash); }
+    std::string& modRevisionHash() override { return field(fields_.modRevisionHash); }
 
     void disconnectWithCause(int cause) override {
         if(disconnect_) {
@@ -661,6 +666,7 @@ void NetworkManager::disconnect() {
 
 void NetworkManager::update()
 {
+    Workshop::updatePublications();
     if(isRoomSession()) {
         updateRelaySession();
         updateLateJoin();
@@ -1212,6 +1218,8 @@ NetworkSessionCallbacks NetworkManager::sessionCallbacks() const {
     callbacks.onReceiveSelectionList   = &pOnReceiveSelectionList;
     callbacks.onReceiveClientStats     = &pOnReceiveClientStats;
     callbacks.onReceiveSetPathBudget   = &pOnReceiveSetPathBudget;
+    callbacks.onReceiveMatchControl    = &pOnReceiveMatchControl;
+    callbacks.onReceiveMatchResumeRequest = &pOnReceiveMatchResumeRequest;
     callbacks.onReceiveCoopMission     = &pOnReceiveCoopMissionBridge;
     callbacks.onConfigMismatch         = &pOnConfigMismatch;
     return callbacks;
@@ -1222,38 +1230,31 @@ NetworkManager::ContentCheck NetworkManager::checkRelayContent(
         const std::string& gameVersion, std::string& reason) const {
     reason.clear();
 
-    if(!pRelayClient) {
-        return ContentCheck::Match;
-    }
-
     ContentCompatibility::Fingerprint local;
-    local.gameVersion    = gameVersion;
-    local.quantBotHash   = quantBotHash;
+    local.gameVersion = gameVersion;
+    local.quantBotHash = quantBotHash;
     local.objectDataHash = objectDataHash;
-
+    try { local.modRevisionHash = OnlineModPolicy::fingerprint(); }
+    catch(const std::exception&) { }
     ContentCheck worst = ContentCheck::Match;
-    for(const RoomSessionTransport::Peer& peer : pRelayClient->peers()) {
+    const auto check = [&](const auto& peer) {
         ContentCompatibility::Fingerprint reported;
-        reported.gameVersion    = peer.gameVersion;
-        reported.quantBotHash   = peer.quantBotConfigHash;
+        reported.gameVersion = peer.gameVersion;
+        reported.quantBotHash = peer.quantBotConfigHash;
         reported.objectDataHash = peer.objectDataHash;
-
-        std::string peerReason;
-        // One rule, shared with the per-message check in GamePayloadRouter, so the answer cannot
-        // depend on which of the two noticed first.
-        switch(ContentCompatibility::compare(local, reported, peer.name, peerReason)) {
-            case ContentCompatibility::Verdict::Mismatch:
-                reason = peerReason;
-                return ContentCheck::Mismatch;      // final; no point looking further
+        reported.modRevisionHash = peer.modRevisionHash;
+        std::string why;
+        switch(ContentCompatibility::compare(local, reported, peer.name, why)) {
+            case ContentCompatibility::Verdict::Mismatch: worst = ContentCheck::Mismatch; reason = why; break;
             case ContentCompatibility::Verdict::AwaitingPeer:
-                if(worst == ContentCheck::Match) {
-                    worst = ContentCheck::AwaitingPeer;
-                    reason = peerReason;
-                }
-                break;
-            case ContentCompatibility::Verdict::Match:
-                break;
+                if(worst == ContentCheck::Match) { worst = ContentCheck::AwaitingPeer; reason = why; } break;
+            case ContentCompatibility::Verdict::Match: break;
         }
+    };
+    if(pRelayClient) {
+        for(const auto& peer : pRelayClient->peers()) check(peer);
+    } else {
+        for(const auto* peer : peerList) if(peer->data) check(*static_cast<const PeerData*>(peer->data));
     }
 
     return worst;
@@ -1482,6 +1483,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
     std::string peerGameVersion        = sender->gameVersion;
     std::string peerQuantBotConfigHash = sender->quantBotConfigHash;
     std::string peerObjectDataHash     = sender->objectDataHash;
+    std::string peerModRevisionHash = sender->modRevisionHash;
     const bool  peerIsHost             = sender->isHost();
     const std::size_t peerCount        = pRelayClient->peers().size();
     sender = nullptr;
@@ -1543,6 +1545,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
         fields.gameVersion        = &peerGameVersion;
         fields.quantBotConfigHash = &peerQuantBotConfigHash;
         fields.objectDataHash     = &peerObjectDataHash;
+        fields.modRevisionHash = &peerModRevisionHash;
 
         fields.nameAssigned = &relayPeerNamesAreBound;
 
@@ -1598,9 +1601,8 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
         payloadContext.isHost         = bIsServer;
         payloadContext.inGame         = bGameInProgress;
         payloadContext.simulationSeed = simulationSeed;
-        // Relay v1 plays bundled, matching content: the map text is used from memory and never
-        // becomes a file on disk.
-        payloadContext.allowMapWrite  = false;
+        // Verified Workshop revisions are retained for both online and LAN games.
+        payloadContext.allowMapWrite  = true;
         // On the relay a client sends its hashes once when it enters the lobby; answering the
         // host's would race the host's own move to the match phase and be refused.
         payloadContext.replyToConfigHash = false;
@@ -1631,6 +1633,7 @@ void NetworkManager::handleRelayGamePayload(std::uint32_t peerId,
             current->gameVersion        = peerGameVersion;
             current->quantBotConfigHash = peerQuantBotConfigHash;
             current->objectDataHash     = peerObjectDataHash;
+            current->modRevisionHash = peerModRevisionHash;
         }
     }
 }
@@ -2210,6 +2213,7 @@ bool NetworkManager::routeSharedPayload(NetPeer* peer, Uint32 packetType,
     fields.gameVersion        = &peerData->gameVersion;
     fields.quantBotConfigHash = &peerData->quantBotConfigHash;
     fields.objectDataHash     = &peerData->objectDataHash;
+    fields.modRevisionHash = &peerData->modRevisionHash;
 
     PayloadPeerAdapter adapter(
         fields,
@@ -2378,6 +2382,9 @@ void NetworkManager::sendChangeEventList(const ChangeEventList& changeEventList)
 }
 
 void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::string& objectDataHash, const std::string& gameVersion) {
+    std::string revision;
+    try { revision = OnlineModPolicy::fingerprint(); }
+    catch(const std::exception&) { /* Empty hash fails content verification. */ }
     SDL_Log("========== SENDING CONFIG HASHES ==========");
     SDL_Log("Role: %s", bIsServer ? "SERVER" : "CLIENT");
     SDL_Log("Protocol Version: %d", NETWORK_PROTOCOL_VERSION);
@@ -2392,6 +2399,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
         packetStream.writeString(gameVersion);
         packetStream.writeString(quantBotHash);
         packetStream.writeString(objectDataHash);
+        packetStream.writeString(revision);
         if(bIsServer) {
             sendPacketOverRelay(packetStream, 0, 0);
         } else {
@@ -2411,6 +2419,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
             packetStream.writeString(gameVersion);
             packetStream.writeString(quantBotHash);
             packetStream.writeString(objectDataHash);
+        packetStream.writeString(revision);
             sendPacketToPeer(pCurrentPeer, packetStream);
         }
     } else {
@@ -2422,6 +2431,7 @@ void NetworkManager::sendConfigHash(const std::string& quantBotHash, const std::
         packetStream.writeString(gameVersion);
         packetStream.writeString(quantBotHash);
         packetStream.writeString(objectDataHash);
+        packetStream.writeString(revision);
         sendPacketToHost(packetStream);
     }
     
@@ -2610,6 +2620,62 @@ void NetworkManager::broadcastPathBudget(size_t newBudget, Uint32 applyCycle) {
     sendPacketToAllConnectedPeers(packetStream);
 }
 
+void NetworkManager::sendMatchControl(Uint32 revision, Uint32 speed, Uint32 pauseCycle, Uint32 resumedPauseCycle) {
+    // Host → everyone in the session, spectators included: they follow the host's pacing and
+    // pause state, they just never originate it.
+    if(!bIsServer) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Client trying to send match control (only the host decides the shared settings)");
+        return;
+    }
+    // The same bounds every receiver applies. Sending a state that would be refused would only
+    // cost every peer a refusal against its abuse budget.
+    if(revision == 0 || speed < static_cast<Uint32>(GAMESPEED_MIN) || speed > static_cast<Uint32>(GAMESPEED_MAX)
+       || resumedPauseCycle > pauseCycle) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Refusing to broadcast an out-of-range match control state");
+        return;
+    }
+
+    const auto send = [&](Uint32 recipient, Uint32 seed) {
+        NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
+        packetStream.writeUint32(NETWORKPACKET_MATCH_CONTROL);
+        packetStream.writeUint32(seed);
+        packetStream.writeUint32(revision);
+        packetStream.writeUint32(speed);
+        packetStream.writeUint32(pauseCycle);
+        packetStream.writeUint32(resumedPauseCycle);
+        if(recipient) sendPacketOverRelay(packetStream, 0, recipient);
+        else sendPacketToAllConnectedPeers(packetStream);
+    };
+    send(0, simulationSeed);
+    // Direct player broadcasts intentionally exclude spectators. Deliver control
+    // state to their established snapshot streams separately; a connecting or
+    // slow spectator must never hold up the active players. Their network seed is
+    // the snapshot epoch established by takeLateJoin(), not the players' seed.
+    if(getDirectTransport()) {
+        for(const auto& entry : observerTransfers) if(entry.second.ready) send(entry.first, entry.second.epoch);
+    }
+}
+
+void NetworkManager::requestMatchResume(Uint32 pauseCycle) {
+    // A paused simulation produces no command cycles, so this cannot travel in the command
+    // stream: it goes straight to the host, which answers with sendMatchControl().
+    if(isSpectating()) return;
+    if(bIsServer) {
+        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "NetworkManager: Host trying to request a resume from itself");
+        return;
+    }
+    if(pauseCycle == 0) {
+        return;
+    }
+
+    NetworkPacketOStream packetStream(NETWORK_PACKET_FLAG_RELIABLE);
+    packetStream.writeUint32(NETWORKPACKET_MATCH_RESUME_REQUEST);
+    packetStream.writeUint32(simulationSeed);
+    packetStream.writeUint32(pauseCycle);
+
+    sendPacketToHost(packetStream);
+}
+
 void NetworkManager::sendModInfoToPeer(NetPeer* peer, const std::string& modName, const std::string& modChecksum) {
     if(isRoomSession()) {
         // Relay v1 carries bundled, matching content only. Custom content transfer is refused
@@ -2781,7 +2847,7 @@ void NetworkManager::sendModFilesToPeer(NetPeer* peer, const std::string& modNam
             const auto fileSize = std::filesystem::file_size(filePath);
             if(fileSize > static_cast<std::uintmax_t>(MAX_MOD_TRANSFER_SIZE)
                || contentBytes + static_cast<std::size_t>(fileSize) > MAX_MOD_TRANSFER_SIZE) {
-                throw std::runtime_error("mod exceeds transfer size limit");
+                throw std::runtime_error("This mod is larger than the 10 MiB LAN transfer limit. Connect both players to the community server, share the mod, and download it before joining.");
             }
             std::ifstream file(filePath, std::ios::binary);
             if(!file) {
@@ -2797,7 +2863,7 @@ void NetworkManager::sendModFilesToPeer(NetPeer* peer, const std::string& modNam
         NetworkPacketOStream completePacket(NETWORK_PACKET_FLAG_RELIABLE);
         completePacket.writeUint32(NETWORKPACKET_MOD_COMPLETE);
         completePacket.writeBool(false);
-        completePacket.writeString("Could not package mod files");
+        completePacket.writeString(e.what());
         sendPacketToPeer(peer, completePacket);
         return;
     }

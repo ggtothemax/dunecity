@@ -6,6 +6,7 @@
 #include <Definitions.h>
 #include <algorithm>
 #include <array>
+#include <limits>
 
 namespace QuantBotBuildPolicy {
 
@@ -136,6 +137,23 @@ inline bool easyReactorStrike(int nearbyAircraft, int readyAircraft, int antiAir
 
 inline int palaceTarget(bool onlyOnePalace, bool citySim, int displayedPopulation) {
     return onlyOnePalace || !citySim ? 1 : 1 + std::max(0, displayedPopulation) / 30000;
+}
+
+// Per-difficulty ceiling on how many palaces a bot may own or have queued.
+// Easy and Medium bots stay below the city-population target; Hard, Brutal and
+// the defensive difficulty keep whatever the scenario already allows. The value
+// is only ever an extra ceiling: callers take the minimum of this and the
+// existing target, so the single-palace option, scenario and campaign build
+// restrictions stay in force and human players are unaffected.
+inline int difficultyPalaceCap(int difficulty) {
+    if (difficulty == 0) return 1; // Easy
+    if (difficulty == 1) return 3; // Medium
+    return std::numeric_limits<int>::max();
+}
+
+inline int palaceTarget(bool onlyOnePalace, bool citySim, int displayedPopulation, int difficulty) {
+    return std::min(palaceTarget(onlyOnePalace, citySim, displayedPopulation),
+                    difficultyPalaceCap(difficulty));
 }
 
 inline int spendableCredits(int credits, int strategicCost) {

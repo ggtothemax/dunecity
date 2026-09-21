@@ -32,7 +32,7 @@
 
 class HouseChoiceMenu : public MenuBase {
 public:
-    explicit HouseChoiceMenu(bool online = true, bool keepRules = false);
+    explicit HouseChoiceMenu(bool online = true, bool keepRules = false, bool showLobby = false);
     virtual ~HouseChoiceMenu();
 
     void onChildWindowClose(Window* pChildWindow) override;
@@ -88,6 +88,7 @@ private:
     TextButton hostCoopButton;
     TextButton      gameOptionsButton;
 
+    bool showLobby;
     int currentHouseChoiceScrollPos;
 
     // Static storage for AI settings

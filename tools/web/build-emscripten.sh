@@ -85,7 +85,7 @@ node "${ROOT}/tools/web/verify-dunecity-js.mjs" --source "${ROOT}/platform/web/d
 
 echo "==> Prebuilding Emscripten SDL ports (serial cache warmup)"
 unset EM_CACHE_IS_LOCKED
-embuilder build sdl2 sdl2_mixer sdl2_ttf
+embuilder build sdl2 sdl2_mixer sdl2_ttf zlib
 
 # CMake validates existing cache/source compatibility; preserve build outputs
 # and unrelated files instead of recursively deleting BUILD_DIR.

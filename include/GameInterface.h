@@ -38,6 +38,12 @@
 
 class ObjectInterface;
 
+/// Deliberately distinct from the routine sidebar controls.
+class SkipMissionButton : public TextButton {
+protected:
+    void updateTextures() override;
+};
+
 /// This class represents the in-game interface.
 class GameInterface : public Window {
 public:
@@ -122,6 +128,7 @@ private:
 
     HBox                topBarHBox;             ///< The container for the top bar containing newsticker, options button and mentat button
     NewsTicker          newsticker;             ///< The newsticker showing news on the game (e.g. new starport prices, harvester fill level, etc.)
+    TextButton          pauseButton;
     TextButton          optionsButton;          ///< Button for accessing the ingame menu
     TextButton          mentatButton;           ///< Button for accessing the mentat menu
     TextButton          budgetButton;           ///< City sim mode only: opens the budget mini-window
@@ -142,6 +149,7 @@ private:
     TextButton          landValueOverlayButton;
     TextButton          crimeOverlayButton;
     TextButton          pollutionOverlayButton;
+    SkipMissionButton   skipMissionButton;
     TextButton          ornithopterSelectButton;///< Button that selects all owned ornithopters
     TextButton          chemicalCarryallSelectButton;///< Button that selects all owned chemical carryalls
 

@@ -40,6 +40,9 @@
 
 #include <ObjectBase.h>
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
+#include <FileClasses/INIFile.h>
+#include <GUI/MsgBox.h>
 #include <GUI/ObjectInterfaces/ObjectInterface.h>
 #include <GUI/ObjectInterfaces/MultiUnitInterface.h>
 #include <GUI/dune/LoadSaveWindow.h>
@@ -117,10 +120,15 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
 
     saveButton.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_SaveIcon));
     saveButton.setTooltipText(_("Save Map"));
-    saveButton.setOnClick(std::bind(&MapEditorInterface::onSave, this));
+    saveButton.setOnClick([this]() { onSave(); });
     topBarHBox.addWidget(&saveButton,24);
+    topBarHBox.addWidget(HSpacer::create(1));
+    shareButton.setText(_("Share"));
+    shareButton.setTooltipText(_("Save a map version and share it with the community"));
+    shareButton.setOnClick([this]() { onSave(true); });
+    topBarHBox.addWidget(&shareButton,48);
 
-    topBarHBox.addWidget(HSpacer::create(10));
+    topBarHBox.addWidget(HSpacer::create(3));
 
     undoButton.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_UndoIcon));
     undoButton.setTooltipText(_("Undo"));
@@ -571,12 +579,8 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
     editorModeStructs_ChaosFactory.setTooltipText(resolveItemName(Structure_ChaosFactory));
     editorModeStructs_ChaosFactory.setOnClick(std::bind(&MapEditorInterface::onStructButton, this, Structure_ChaosFactory));
 
-    // DuneCity: expose SimCity-style buildings (R/C/I zones, Road, nuclear
-    // plant) in the editor when the dune city mod is the active mod. Always
-    // wire the click handlers + tooltips so the existing toggle/symbol code
-    // paths can address these buttons uniformly; only the layout add is
-    // conditional. Two rows so the 3-wide Nuclear sprite doesn't overflow
-    // the sidebar width.
+    // City structures use their own rows within the scrollable palette.
+    // Wire all buttons before conditionally adding them for city-capable mods.
     editorModeStructs_ZoneResidential.setToggleButton(true);
     editorModeStructs_ZoneResidential.setTooltipText(resolveItemName(Structure_ZoneResidential));
     editorModeStructs_ZoneResidential.setOnClick(std::bind(&MapEditorInterface::onStructButton, this, Structure_ZoneResidential));
@@ -597,6 +601,18 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
     editorModeStructs_NuclearPlant.setTooltipText(resolveItemName(Structure_NuclearPlant));
     editorModeStructs_NuclearPlant.setOnClick(std::bind(&MapEditorInterface::onStructButton, this, Structure_NuclearPlant));
 
+    editorModeStructs_PoliceStation.setToggleButton(true);
+    editorModeStructs_PoliceStation.setTooltipText(resolveItemName(Structure_PoliceStation));
+    editorModeStructs_PoliceStation.setOnClick(std::bind(&MapEditorInterface::onStructButton, this, Structure_PoliceStation));
+
+    editorModeStructs_Stadium.setToggleButton(true);
+    editorModeStructs_Stadium.setTooltipText(resolveItemName(Structure_Stadium));
+    editorModeStructs_Stadium.setOnClick(std::bind(&MapEditorInterface::onStructButton, this, Structure_Stadium));
+
+    editorModeStructs_Airport.setToggleButton(true);
+    editorModeStructs_Airport.setTooltipText(resolveItemName(Structure_Airport));
+    editorModeStructs_Airport.setOnClick(std::bind(&MapEditorInterface::onStructButton, this, Structure_Airport));
+
     cityStructsVisible_ = ModManager::instance().isCityModeActive();
     if(cityStructsVisible_) {
         // Row 1: R/C/I zones (three 2x2-tile buttons).
@@ -613,6 +629,15 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
         editorModeStructs_HBoxCityInfra.addWidget(&editorModeStructs_Road);
         editorModeStructs_HBoxCityInfra.addWidget(HSpacer::create(2));
         editorModeStructs_HBoxCityInfra.addWidget(&editorModeStructs_NuclearPlant);
+
+        editorModeStructs_VBox.addWidget(&editorModeStructs_HBoxCityCivic, 3*D2_TILESIZE + 5);
+        editorModeStructs_HBoxCityCivic.addWidget(&editorModeStructs_PoliceStation);
+        editorModeStructs_HBoxCityCivic.addWidget(HSpacer::create(2));
+        editorModeStructs_HBoxCityCivic.addWidget(&editorModeStructs_Stadium);
+
+        editorModeStructs_VBox.addWidget(&editorModeStructs_HBoxCityAirport, 3*D2_TILESIZE + 5);
+        editorModeStructs_HBoxCityAirport.addWidget(&editorModeStructs_Airport);
+        editorModeStructs_HBoxCityAirport.addWidget(Spacer::create());
     }
 
     if(tornieContentVisible_) {
@@ -1045,8 +1070,23 @@ void MapEditorInterface::onChildWindowClose(Window* pChildWindow) {
     }
 
     LoadSaveWindow* pLoadSaveWindow = dynamic_cast<LoadSaveWindow*>(pChildWindow);
-    if(pLoadSaveWindow != nullptr && pLoadSaveWindow->getFilename() != "") {
-        pMapEditor->saveMap(pLoadSaveWindow->getFilename());
+    if(pLoadSaveWindow != nullptr) {
+        const bool share = shareAfterSave;
+        shareAfterSave = false;
+        if(!pLoadSaveWindow->getFilename().empty()) {
+            bool saved = false;
+            try {
+                pMapEditor->saveMap(pLoadSaveWindow->getFilename());
+                saved = true;
+                const INIFile metadata(pLoadSaveWindow->getFilename() + ".workshop.ini");
+                const auto revision = Workshop::store().get(metadata.getStringValue("Workshop", "Hash"));
+                saveButton.setTooltipText(_("Saved map version ") + std::to_string(revision.version));
+                if(share) Workshop::shareRevision(revision);
+                else openWindow(MsgBox::create(_("Saved map version ") + std::to_string(revision.version)));
+            } catch(const std::exception& error) {
+                openWindow(MsgBox::create(std::string(saved ? _("Map saved, but sharing failed: ") : _("Map save failed: ")) + error.what()));
+            }
+        }
     }
 
     QstBox* pQstBox = dynamic_cast<QstBox*>(pChildWindow);
@@ -1076,7 +1116,8 @@ void MapEditorInterface::onQuit() {
     }
 }
 
-void MapEditorInterface::onSave() {
+void MapEditorInterface::onSave(bool share) {
+    shareAfterSave = share;
 
     std::vector<std::string> mapDirectories;
     std::vector<std::string> directoryTitles;
@@ -1296,6 +1337,9 @@ void MapEditorInterface::onStructButton(int structType) {
     editorModeStructs_ZoneIndustrial.setToggleState( (structType == Structure_ZoneIndustrial) );
     editorModeStructs_Road.setToggleState( (structType == Structure_Road) );
     editorModeStructs_NuclearPlant.setToggleState( (structType == Structure_NuclearPlant) );
+    editorModeStructs_Airport.setToggleState( (structType == Structure_Airport) );
+    editorModeStructs_Stadium.setToggleState( (structType == Structure_Stadium) );
+    editorModeStructs_PoliceStation.setToggleState( (structType == Structure_PoliceStation) );
 
     if(structType >= 0) {
         HOUSETYPE house = (HOUSETYPE) houseDropDownBox.getSelectedEntryIntData();
@@ -1570,6 +1614,9 @@ void MapEditorInterface::changeInterfaceColor(HOUSETYPE newHouse) {
     editorModeStructs_ZoneIndustrial.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_ZoneIndustrial, newHouse));
     editorModeStructs_Road.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_Road, newHouse));
     editorModeStructs_NuclearPlant.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_NuclearPlant, newHouse));
+    editorModeStructs_Airport.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_Airport, newHouse));
+    editorModeStructs_Stadium.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_Stadium, newHouse));
+    editorModeStructs_PoliceStation.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_PoliceStation, newHouse));
 
     editorModeUnits_Soldier.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_Soldier, newHouse));
     editorModeUnits_Trooper.setSymbol(pGFXManager->getUIGraphicSurface(UI_MapEditor_Trooper, newHouse));

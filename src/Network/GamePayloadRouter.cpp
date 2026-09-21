@@ -23,6 +23,9 @@
 
 #include <GameInitSettings.h>
 #include <Network/GameInitSettingsPolicy.h>
+#include <mod/Workshop.h>
+#include <Network/OnlineModPolicy.h>
+#include <mod/ModManager.h>
 
 #include <Definitions.h>
 #include <config.h>
@@ -33,6 +36,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 
 namespace {
 
@@ -44,71 +48,37 @@ constexpr Uint32 kMaxStartGameCountdownMs = 30000;
 constexpr std::size_t kMaxChatMessageLength = 512;
 
 /**
-    Writes a received multiplayer map into the user's maps directory.
+    True when the whole payload has been consumed.
 
-    The filename comes from another player, so it is reduced to a single portable component with
-    the .ini extension the map loader expects, the payload is size capped, and the resolved
-    parent directory is checked to be exactly maps/multiplayer before anything is written. An
-    existing file is never overwritten.
+    Match control packets are fixed-size records, so anything left over is not a packet this
+    build produced. Streams that cannot say how much is left (getRemainingLength() returns
+    size_t's maximum) are accepted: there is nothing to compare against there.
 */
-void storeReceivedMap(const GameInitSettings& gameInitSettings, GamePayloadPeer& peer) {
-    if(gameInitSettings.getGameType() != GameType::CustomMultiplayer
-       || gameInitSettings.getFiledata().empty()
-       || gameInitSettings.getFilename().empty()) {
-        return;
-    }
+bool payloadFullyConsumed(const InputStream& stream) {
+    const std::size_t remaining = stream.getRemainingLength();
+    return remaining == std::numeric_limits<std::size_t>::max() || remaining == 0;
+}
 
+// A refused or corrupt map must not reach the accepted callback or overwrite local history.
+bool storeReceivedMap(const GameInitSettings& init, GamePayloadPeer& peer) {
+    if(init.getGameType() != GameType::CustomMultiplayer) return true;
     try {
-        std::string mapFilename;
-        if(!NetworkPacketPolicy::sanitizeReceivedMapFilename(gameInitSettings.getFilename(),
-                                                             mapFilename)) {
-            // Traversal, absolute paths, control characters, reserved names: the map is still
-            // played from memory, it is just not stored.
-            peer.refuse("unsafe received map filename");
-            return;
-        }
-        if(gameInitSettings.getFiledata().size() > NetworkPacketPolicy::kMaxReceivedMapSize) {
-            peer.refuse("received map exceeds the size limit");
-            return;
-        }
-
-        char tmp[FILENAME_MAX];
-        if(fnkdat("maps/multiplayer/", tmp, FILENAME_MAX, FNKDAT_USER | FNKDAT_CREAT) < 0) {
-            SDL_Log("GamePayloadRouter: Failed to get maps/multiplayer directory path");
-            return;
-        }
-
-        const std::filesystem::path mapDirectory = std::filesystem::path(std::string(tmp));
-        const std::filesystem::path fullPathObject = mapDirectory / mapFilename;
-
-        // Belt and braces: whatever the name did, the file has to land directly inside the
-        // multiplayer maps directory.
-        std::error_code pathError;
-        const std::filesystem::path resolvedParent =
-            std::filesystem::weakly_canonical(fullPathObject.parent_path(), pathError);
-        const std::filesystem::path resolvedDirectory =
-            std::filesystem::weakly_canonical(mapDirectory, pathError);
-
-        if(pathError || resolvedParent != resolvedDirectory) {
-            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
-                        "GamePayloadRouter: refusing to write a received map outside '%s'",
-                        mapDirectory.string().c_str());
-            return;
-        }
-
-        const std::string fullPath = fullPathObject.string();
-        if(existsFile(fullPath)) {
-            SDL_Log("GamePayloadRouter: Map '%s' already exists locally, skipping save",
-                    fullPath.c_str());
-            return;
-        }
-        if(writeCompleteFile(fullPath, gameInitSettings.getFiledata())) {
-            SDL_Log("GamePayloadRouter: Saved received map to '%s'", fullPath.c_str());
-        } else {
-            SDL_Log("GamePayloadRouter: Failed to save received map to '%s'", fullPath.c_str());
-        }
-    } catch(std::exception& e) {
-        SDL_Log("GamePayloadRouter: Error saving received map: %s", e.what());
+        std::string name;
+        if(!NetworkPacketPolicy::sanitizeReceivedMapFilename(init.getFilename(), name)
+           || init.getFiledata().size() > NetworkPacketPolicy::kMaxReceivedMapSize)
+            throw std::runtime_error("Invalid shared map name or size.");
+        if(init.getMapRevisionHash().empty() || init.getMapRevisionManifest().empty())
+            throw std::runtime_error("The host did not identify the shared map revision.");
+        const auto manifest = Workshop::parseManifest(init.getMapRevisionManifest());
+        if(manifest.kind != "map" || manifest.modHash != init.getModRevisionHash())
+            throw std::runtime_error("The shared map requires a different mod revision.");
+        const auto map = Workshop::receiveMap(name, init.getFiledata(), init.getMapRevisionHash(),
+            init.getMapRevisionManifest(), init.getMapRevisionVersion());
+        Workshop::installMap(map);
+        return true;
+    } catch(const std::exception& error) {
+        peer.refuse(error.what());
+        return false;
     }
 }
 
@@ -119,10 +89,12 @@ void handleConfigHash(InputStream& stream, GamePayloadPeer& peer,
     const std::string gameVersion    = stream.readString();
     const std::string quantBotHash   = stream.readString();
     const std::string objectDataHash = stream.readString();
+    const std::string modRevisionHash = stream.readString();
 
     peer.gameVersion()        = gameVersion;
     peer.quantBotConfigHash() = quantBotHash;
     peer.objectDataHash()     = objectDataHash;
+    peer.modRevisionHash() = modRevisionHash;
 
     const std::string localVersion        = VERSIONSTRING;
     const std::string localQuantBotHash   = getQuantBotConfig().getConfigHash();
@@ -154,11 +126,14 @@ void handleConfigHash(InputStream& stream, GamePayloadPeer& peer,
     local.gameVersion    = localVersion;
     local.quantBotHash   = localQuantBotHash;
     local.objectDataHash = localObjectDataHash;
+    try { local.modRevisionHash = OnlineModPolicy::fingerprint(); }
+    catch(const std::exception&) { /* Incomplete fingerprint fails closed below. */ }
 
     ContentCompatibility::Fingerprint reported;
     reported.gameVersion    = gameVersion;
     reported.quantBotHash   = quantBotHash;
     reported.objectDataHash = objectDataHash;
+    reported.modRevisionHash = modRevisionHash;
 
     // The same rule the host applies again just before it starts. An absent hash is a mismatch
     // here too: a peer that could not fingerprint its own content has not shown that it matches
@@ -217,8 +192,8 @@ bool GamePayloadRouter::handle(Uint32 packetType, InputStream& stream, GamePaylo
                 return true;
             }
 
+            if(context.allowMapWrite && !storeReceivedMap(gameInitSettings, peer)) return true;
             if(callbacks.onGameInfoAccepted) callbacks.onGameInfoAccepted();
-            if(context.allowMapWrite) storeReceivedMap(gameInitSettings, peer);
             if(callbacks.onReceiveGameInfo && *callbacks.onReceiveGameInfo) {
                 (*callbacks.onReceiveGameInfo)(gameInitSettings, changeEventList);
             }
@@ -402,6 +377,70 @@ bool GamePayloadRouter::handle(Uint32 packetType, InputStream& stream, GamePaylo
             }
             if(callbacks.onReceiveSetPathBudget && *callbacks.onReceiveSetPathBudget) {
                 (*callbacks.onReceiveSetPathBudget)(newBudget, applyCycle);
+            }
+        } return true;
+
+        case NETWORKPACKET_MATCH_CONTROL: {
+            // Read the whole record before anything is judged: a truncated payload has to leave
+            // through the outer handler's bounded-reader path, not through a half-applied state.
+            const Uint32 seed              = stream.readUint32();
+            const Uint32 revision          = stream.readUint32();
+            const Uint32 speed             = stream.readUint32();
+            const Uint32 pauseCycle        = stream.readUint32();
+            const Uint32 resumedPauseCycle = stream.readUint32();
+
+            if(seed != context.simulationSeed) {
+                // A packet from a previous match of this session. Silent, like the other
+                // seed-tagged in-match packets: it is an ordering artefact, not abuse.
+                return true;
+            }
+            if(!payloadFullyConsumed(stream)) {
+                peer.refuse("match control packet has trailing data");
+                return true;
+            }
+            // Revisions are monotonic and start at one, so zero can never be a real state; the
+            // game does the actual "is this newer than what I have" comparison.
+            if(revision == 0) {
+                peer.refuse("match control revision out of range");
+                return true;
+            }
+            // Speed is the wall-clock milliseconds per tick, not a simulation timestep.
+            if(speed < static_cast<Uint32>(GAMESPEED_MIN) || speed > static_cast<Uint32>(GAMESPEED_MAX)) {
+                peer.refuse("match control game speed out of range");
+                return true;
+            }
+            // A pause can only be resumed once it exists. Equal means "the pause that started at
+            // this cycle has been lifted"; both zero is the normal running state.
+            if(resumedPauseCycle > pauseCycle) {
+                peer.refuse("match control resumes a pause that has not started");
+                return true;
+            }
+            if(callbacks.onReceiveMatchControl && *callbacks.onReceiveMatchControl) {
+                (*callbacks.onReceiveMatchControl)(revision, speed, pauseCycle, resumedPauseCycle);
+            }
+        } return true;
+
+        case NETWORKPACKET_MATCH_RESUME_REQUEST: {
+            const Uint32 seed       = stream.readUint32();
+            const Uint32 pauseCycle = stream.readUint32();
+
+            if(seed != context.simulationSeed) {
+                return true;
+            }
+            if(!payloadFullyConsumed(stream)) {
+                peer.refuse("match resume request has trailing data");
+                return true;
+            }
+            // There is nothing to resume from before the first pause exists.
+            if(pauseCycle == 0) {
+                peer.refuse("match resume request without a pause");
+                return true;
+            }
+            // No upper bound here on purpose: whether this names the pause the match is actually
+            // in is something only the game's current state can answer, and it does.
+            if(callbacks.onReceiveMatchResumeRequest && *callbacks.onReceiveMatchResumeRequest) {
+                // The connection's bound name, never an identity the sender put in the payload.
+                (*callbacks.onReceiveMatchResumeRequest)(peer.name(), pauseCycle);
             }
         } return true;
 

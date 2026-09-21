@@ -23,10 +23,13 @@ dist/
 install/
 external/
 docs/*
+!docs/workshop.md
+!docs/workshop-validation-738.md
 !docs/index.html
 !docs/guide.html
 !docs/style.css
 !docs/dunecity-graphics-skins.md
+!docs/spectator-transfer.md
 !docs/img/
 missing
 aclocal.m4

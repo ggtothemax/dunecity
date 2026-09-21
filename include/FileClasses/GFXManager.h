@@ -517,6 +517,9 @@ typedef enum {
     UI_MapEditor_Flamepost,         ///< Tornie: dedicated Flamepost
     UI_MapEditor_Chemipost,         ///< Tornie: dedicated healing post
     UI_MapEditor_ChaosFactory,      ///< Tornie: 3x2 Chaos Factory
+    UI_MapEditor_PoliceStation,
+    UI_MapEditor_Stadium,
+    UI_MapEditor_Airport,
     NUM_UIGRAPHICS
 } UIGraphics_Enum;
 
@@ -694,7 +697,7 @@ public:
     EnhancedRenderMode getEnhancedUnitRenderMode(int itemID, int house,
                                                  EnhancedUnitState state,
                                                  int direction);
-    void             setEnhancedUnitRenderMode(int itemID, int house,
+    bool             setEnhancedUnitRenderMode(int itemID, int house,
                                                EnhancedUnitState state,
                                                int direction,
                                                EnhancedRenderMode mode);

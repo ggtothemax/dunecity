@@ -60,6 +60,7 @@ public:
                                      const ProgressCallback& progress = {}) const;
 
     static bool isSafeRelativeAssetPath(const std::string& path);
+    static std::string sha256Bytes(const std::string& bytes);
     static std::string sha256File(const std::string& filename);
 
 private:

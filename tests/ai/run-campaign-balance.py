@@ -15,12 +15,14 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 
 root = Path(__file__).resolve().parents[2]
 house_names = ('harkonnen','atreides','ordos','fremen','sardaukar','mercenary','neutral','rebels','custom','wildspade','kleshmersh','tharpique')
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build-dir', type=Path, default=root / 'build')
 parser.add_argument('--output-dir', type=Path, required=True)
+parser.add_argument('--repeatable', action='store_true', help='Keep each CTest run in a fresh subdirectory')
 parser.add_argument('--custom-map', type=Path, help='Run all occupied slots of a custom map instead of the campaign')
 parser.add_argument('--free-for-all', action='store_true', help='Give each custom-map house its own team')
 parser.add_argument('--capture-mib', type=int, default=1024, help='Diagnostic capture allowance; shipped default is unchanged')
@@ -42,11 +44,13 @@ parser.add_argument('--city-placement-probe', action='store_true')
 parser.add_argument('--opening-economy-probe', action='store_true')
 parser.add_argument('--starport-probe', action='store_true', help='Exercise reserved cash with above-normal Starport prices')
 parser.add_argument('--helper-economy-probe', action='store_true', help='Verify advanced campaign helper worker investment and paid imports')
+parser.add_argument('--city-campaign-probe', action='store_true', help='Verify campaign city limits, permissions, depletion and save/load')
 parser.add_argument('--stats-probe', action='store_true', help='Verify campaign results with a shared human/AI house')
 parser.add_argument('--nuclear-probe', action='store_true')
 parser.add_argument('--reactor-safety-probe', action='store_true')
 parser.add_argument('--radar-probe', action='store_true')
 parser.add_argument('--army-probe', action='store_true')
+parser.add_argument('--custom-attack-probe', action='store_true')
 parser.add_argument('--factory-recovery-probe', action='store_true')
 parser.add_argument('--pressure-probe', action='store_true', help='Verify campaign wave readiness, survivor independence and save state')
 parser.add_argument('--defence-probe', action='store_true', help='Verify retaliation and base/harvester reinforcements')
@@ -112,7 +116,11 @@ if args.custom_map:
 build, out = args.build_dir.resolve(), args.output_dir.resolve()
 source_commit = subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 source_modified = bool(subprocess.check_output(['git','status','--porcelain'],cwd=root,text=True).strip())
-out.mkdir(parents=True, exist_ok=False)
+if args.repeatable:
+    out.mkdir(parents=True, exist_ok=True)
+    out = Path(tempfile.mkdtemp(prefix='run-', dir=out))
+else:
+    out.mkdir(parents=True, exist_ok=False)
 subprocess.run(['python3',str(root/'scripts/check-build-deps.py'),str(build)],check=True,cwd=root)
 target = 'bin/dunecity.app/Contents/MacOS/dunecity'
 commands = subprocess.check_output(['ninja','-C',str(build),'-t','commands',target],text=True).splitlines()
@@ -173,9 +181,11 @@ if args.nuclear_probe or args.reactor_safety_probe: env['BALANCE_NUCLEAR_PROBE']
 if args.reactor_safety_probe: env['BALANCE_REACTOR_SAFETY_PROBE'] = '1'
 if args.radar_probe: env['BALANCE_RADAR_PROBE'] = '1'
 if args.army_probe: env['BALANCE_ARMY_PROBE'] = '1'
+if args.custom_attack_probe: env['BALANCE_CUSTOM_ATTACK_PROBE'] = '1'
 if args.factory_recovery_probe: env['BALANCE_FACTORY_RECOVERY_PROBE'] = '1'
 if args.starport_probe: env['BALANCE_STARPORT_PROBE'] = '1'
 if args.helper_economy_probe: env['BALANCE_HELPER_ECONOMY_PROBE'] = '1'
+if args.city_campaign_probe: env['BALANCE_CITY_CAMPAIGN_PROBE'] = '1'
 if args.stats_probe: env['BALANCE_STATS_PROBE'] = '1'
 if args.pressure_probe: env['BALANCE_PRESSURE_PROBE'] = '1'
 if args.defence_probe: env['BALANCE_DEFENCE_PROBE'] = '1'

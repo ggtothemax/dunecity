@@ -16,6 +16,7 @@
  */
 
 #include <mod/ModManager.h>
+#include <mod/Workshop.h>
 #include <mod/ModPayloadIntegrity.h>
 #include <mod/ModTransferValidation.h>
 #include <mod/Dune2RAssetManager.h>
@@ -65,6 +66,47 @@ static const char* QUANTBOT_CONFIG_DEFAULT = "QuantBot Config.ini.default";
 static const char* CUSTOM_HOUSE_CONFIG = "CustomHouse.ini";
 
 namespace {
+std::string vanillaOptions() {
+    std::ostringstream out;
+    out << "# Vanilla Game Options (default values)\n";
+    out << "[Game Options]\n";
+    out << "Game Speed = 16\n";
+    out << "Concrete Required = true\n";
+    out << "Structures Degrade On Concrete = true\n";
+    out << "Fog of War = false\n";
+    out << "Start with Explored Map = false\n";
+    out << "Instant Build = false\n";
+    out << "Only One Palace = false\n";
+    out << "Rocket-Turrets Need Power = false\n";
+    out << "Sandworms Respawn = false\n";
+    out << "Killed Sandworms Drop Spice = false\n";
+    out << "Manual Carryall Drops = false\n";
+    out << "Maximum Number of Units Override = 0\n";
+    out << "Maximum Number of Harvesters Override = -1\n";
+    out << "City Effects = false\n";
+    return out.str();
+}
+std::string cityOptions() {
+    std::ostringstream out;
+    out << "# Dune City Game Options (default values)\n";
+    out << "[Game Options]\n";
+    out << "Game Speed = 16\n";
+    out << "Concrete Required = true\n";
+    out << "Structures Degrade On Concrete = false\n";
+    out << "Fog of War = false\n";
+    out << "Start with Explored Map = true\n";
+    out << "Instant Build = false\n";
+    out << "Only One Palace = false\n";
+    out << "Rocket-Turrets Need Power = true\n";
+    out << "Sandworms Respawn = true\n";
+    out << "Killed Sandworms Drop Spice = true\n";
+    out << "Manual Carryall Drops = false\n";
+    out << "Maximum Number of Units Override = 0\n";
+    out << "Maximum Number of Harvesters Override = -1\n";
+    out << "Immortal Human Player = false\n";
+    out << "City Effects = true\n";  // dunecity mod opts in
+    return out.str();
+}
 
 std::filesystem::path findBundledModPath(const std::string& modName) {
     const std::filesystem::path dataRoot = getDuneLegacyDataDir();
@@ -285,7 +327,95 @@ bool ModManager::isInitialized() const {
 
 ModManager::~ModManager() = default;
 
+std::string ModManager::installerContentHash(const std::string& name) const {
+    namespace fs = std::filesystem;
+    if(name != VANILLA_MOD_NAME && name != DUNECITY_MOD_NAME
+       && name != TORNIE_MOD_NAME && name != DUNE2R_MOD_NAME) return {};
+    try {
+        // Cache individual file digests, not approval: every check enumerates the
+        // payload again and invalidates changed files. No upload or profile stamp
+        // can grant approval. The trusted side always comes from the installer.
+        struct Cached { fs::file_time_type time; uintmax_t size; std::string hash; };
+        static std::map<std::string, Cached> cache;
+        const auto digest = [&](const fs::path& path) {
+            if(!fs::is_regular_file(path) || fs::is_symlink(path))
+                throw std::runtime_error("Missing or linked mod payload");
+            const auto time = fs::last_write_time(path);
+            const auto size = fs::file_size(path);
+            auto& entry = cache[path.string()];
+            if(entry.hash.empty() || entry.time != time || entry.size != size) {
+                std::ifstream input(path, std::ios::binary);
+                if(!input) throw std::runtime_error("Unreadable mod payload");
+                std::ostringstream bytes; bytes << input.rdbuf();
+                if(input.bad()) throw std::runtime_error("Cannot read mod payload");
+                entry = {time, size, Workshop::hashBytes(bytes.str())};
+            }
+            return entry.hash;
+        };
+        const auto metadata = [](const INIFile& ini) {
+            std::map<std::string, std::string> values;
+            for(auto section = ini.begin(); section != ini.end(); ++section)
+                for(auto key = section->begin(); key != section->end(); ++key)
+                    values[section->getSectionName()+"/"+key->getKeyName()] = key->getStringValue();
+            return values;
+        };
+        const auto collect = [&](const fs::path& root) {
+            std::map<std::string, std::string> files;
+            if(!fs::is_directory(root)) throw std::runtime_error("Missing installer payload");
+            for(const auto& entry : fs::recursive_directory_iterator(root)) {
+                if(entry.is_symlink()) throw std::runtime_error("Linked mod payload");
+                if(!entry.is_regular_file()) continue;
+                const auto relative = entry.path().lexically_relative(root).generic_string();
+                if(relative == "mod.ini" || relative == "workshop-revision.ini"
+                   || relative == MANAGED_MOD_STAMP || entry.path().filename() == ".DS_Store") continue;
+                files[relative] = digest(entry.path());
+            }
+            return files;
+        };
+        const fs::path installed = getModPath(name);
+        std::map<std::string, std::string> expected;
+        INIFile expectedMetadata(false, std::string("Installer mod"));
+        std::map<std::string, std::string> expectedValues;
+        if(name == VANILLA_MOD_NAME || name == DUNECITY_MOD_NAME) {
+            const bool city = name == DUNECITY_MOD_NAME;
+            if(city) expected = collect(findBundledModPath(name));
+            expectedMetadata.setStringValue("Mod", "Display Name", city ? "Dune City" : "Vanilla");
+            expectedMetadata.setStringValue("Mod", "Author", city ? "Stefan" : "Dune City");
+            expectedMetadata.setStringValue("Mod", "Description", city
+                ? "Hybrid RTS + city-builder mode (zones, overlays, city sim)." : "Default game settings");
+            expectedMetadata.setStringValue("Mod", "Version", city ? DUNECITY_MOD_VERSION : "");
+            expectedMetadata.setStringValue("Mod", "Game Version", VERSION);
+            expectedMetadata.setStringValue("Mod", "Base Mod", "");
+            expectedMetadata.setBoolValue("Mod", "Enables City Mode", city);
+            expected[GAME_OPTIONS_FILE] = Workshop::hashBytes(city ? cityOptions() : vanillaOptions());
+        } else {
+            const auto bundled = findBundledModPath(name);
+            expected = collect(bundled);
+            expectedValues = metadata(INIFile((bundled / MOD_INI_FILE).string()));
+        }
+        if(expectedValues.empty()) expectedValues = metadata(expectedMetadata);
+        const fs::path defaults = getInstallConfigPath();
+        if(!expected.count(OBJECT_DATA_FILE)) expected[OBJECT_DATA_FILE] = digest(defaults / OBJECT_DATA_DEFAULT);
+        if(!expected.count(QUANTBOT_CONFIG_FILE)) expected[QUANTBOT_CONFIG_FILE] = digest(defaults / QUANTBOT_CONFIG_DEFAULT);
+        if(!expected.count(GAME_OPTIONS_FILE)) expected[GAME_OPTIONS_FILE] = Workshop::hashBytes(vanillaOptions());
+        if(!fs::is_regular_file(installed / MOD_INI_FILE)
+           || metadata(INIFile((installed / MOD_INI_FILE).string())) != expectedValues) return {};
+        auto actual = collect(installed);
+        // Managed graphics mods can legitimately inherit the default rules.
+        for(const auto* file : {OBJECT_DATA_FILE, QUANTBOT_CONFIG_FILE, GAME_OPTIONS_FILE})
+            if(!actual.count(file)) actual[file] = digest(fs::path(getModPath(VANILLA_MOD_NAME)) / file);
+        if(actual != expected) return {};
+        std::string manifest;
+        for(const auto& file : expected) manifest += file.first + "\n" + file.second + "\n";
+        for(const auto& value : expectedValues) manifest += value.first + "=" + value.second + "\n";
+        return Workshop::hashBytes(manifest);
+    } catch(const std::exception&) {
+        return {}; // Custom/missing/changed content remains usable through a lobby.
+    }
+}
+
 void ModManager::initialize() {
+    activeContentBase.clear();
     // Get mods base path in user config directory
     char tmp[FILENAME_MAX];
     if (fnkdat("mods", tmp, FILENAME_MAX, FNKDAT_USER | FNKDAT_CREAT) < 0) {
@@ -343,14 +473,16 @@ void ModManager::initialize() {
     }
 
     try {
+        activeContentBase = getContentBase(activeMod);
         const ModInfo activeInfo = readModIni(getModPath(activeMod));
         activeCustomHouse = activeInfo.customHouse;
-        activeGuestCustomHouse = makeTornieGuestCustomHouse(activeMod);
+        activeGuestCustomHouse = makeTornieGuestCustomHouse(getContentBase(activeMod));
         activeMentats = activeInfo.mentats;
     } catch(const std::exception& e) {
         SDL_Log("ModManager: Active mod '%s' metadata is invalid, falling back to vanilla: %s",
                 activeMod.c_str(), e.what());
         activeMod = VANILLA_MOD_NAME;
+        activeContentBase = VANILLA_MOD_NAME;
         activeCustomHouse = {};
         activeGuestCustomHouse = {};
         activeMentats.clear();
@@ -462,15 +594,18 @@ bool ModManager::setActiveMod(const std::string& name) {
     }
     
     const std::string previousMod = activeMod;
+    const std::string previousContentBase = activeContentBase;
     const CustomHouseInfo previousCustomHouse = activeCustomHouse;
     const CustomHouseInfo previousGuestCustomHouse = activeGuestCustomHouse;
     const std::vector<ModMentatInfo> previousMentats = activeMentats;
 
     try {
         activeMod = name;
+        activeContentBase.clear();
+        activeContentBase = getContentBase(activeMod);
         const ModInfo activeInfo = readModIni(getModPath(activeMod));
         activeCustomHouse = activeInfo.customHouse;
-        activeGuestCustomHouse = makeTornieGuestCustomHouse(activeMod);
+        activeGuestCustomHouse = makeTornieGuestCustomHouse(getContentBase(activeMod));
         activeMentats = activeInfo.mentats;
         checksumsDirty = true;
         resetHouseVisualHouseMapping();
@@ -491,6 +626,7 @@ bool ModManager::setActiveMod(const std::string& name) {
         SDL_Log("ModManager: Activation of '%s' failed, restoring '%s': %s",
                 name.c_str(), previousMod.c_str(), e.what());
         activeMod = previousMod;
+        activeContentBase = previousContentBase;
         activeCustomHouse = previousCustomHouse;
         activeGuestCustomHouse = previousGuestCustomHouse;
         activeMentats = previousMentats;
@@ -559,6 +695,50 @@ std::vector<ModInfo> ModManager::listMods() const {
     return mods;
 }
 
+std::vector<ModInfo> ModManager::listModChoices() const {
+    auto mods = listMods();
+    const auto revisions = Workshop::store().list("mod"); // Metadata only; activation verifies file bytes.
+    std::map<std::string, const Workshop::Revision*> byHash;
+    for(const auto& revision : revisions) byHash.emplace(revision.hash, &revision);
+    // Old clients cached the shipped mods as automatic Workshop snapshots. Their
+    // content-derived ID identifies them independently of the current build; an
+    // authored mod has its own ID and must remain a separate choice.
+    for(auto& owner : mods) {
+        if(owner.name != "vanilla" && owner.name != DUNECITY_MOD_NAME
+           && owner.name != "Tornie" && owner.name != "Dune2R") continue;
+        for(const auto& cached : mods) {
+            if(!isWorkshopSnapshotMod(cached.name) || cached.revisionHash.empty()) continue;
+            try {
+                const auto found = byHash.find(cached.revisionHash);
+                if(found == byHash.end()) continue;
+                const auto& revision = *found->second;
+                if(revision.base != owner.name) continue;
+                auto manifest = revision.manifest;
+                const auto field = manifest.find("\nid=" + revision.id + "\n");
+                if(field == std::string::npos) continue;
+                manifest.replace(field + 4, revision.id.size(), std::string(32, '0'));
+                if(Workshop::hashBytes(manifest).substr(0,32) == revision.id)
+                    owner.selectionAliases.push_back(cached.name);
+            } catch(const std::exception&) { /* Unverified copies remain visible. */ }
+        }
+    }
+    std::vector<ModInfo> choices;
+    for(const auto& mod : mods) {
+        const bool alias = std::any_of(mods.begin(), mods.end(), [&](const ModInfo& owner) {
+            return owner.name != mod.name && owner.matchesSelectionName(mod.name);
+        });
+        if(!alias) choices.push_back(mod);
+    }
+    return withoutRedundantWorkshopSnapshots(choices, [this, &byHash](const ModInfo& owner, const std::string& hash) {
+        try {
+            const auto found = byHash.find(hash);
+            if(found == byHash.end()) return false;
+            Workshop::store().verifyDirectory(*found->second, getModPath(owner.name));
+            return true;
+        } catch(const std::exception&) { return false; }
+    });
+}
+
 ModInfo ModManager::getModInfo(const std::string& name) const {
     ModInfo info;
     info.name = name;
@@ -588,6 +768,21 @@ ModInfo ModManager::getModInfo(const std::string& name) const {
     if(info.description.empty()) info.description = "";
     if(info.gameVersion.empty()) info.gameVersion = "";
     
+    const auto revisionPath = std::filesystem::path(modPath) / "workshop-revision.ini";
+    if(std::filesystem::exists(revisionPath)) {
+        INIFile revision(revisionPath.string());
+        info.revisionVersion = std::max(0, revision.getIntValue("Workshop", "Version", 0));
+        const auto hash = revision.getStringValue("Workshop", "Hash", "");
+        if(hash.size() == 64 && hash.find_first_not_of("0123456789abcdef") == std::string::npos) {
+            info.revisionHash = hash;
+            std::ifstream version(Workshop::store().root() / "revisions" / hash / "version");
+            unsigned canonical = 0;
+            if(version >> canonical) info.revisionVersion = canonical;
+        }
+    }
+
+    // Mod releases are independent of application builds and Workshop revisions.
+    if(name == DUNECITY_MOD_NAME) info.officialVersion = info.version;
     return info;
 }
 
@@ -718,6 +913,7 @@ SettingsClass::GameOptionsClass ModManager::loadEffectiveGameOptions(
             else if (key == "Manual Carryall Drops") result.manualCarryallDrops = parseBool(value);
             else if (key == "Maximum Number of Units Override") result.maximumNumberOfUnitsOverride = std::stoi(value);
             else if (key == "Maximum Number of Harvesters Override") result.maximumNumberOfHarvestersOverride = std::stoi(value);
+            else if (key == "Maximum Number of Construction Yards Override") result.maximumNumberOfConstructionYardsOverride = std::stoi(value);
             else if (key == "Immortal Human Player") result.immortalHumanPlayer = parseBool(value);
             else if (key == "City Effects") result.cityEffects = parseBool(value);
         }
@@ -994,48 +1190,39 @@ bool ModManager::createMod(const std::string& name, const std::string& baseMod) 
     SDL_Log("ModManager::createMod - newModPath: %s", newModPath.c_str());
     SDL_Log("ModManager::createMod - baseModPath: %s", baseModPath.c_str());
     
-    // Create mod directory
-    if (!createDir(newModPath)) {
-        SDL_Log("ModManager: Failed to create directory for mod '%s'", name.c_str());
+    const std::filesystem::path stage = newModPath + ".stage-" + Workshop::newID();
+    bool installedDraft = false;
+    try {
+        // Capture first: every copied asset, campaign, palette and rule is hash checked.
+        const auto base = Workshop::saveMod(baseMod);
+        std::filesystem::create_directories(stage);
+        // Android libc++ does not support recursive filesystem::copy. Copy the
+        // verified manifest explicitly, including every nested authored asset.
+        for(const auto& file : base.files) {
+            const auto destination = stage / file.path;
+            std::filesystem::create_directories(destination.parent_path());
+            std::filesystem::copy_file(std::filesystem::path(base.directory) / file.path, destination);
+        }
+        ModInfo info = getModInfo(baseMod);
+        info.description = "Custom mod based on " + info.displayName;
+        info.name = name;
+        info.displayName = name;
+        info.author = "User";
+        info.baseMod = getContentBase(baseMod);
+        info.gameVersion = VERSION;
+        if(!writeModInfo(stage.string(), info)) throw std::runtime_error("Cannot write copied mod metadata");
+        // The new item gets a new permanent identity when first saved; no ownership is copied.
+        std::filesystem::rename(stage, newModPath);
+        installedDraft = true;
+        Workshop::saveMod(name);
+        return true;
+    } catch(const std::exception& e) {
+        std::error_code ignored;
+        std::filesystem::remove_all(stage, ignored);
+        if(installedDraft) std::filesystem::remove_all(newModPath, ignored);
+        SDL_Log("ModManager: Cannot create mod: %s", e.what());
         return false;
     }
-    
-    // Copy files from base mod
-    const char* filesToCopy[] = {
-        OBJECT_DATA_FILE,
-        QUANTBOT_CONFIG_FILE,
-        GAME_OPTIONS_FILE
-    };
-    
-    for (const char* file : filesToCopy) {
-        std::string srcPath = baseModPath + "/" + file;
-        std::string dstPath = newModPath + "/" + file;
-        
-        SDL_Log("ModManager::createMod - copying %s -> %s (exists: %d)", 
-                srcPath.c_str(), dstPath.c_str(), existsFile(srcPath) ? 1 : 0);
-        
-        if (existsFile(srcPath)) {
-            if (copyFile(srcPath, dstPath)) {
-                SDL_Log("ModManager::createMod - copied %s successfully", file);
-            } else {
-                SDL_Log("ModManager::createMod - FAILED to copy %s", file);
-            }
-        } else {
-            SDL_Log("ModManager::createMod - source file %s does not exist!", srcPath.c_str());
-        }
-    }
-    
-    // Create mod.ini
-    ModInfo info;
-    info.name = name;
-    info.displayName = name;
-    info.author = "User";
-    info.description = "Custom mod based on " + baseMod;
-    info.gameVersion = VERSION;
-    writeModInfo(newModPath, info);
-    
-    SDL_Log("ModManager: Created mod '%s' from '%s'", name.c_str(), baseMod.c_str());
-    return true;
 }
 
 bool ModManager::deleteMod(const std::string& name) {
@@ -1227,6 +1414,23 @@ bool ModManager::saveReceivedMod(const std::string& modName, const std::string& 
         }
     }
 
+    if(modName.rfind("ws-", 0) == 0) {
+        try {
+            INIFile meta((stagedPath / "workshop-revision.ini").string());
+            const auto hash = meta.getStringValue("Workshop", "Hash", "");
+            if(modName != "ws-" + hash || !meta.getBoolValue("Workshop", "Immutable", false))
+                return fail("Received revision identity does not match its installed name");
+            const auto revision = Workshop::store().importRevision(
+                Workshop::unhex(meta.getStringValue("Workshop", "Manifest", "")), hash,
+                meta.getIntValue("Workshop", "Version", 0), stagedPath);
+            if(revision.kind != "mod") return fail("Received revision is not a mod");
+            Workshop::store().verifyDirectory(revision, stagedPath);
+        } catch(const std::exception& error) {
+            SDL_Log("ModManager: Workshop verification failed: %s", error.what());
+            return fail("Received mod failed complete revision verification");
+        }
+    }
+
     try {
         if(std::filesystem::exists(modPath)) {
             std::filesystem::rename(modPath, backupPath);
@@ -1284,22 +1488,7 @@ void ModManager::seedVanillaFromDefaults() {
     std::string gameOptionsPath = vanillaPath + "/" + GAME_OPTIONS_FILE;
     std::ofstream gameOptionsFile(gameOptionsPath);
     if (gameOptionsFile.is_open()) {
-        gameOptionsFile << "# Vanilla Game Options (default values)\n";
-        gameOptionsFile << "[Game Options]\n";
-        gameOptionsFile << "Game Speed = 16\n";
-        gameOptionsFile << "Concrete Required = true\n";
-        gameOptionsFile << "Structures Degrade On Concrete = true\n";
-        gameOptionsFile << "Fog of War = false\n";
-        gameOptionsFile << "Start with Explored Map = false\n";
-        gameOptionsFile << "Instant Build = false\n";
-        gameOptionsFile << "Only One Palace = false\n";
-        gameOptionsFile << "Rocket-Turrets Need Power = false\n";
-        gameOptionsFile << "Sandworms Respawn = false\n";
-        gameOptionsFile << "Killed Sandworms Drop Spice = false\n";
-        gameOptionsFile << "Manual Carryall Drops = false\n";
-        gameOptionsFile << "Maximum Number of Units Override = 0\n";
-        gameOptionsFile << "Maximum Number of Harvesters Override = -1\n";
-        gameOptionsFile << "City Effects = false\n";
+        gameOptionsFile << vanillaOptions();
         gameOptionsFile.close();
         SDL_Log("ModManager: Created %s", GAME_OPTIONS_FILE);
     }
@@ -1351,23 +1540,7 @@ void ModManager::seedDunecityFromDefaults() {
     std::string gameOptionsPath = dunecityPath + "/" + GAME_OPTIONS_FILE;
     std::ofstream gameOptionsFile(gameOptionsPath);
     if (gameOptionsFile.is_open()) {
-        gameOptionsFile << "# Dune City Game Options (default values)\n";
-        gameOptionsFile << "[Game Options]\n";
-        gameOptionsFile << "Game Speed = 16\n";
-        gameOptionsFile << "Concrete Required = true\n";
-        gameOptionsFile << "Structures Degrade On Concrete = false\n";
-        gameOptionsFile << "Fog of War = false\n";
-        gameOptionsFile << "Start with Explored Map = true\n";
-        gameOptionsFile << "Instant Build = false\n";
-        gameOptionsFile << "Only One Palace = false\n";
-        gameOptionsFile << "Rocket-Turrets Need Power = true\n";
-        gameOptionsFile << "Sandworms Respawn = true\n";
-        gameOptionsFile << "Killed Sandworms Drop Spice = true\n";
-        gameOptionsFile << "Manual Carryall Drops = false\n";
-        gameOptionsFile << "Maximum Number of Units Override = 0\n";
-        gameOptionsFile << "Maximum Number of Harvesters Override = -1\n";
-        gameOptionsFile << "Immortal Human Player = false\n";
-        gameOptionsFile << "City Effects = true\n";  // dunecity mod opts in
+        gameOptionsFile << cityOptions();
         gameOptionsFile.close();
         SDL_Log("ModManager: Created %s (dunecity)", GAME_OPTIONS_FILE);
     }
@@ -1375,7 +1548,8 @@ void ModManager::seedDunecityFromDefaults() {
     ModInfo info;
     info.name = DUNECITY_MOD_NAME;
     info.displayName = "Dune City";
-    info.author = "Dune City";
+    info.author = "Stefan";
+    info.version = DUNECITY_MOD_VERSION;
     info.description = "Hybrid RTS + city-builder mode (zones, overlays, city sim).";
     info.gameVersion = VERSION;
     info.enablesCityMode = true;
@@ -1685,31 +1859,17 @@ ModInfo ModManager::readModIni(const std::string& modPath) const {
         while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\n' || s.back() == '\r')) s.pop_back();
     };
 
-    std::string line;
-    while (std::getline(file, line)) {
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '#' || line[0] == ';' || line[0] == '[') continue;
-        
-        size_t equalsPos = line.find('=');
-        if (equalsPos == std::string::npos) continue;
-        
-        std::string key = line.substr(0, equalsPos);
-        std::string value = line.substr(equalsPos + 1);
-        
-        trim(key);
-        trim(value);
-        
-        if (key == "Display Name") info.displayName = value;
-        else if (key == "Author") info.author = value;
-        else if (key == "Description") info.description = value;
-        else if (key == "Version") info.version = value;
-        else if (key == "Game Version") info.gameVersion = value;
-        else if (key == "Enables City Mode") {
-            info.enablesCityMode = (value == "true" || value == "1" || value == "yes");
-        }
-    }
-    
+    // Use the shared parser so quoted values and other sections cannot override metadata.
+    INIFile metadata(iniPath);
+    info.displayName = metadata.getStringValue("Mod", "Display Name", "");
+    info.author = metadata.getStringValue("Mod", "Author", "");
+    info.description = metadata.getStringValue("Mod", "Description", "");
+    info.version = metadata.getStringValue("Mod", "Version", "");
+    info.baseMod = metadata.getStringValue("Mod", "Base Mod", "");
+    info.gameVersion = metadata.getStringValue("Mod", "Game Version", "");
+    info.enablesCityMode = metadata.getBoolValue("Mod", "Enables City Mode", false);
     file.close();
+    std::string line;
 
     info.mentats.resize(NUM_HOUSE_COLOR_SLOTS);
     std::vector<bool> requestedMentatEnabled(NUM_HOUSE_COLOR_SLOTS, false);
@@ -1889,24 +2049,49 @@ ModInfo ModManager::readModIni(const std::string& modPath) const {
     return info;
 }
 
-void ModManager::writeModInfo(const std::string& modPath, const ModInfo& info) const {
-    std::string iniPath = modPath + "/" + MOD_INI_FILE;
-    
-    std::ofstream file(iniPath);
-    if (!file.is_open()) {
-        SDL_Log("ModManager: Failed to write mod.ini to %s", iniPath.c_str());
-        return;
+bool ModManager::writeModInfo(const std::string& modPath, const ModInfo& info) const {
+    const auto path = std::filesystem::path(modPath) / MOD_INI_FILE;
+    const auto temp = (path.parent_path() / ".mod-metadata-writing").string();
+    try {
+        INIFile ini = std::filesystem::exists(path) ? INIFile(path.string()) : INIFile(false, std::string("Mod metadata"));
+        ini.setStringValue("Mod", "Display Name", info.displayName);
+        ini.setStringValue("Mod", "Author", info.author);
+        ini.setStringValue("Mod", "Description", info.description);
+        ini.setStringValue("Mod", "Version", info.version);
+        ini.setStringValue("Mod", "Game Version", info.gameVersion);
+        ini.setStringValue("Mod", "Base Mod", info.baseMod);
+        ini.setBoolValue("Mod", "Enables City Mode", info.enablesCityMode);
+        if(!ini.saveChangesTo(temp)) throw std::runtime_error("Cannot finish writing mod metadata");
+        Workshop::replaceFile(temp, path);
+        return true;
+    } catch(const std::exception& e) {
+        SDL_Log("ModManager: Cannot save metadata: %s", e.what());
+        std::error_code ignored; std::filesystem::remove(temp, ignored);
+        return false;
     }
-    
-    file << "[Mod]\n";
-    file << "Display Name = " << info.displayName << "\n";
-    file << "Author = " << info.author << "\n";
-    file << "Description = " << info.description << "\n";
-    file << "Version = " << info.version << "\n";
-    file << "Game Version = " << info.gameVersion << "\n";
-    file << "Enables City Mode = " << (info.enablesCityMode ? "true" : "false") << "\n";
+}
 
-    file.close();
+std::string ModManager::getContentBase(const std::string& name) const {
+    if(name == activeMod && !activeContentBase.empty()) return activeContentBase;
+    if(!isValidModName(name)) return name;
+    const auto path = std::filesystem::path(getModPath(name));
+    if(name.rfind("ws-", 0) == 0) {
+        // This sidecar is excluded from package hashing. It may locate a verified
+        // manifest but must never supply simulation capabilities itself.
+        INIFile meta((path / "workshop-revision.ini").string());
+        const auto hash = meta.getStringValue("Workshop", "Hash", "");
+        if(hash.size() != 64 || hash.find_first_not_of("0123456789abcdef") != std::string::npos
+           || name != "ws-" + hash || !meta.getBoolValue("Workshop", "Immutable", false))
+            throw std::runtime_error("Invalid immutable mod identity.");
+        const auto revision = Workshop::store().get(hash);
+        if(revision.kind != "mod") throw std::runtime_error("The selected revision is not a mod.");
+        return revision.base;
+    }
+    try {
+        const auto info = readModIni(path.string());
+        return info.baseMod.empty() ? name : info.baseMod;
+    } catch(...) { return name; }
+
 }
 
 std::string ModManager::getInstallConfigPath() const {

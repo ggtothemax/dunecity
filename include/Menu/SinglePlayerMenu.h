@@ -43,7 +43,7 @@ private:
 
     // Shared entry point for the opening menu and Single Player menu.
 public:
-    static void playCampaign(bool online = true);
+    static void playCampaign(bool showLobby = false);
 private:
     void onCampaign();
     void onCustom();

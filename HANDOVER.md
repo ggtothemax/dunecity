@@ -1,3 +1,698 @@
+## 2026-09-21 — Public753 release preparation and bundled-mod lobby repair
+
+User authorized public installers/browser deployment; bumped app752->753 so Air
+can test its real updater. Keep Air752 installed; nuclear remains tech6, mod1.002.
+Preflight real browser pairing exposed stale onReceiveModInfo ws-hash-name-only
+guard rejecting identical installer Vanilla content. Claude supplied a helper;
+Codex wired it into lobby handling and tests. Bundled names now require installer
+approval AND exact pinned content hash; ws aliases still undergo following full
+content/checksum checks. Both fresh bundled and11MiB custom-mod browser runs pass
+pair/cancel/retry/lobby/start/commands/quit/reload, zero command drops. Updated
+smoke expectations: bundled start performs zero uploads; custom remains published.
+Release PR66. CI/publication receipts follow after successful deployment.
+
+## 2026-09-21 — Local752 custom QuantBot city ceilings
+
+Implements approved displayed-population ceilings per AI house, by map tile area:
+<=1024: Easy5000/Medium10000/Hard20000; <=4096:10000/20000/40000;
+<=16384:20000/40000/80000; larger:30000/60000/120000. Brutal and Defend
+uncapped. Shared total R+C+I zone cap scales from48 zones per20000 population
+(rounded up); QuantBot chooses its mix. Orders reserve queued population and
+zone slots across yards. Runtime growth shares the house budget across nodes
+and reserves accepted construction orders. RTS city roles and both Palace
+population contributions count. Existing oversized cities are preserved, with
+further positive growth blocked; zero-population services remain buildable.
+Campaign policy, human/shared houses and support-mode helpers are excluded.
+No change to approved military limits, attack percentages, palace or yard rules.
+App1.0.752, independent mod1.002, network13 rejects incompatible simulations;
+save layout remains9843. No server update, push or public release.
+
+Claude supplied initial policy/planner work in bounded subscription runs, then
+hit turn limits; Codex completed integration and verification. All ten CTest
+groups pass across full run and focused fixture corrections. Tests cover the
+matrix, boundary/queued admission, real Easy growth blocking, uncapped Brutal,
+and human-shared/campaign exemptions. Initial60-minute FourQuadrants run reached
+48 queued-inclusive zones and20020 population; final queue reservation correction
+and follow-up simulation passed:225000 cycles/60 simulated minutes,67919 enemy
+house events, max20000 displayed population and48 queued-inclusive zones.
+The other house is a human-shared helper and intentionally remains unrestricted.
+Receipts: ../outputs/mba-test-1.0.752/validation/city-cap-simulation.json.
+
+752 delivery: sourcee1e468bb, app notarization Accepted. Installed and verified
+/Applications/dunecity.app on Stefans-MacBook-Air.local; existing Desktop shortcut
+preserved,751 backed up, game not launched. Signed-archive/installed executable
+SHA256 b650b94f6077cd8924535a4c8f6ed70f0fc97e7b213864a1e44bc2bbb538395d.
+Receipts: ../outputs/mba-test-1.0.752/verification.json and air-install.json.
+
+## 2026-09-21 — Local751: mod identity, lobby admission and building caps
+
+Dune City mod is Stefan's independently versioned1.001 (`DUNECITY_MOD_VERSION`),
+not the app's1.0.751. Picker and in-game MOD label use mod metadata; main menu
+labels app version explicitly. GameVersion remains installer-refresh metadata.
+Hotjoin approval verifies actual payload against installed defaults/bundled assets,
+including metadata, rule files and asset content; folder name alone is insufficient.
+Changed/new mods use pregame lobby. No startup upload added. Cached per-file hashes
+avoid repeatedly reading unchanged assets; directory/file stamps rechecked. Optional
+Dune2R packs differing from installer fail closed into lobby. Existing snapshot dedup
+and pinned revisions remain. Full AI rosters can create lobby; existing AI takeover
+and spectator paths retained. UI guidance no longer demands an Open seat.
+
+QuantBot palace ceiling: Easy1, Medium3, Hard/Brutal no additional difficulty cap.
+Existing population target and stricter scenario rules still apply; owned/queued
+items count across yards. Central production guard also covers campaign rebuild.
+Game Rules adds construction-yard limit per house (-1/0 unlimited, positive1..999).
+Both humans/bots: MCV deployment at cap refuses without consuming MCV, including
+same-tick subsequent deploys. QuantBot avoids ordering unusable extra MCVs.
+Persisted defaults, mod settings, equality/hash, network validation all carry option.
+MOD5 setup extension, save9843, network12: old saves load unlimited; old clients
+cannot join new games because they cannot enforce the new rule. No service update.
+
+Claude bounded investigations hit turn limits; palace worker supplied policy/tests,
+yard worker partial initializer. Codex completed/reviewed implementation and tests.
+City-cap analysis worker produced telemetry aggregate/report. Population caps are
+PROPOSED ONLY, not implemented. Last MBA game1789987534476330-0: FourQuadrants128²,
+Easy house4, seed852790524, build750. Peak displayedpop234500, peak queued-inclusive
+zones471, end actualzones463, yards8/palaces8; grosscitytax719574, net628469,
+spicerefined814320, endingcredits823411. No custom population/zone cap currently.
+Do not conflate this with campaign-only50percent-income/zone policy.
+
+Validation receipts and signed local build: ../outputs/mba-test-1.0.751/validation.
+All ten CTest groups passed across full run plus focused corrective reruns. Added
+modifiedrules/metadata/assets and extra-payload rejection, AI-filledlobby, modidentity,
+yardUI, actualMCV preservation/deployment and MOD4/MOD5 tests. Native dependencies
+and sourceversion audits pass. No push or public release. Installation receipt follows.
+
+751 delivery verified: source3fa6c862, Apple accepted app and DMG. Installed
+/Applications/dunecity.app on Stefans-MacBook-Air.local with existing Desktop
+shortcut;750 backed up, game not launched. ExecutableSHA256
+7c29b73f87b3f05633738c0ce32da80cbc7f464a955f494a92ae9dc470cfa331
+matches signed archive. Receipts: ../outputs/mba-test-1.0.751/verification.json.
+Population proposal: ../outputs/mba-test-1.0.751/city-cap-proposal.md.
+
+## 2026-09-21 — Approved custom military targets and percentage-only attacks, 1.0.750
+
+Supersedes749's added custom attack caps. Easy military production target is now
+15000 on Large maps (4097–16384 tiles) and25000 on Huge; Medium25000/40000.
+Small/Medium map buckets, other difficulties and campaign rules are unchanged.
+Both constructor defaults and shipped QuantBot Config.ini.default match. Normal
+version-based official-mod reseeding supplies the defaults on next launch.
+Custom attack budget remains the configured percentage of CURRENT owned ground
+combat value: Easy25%, Medium40%, Hard50%, Brutal60%. Existing hunters, including
+forced/busy survivors, consume that budget. Removed the8/14 headcount and2400/4200
+flat value caps. No replacement headcount/composition restriction. Existing
+Easy/Medium home-reserve behavior retained. Engine/map population rules and
+campaign wave caps are separate and unchanged. No save/network-format change.
+
+Claude supplied the scoped source/config/test patch in its20-turn bounded run
+(turn limit before final report). Codex reviewed it and added loaded-template
+checks plus an oversized production-target fixture proving dispatch still uses
+owned ground troops. All ten CTest groups pass; dependency/version audits pass.
+Real-engine76-trooper fixture sends19 Easy/30 Medium, repeated forced hunters
+cannot stack attacks, and campaign helper rally is unchanged. A fresh20-minute
+Four Quadrants simulation (seed1330896984, AI-controlled test houses, not an
+exact replay of Stefan's human orders) reaches75000 cycles. Both Easy houses
+load15000 targets; all14 dispatches respect owned-ground percentage budgets,
+without count/flat caps. First dispatch6 units/3250 from13000 ground value.
+Evidence: ../outputs/mba-test-1.0.750/validation and /tmp/dunecity-750-balance.
+
+Local Mac package and installation receipts will be recorded in
+../outputs/mba-test-1.0.750/verification.json. Keep the normal app/Desktop shortcut,
+back up749, and never interrupt a running game. No push/public release requested.
+Old saves/replays may pin previous mod configurations; use a new match for these
+updated military targets.
+
+Delivery750 verified: source065ae7ea. App and DMG accepted by Apple; installed
+/Applications/dunecity.app on Stefans-MacBook-Air.local with existing Desktop
+shortcut retained. Installed executable SHA256
+1ade8b90c006a3605e53551f93d1a315e98be11333144b811d7ea11998d38871
+matches the signed archive. The installed bundle contains all four new military
+limits.749 backed up under DuneCity Local Test/backups. No app launch or profile
+editing. Full receipts: ../outputs/mba-test-1.0.750/verification.json.
+
+## 2026-09-21 — Custom Easy/Medium attack pressure, local 1.0.749
+
+Stefan's MBA Four Quadrants128x128 tech8 custom Easy replay (seed1330896984)
+reproduces76 attackers /17650 value at cycle37695 in748. The configured25%
+was computed then ignored by the custom dispatch branch. Campaign selectors
+already applied separate wave limits. Custom now strictly honors configured
+percentage of ground combat value, subtracting existing hunters; Easy also caps
+simultaneous hunters at8/2400 value, Medium14/4200. Both caps apply, including
+forced/busy survivors; no oversized-single-unit exception. Hard/Brutal use their
+configured percentages without new absolute caps. No campaign economy, attack
+schedule, save or network format change. Easy/Medium idle reserves use the home
+rally instead of following the HUNT centroid. Their defensive kiting/retreat
+centers exclude hunters. These changes explicitly exclude campaign helpers even
+when their internal gameMode is Custom; real-engine coverage verifies that boundary.
+Custom light raider dodges preserve HUNT so they remain
+counted. Telemetry adds ground budget, simultaneous pressure and explicit caps.
+
+Claude supplied a partial implementation in the bounded retry (both runs hit
+turn limits). Codex reviewed/completed survivor accounting, isolated changed
+rally behavior to Easy/Medium, preserved raider membership, added regressions,
+and verified the actual replay. Ten CTest groups pass including new real-engine
+custom-attack fixture; unit budget/count/zero/determinism cases pass. Existing
+army movement fixture plus raider dodge passes at level9. Campaign pressure
+fixture passes at level9 with explicit harvester limit7 (its prerequisites;
+default level4 lacks required houses and default unlimited workers violates its
+worker-cap assertion). Replay through85000 cycles passes: first attack4/2400,
+all10 dispatches keep total committed pressure <=8 units and <=2400 value.
+These are simulations of recorded commands under the new AI, not a claim that
+the changed match follows the original state after the first behavior change.
+
+Build/dependency audit/version checks pass. Local Mac package/delivery receipts
+will be recorded in ../outputs/mba-test-1.0.749/verification.json. Stefan quit748 and explicitly requested replacing the normal installed app
+and retaining the existing Desktop shortcut. Nothing pushed or publicly
+released. Restart into749/new match for the new behavior; loading a pre-fix save
+does not automatically recall units that were already attacking.
+
+Delivery749 verified: source5cd86309. Signed, Apple-accepted app installed at
+/Applications/dunecity.app on Stefans-MacBook-Air.local. Existing Desktop shortcut
+retained;748 backed up under DuneCity Local Test/backups. Installed executable
+SHA256e585804857eec49040cb52e4da0a2bd5d34a2b162f047603a25dbd2095b5c8b5
+matches the notarized archive. No app launch/profile modification. Verification
+receipt: ../outputs/mba-test-1.0.749/verification.json. Final signed artifacts are
+under verified-signed/; earlier final-signed/ artifacts were superseded before
+installation by the campaign-helper-scope refinement.
+
+## 2026-09-21 — Four Quadrants crash, menu resume and mod choices, local 1.0.748
+
+Reproduced Stefan's actual MBA replay from 1.0.747: Four Quadrants, seed545318708,
+throws `Tile (-1, -1) does not exist!` at cycle39600. Throw-site stack identifies
+`Sandworm::canAttack -> QuantBot::checkAllUnits -> QuantBot::update -> House::update`.
+This coincided with a Starport purchase, but the exception came from an existing
+sleeping sandworm being evaluated as an attacker. `sleep()` deliberately removes
+it from terrain, marks it inactive/invisible, and parks it at INVALID_POS until
+respawn. `canAttack` now rejects an invalid own position before reading terrain.
+Exact replay passes through60000 after the fix. New real-engine regression covers
+sleep, redeployment, valid connected-sand targets and off-map targets; registered
+with command regressions in CTest. No simulation/save/network format bump.
+
+Host Back to Game / Escape now releases only the pause created by that Options
+menu. Manual pre-existing pauses remain explicit. Closing while the command is
+in flight releases its eventual pause; a later distinct pause is preserved.
+Native three-peer controls test passes normal close, Escape and rapid close,
+manual pause preservation, paused spectator join and matching state through1900.
+
+Map chooser says Next. Campaign/custom/editor mod choices show official Dune City
+as `Dune City 1.748`. Content-derived automatic Workshop copies from old builds
+are represented by the official entry, including correct initial selection when
+a cached name was active. Changed authored mods remain separate. Picker filtering
+is separate from the complete registry, so pinned save dependencies stay intact.
+Metadata-only enumeration avoids rehashing every official cached asset per menu.
+
+Validation: native dependency audits and version check pass; all nine CTest groups
+pass (new terrain fixture corrected, then its group rerun successfully). Menu
+rendering tested640x480,854x480,1280x720. Actual replay before/after plus native
+three-peer controls evidence under ../outputs/mba-test-1.0.748/validation/.
+Browser interactive play not repeated. No public push/release/update feed change.
+
+Remote access to MBA verified: Stefans-MacBook-Air.local, userstefan, arm64.
+claw.local already had the authorized DuneCity Air identity; added its IdentityFile
+mapping to local ~/.ssh/config. No Air SSH settings or credentials changed.
+MBA diagnostic session1789979475402524-0 and auto.rpl preserved in local evidence.
+
+Delivery verified: source64205d48. App and DMG accepted by Apple; signatures,
+staples, Gatekeeper and mounted portable runtime pass. Local DMG URL:
+http://claw.local:18738/DuneCity-1.0.748-macOS.dmg
+SHA2568e9c763fe327dafb799e50d4660b6dc14e7feb29af7a245fbe8d46547853618e.
+Installed on MBA at /Applications/dunecity.app; signed executable SHA256 matches
+packaged ZIP. Desktop/DuneCity.app is a shortcut. Previous747 retained under
+Library/Application Support/DuneCity Local Test/backups/dunecity-1.0.747.app.
+No game launched or user profile modified during installation. Full verification
+and receipts: ../outputs/mba-test-1.0.748/verification.json and validation/.
+
+## 2026-09-21 — Host Options auto-pause, local 1.0.747
+
+Opening the host's in-game Options menu (including Escape) requests the existing
+synchronized shared pause. Guest/spectator menus stay local. Entry while paused
+or pending never toggles Resume. Closing Options preserves the shared pause;
+any active player can explicitly resume. Other popups are unchanged. The open
+Options menu refreshes its status and Pause/Resume button as shared state changes.
+
+Claude supplied the four-file patch within its bounded run (turn cap before final
+report); Codex reviewed it and extended the regression to retain the same menu
+through pending -> paused and verify button/notice refresh. All eight CTest groups
+pass. Native three-peer test passes host-menu pause at cycle711, guest-menu
+isolation, repeated paused entry, explicit resume and matching state at1800 and
+after spectator departure at1900. Screenshots checked. No protocol/save change;
+version bump747 includes all746 controls. Browser/ENet interactive play not repeated.
+Evidence: /tmp/dunecity-host-menu-pause and ../outputs/mba-test-1.0.747/validation/.
+Local delivery complete: source aeab3f50; Developer ID signature, Apple app/DMG
+acceptance, staples, Gatekeeper and mounted portable-runtime checks pass.
+Download verified byte-for-byte at
+http://claw.local:18738/DuneCity-1.0.747-macOS.dmg.
+Durable receipts/hash/tests: ../outputs/mba-test-1.0.747/verification.json and
+validation/. Nothing pushed or published to public release/update channels.
+
+## 2026-09-21 — Multiplayer host settings and shared pause, local 1.0.746
+
+Implemented host-only game-speed changes during play, exposed Game Settings to
+all peers for personal sound/scroll/credits-sound controls, and added top-bar and
+Options Pause/Resume buttons plus Space. Any human playing seat can pause/resume;
+spectators cannot. Closing Options does not lift an explicit shared pause.
+See docs/multiplayer-match-controls.md for protocol, synchronization and tests.
+Protocol11; observer runtime4 (reader also accepts3). Existing source/build745
+features remain included. Everyone in a test match must use the new app.
+
+Claude's bounded network implementation and focused completion run hit their
+turn limits without a final report; Codex reviewed and completed integration,
+UI, regression coverage and the spectator-specific control delivery/epoch fix.
+All eight CTest groups pass across the full run and corrected unit rerun; 200
+Node relay tests pass. Real native three-peer WebRTC test passes client pause,
+host resume/speed, concurrent pause requests/client resume, menu-close behavior,
+malformed payload validation, and spectator admission at paused cycle711.
+Host/Partner/Newcomer match at cycle1800 and original peers match after departure.
+Screenshots reviewed for toolbar and host-only settings. Evidence:
+/tmp/dunecity-multiplayer-controls/live-4 and ctest*.log, relay-tests-2.log.
+Interactive browser crossplay and ENet LAN play were not repeated.
+Local delivery complete: source019a70f3; Developer ID signature, Apple app/DMG
+acceptance, staples, Gatekeeper and mounted portable-runtime checks all pass.
+Download verified byte-for-byte at
+http://claw.local:18738/DuneCity-1.0.746-macOS.dmg.
+Package and durable evidence: ../outputs/mba-test-1.0.746/verification.json and
+validation/. Nothing pushed or published to the public release/update channels.
+
+## 2026-09-21 — Implemented QuantBot city campaign economy, local 1.0.745
+
+Implemented the accepted 150%-of-vanilla planning target and the level/difficulty
+shared RCI matrix; see docs/quantbot-campaign-income-150.md for exact counts and
+validation. Frozen original refinery multiplier/minimum budget; no new RTS types;
+shared placed+queued caps; queued workers reserve refinery delivery slots. Hard/
+Brutal get total caps24/40 only after30 game seconds without map spice or owned
+cargo. New blooms remove extra future expansion. Normal earned income is untouched.
+Scope is Dune City campaign enemy QuantBot only. Starting assets are retained.
+Save9842 stores policy state; older saves recover original authored permissions
+through the campaign-specific resource loader. New saves need the newer app.
+
+Claude's bounded core implementation and completion attempts hit their turn caps;
+Codex finished integration and review. A separate bounded Claude task delivered
+11 unit cases including all36 matrix entries. Eight CTest groups pass, plus
+real-engine Easy2/Hard5/Brutal9 probes. Three ordinary campaign runs checked134
+enemy snapshots with no cap violations or new RTS types. Hard5/Brutal5 observed
+net income1748/3030 per minute versus goals1800/3150; not a full balance study.
+Evidence and measured limitations are documented alongside the matrix.
+Native spectator hot-join also passes with matching state at cycle1800.
+No browser-crossplay or public release claim.
+
+Local delivery complete: Developer ID signed, app and DMG accepted by Apple,
+stapled and Gatekeeper-verified. Mounted package runtime/portable-library checks
+pass. Download verified byte-for-byte at
+http://claw.local:18738/DuneCity-1.0.745-macOS.dmg.
+Package: ../outputs/mba-test-1.0.745/final-signed/DuneCity-1.0.745-macOS.dmg.
+Source implementation835b5794; verification.json records SHA256 and Apple receipts.
+Nothing pushed or published to the public release/update channels.
+
+## 2026-09-21 — User target: 150% combined income; post-spice expansion
+
+New design in `docs/quantbot-campaign-income-150.md` supersedes lower-income targets.
+User requests50% more TOTAL harvesting+tax income versus the original vanilla
+house budget, plus more RCI after map spice exhaustion on higher difficulties.
+Interpret higher as Hard/Brutal (proposal assumption). Freeze original budget;
+do not rebase against zero spice income or add a second50% boost. Hard/Brutal
+post-spice taxes aim to replace lost harvesting within the SAME total goal.
+Easy/Medium retain normal zone allowance. Counts/shared caps remain flexiblemix;
+no fixedRCI quotas, no fakecash/tax clipping, no new RTS building-type permission.
+
+Exact DESIGN GOALS for vanilla1/2/4/7worker budgets are450/900/1800/3150credits/min,
+using the prior300perworker planning assumption. Revised harvest/tax split and
+all36settings/48house budgets in ../outputs/quantbot-income-150/per-house-budget.csv.
+These are targets, not measured future incomes. Old physical zonecaps require
+recalibration:20testedzones yielded1628–1755/min, not proof of3150Brutal tax-only.
+Do not claim an untested30/40zone count will hit it. Proposed post-spice guard
+uses fresh sustained mapwide zero, allworker/cargo accounting, savedinvestment
+funds, gradualfinitecap expansion and handling of spice blooms restoring income.
+Claude boundedread-only audit hitturnlimit; Codex reviewed identifiedsourcepaths.
+Arithmetic assertions pass. Proposal/docs only; no game/build/deployment change.
+
+## 2026-09-21 — Corrected refinery-based campaign economy comparison
+
+User identified wrong balance denominator: previous proposal used observed opening
+fleets instead of refinery multiplier/minimum rules. Supersedes that matrix with
+`docs/quantbot-campaign-economy-comparison.md` and
+`../outputs/quantbot-ric-balance-comparison/complete-per-house-comparison.csv`.
+Verified source + actual paired-run configs: Easy1x/min0, Medium2x/min0,
+Hard text2.5 parsed integer2x/min2; mission21+ explicitly sets Hard refinery
+allowance2. Brutal ini999x/min4 is superseded at runtime by enemy target7.
+Spice/options/house ceilings also apply. The old diagnostic field named
+configured_harvester_limit is maximum runtime harvester_ai_limit, not raw config.
+48 paired house rows match formula; fleets remain separate from limits. A new
+refinery can grant a harvester checked only against engine ceiling; do not claim
+the observed16-worker event chain was proven or permitted by the AI target.
+
+Revised proposal, still unimplemented: per economic enemy house, Level2
+Easy1H/1zone, Medium2H/2zones, Hard3H/5zones, Brutal6H/6zones. Later normal-budget
+Easy1H/3zones, Medium2H/8zones, Hard2H/12zones, Brutal3H/20zones; smaller original
+level9 houses scale down. Counts are permissions, not grants. Preserve starting
+RTS-type restrictions, no economy for scripted zero-economy houses, no deletion
+of initial workers, no artificial income/tax cap. Full-fleet projection uses
+300/min per worker consistently plus controlled net-city samples; NOT actual
+future AI average income. Target tests/release remain pending. Source audit used
+one bounded Claude Max worker plus one focused retry; Codex rejected unsupported
+worker inferences about over-limit harvesters and checked parser/config/runtime
+source independently. No runtime edits, app build, version change or deployment.
+
+## 2026-09-21 — Revised joint harvester / shared-zone balance proposal
+
+User rejected fixed R/I/C quotas, treating six as an Easy requirement, absent harvester
+substitution and inadequate tax scaling by difficulty. Revised proposal is in
+`docs/quantbot-campaign-balance-proposal.md`; it is not implemented. Shared TOTAL RCI
+caps let QuantBot choose residential-heavy mixes. Normal tax remains; previous artificial
+AI tax-cap suggestion withdrawn. Level2 proposed1H/1zone Easy,1H/2zones Medium,
+1H/5zones Hard,1H/6zones Brutal; early two-harvester observed Hard/Brutal reference
+trades one harvester for taxes. Later references adapt to larger vanilla fleets;
+late Easy1H/3zones, Medium2H/8zones, Hard2H/12zones, Brutal2H/20zones. One-refinery
+level9 Easy/Medium houses need lower1H/1zone and1H/3zone allowances. Preserve actual
+starting assets and RTS-type restrictions; caps do not grant harvesters/factories.
+
+Collected28 additional one-hour real-engine controlled residential-heavy cases on
+Atreides level2/9, last10-minute income. Level2:1R31.8net/min,2R66.5, fivezones315–389,
+six361–468. Level9:threezones335.7,eight533–633,twelve829–862,twenty1628–1755.
+These are sampled mixes/layouts, not guaranteed yield ranges for all cities. Full
+matrix is a starting balance proposal requiring live capped-AI verification. Early
+fleets are observed in one opening sample, not universally proven harvester ceilings.
+
+Used claude-engineering shared-memory wrapper with projectdunecity/Max auth for bounded
+12-turn worker; it extended diagnostic capacity/power provisioning, exhausted its turns.
+Codex added missing ZonePower include, compiled diagnosticTU, ran28 cases and checked
+cash reconciliation, sufficient power, no units and fixed structures. Dependency audit
+passes. No shipping gameplay, version, saves, deployments or user game changed.
+Evidence: ../outputs/quantbot-ric-balance-proposal/{proposal.md,proposed-joint-matrix.csv,
+results.csv,results.json,measurements}. Diagnostic capacity raised12→20zones.
+
+## 2026-09-21 — Measured QuantBot and controlled city income; prior forecast withdrawn
+
+The user challenged the unsupported assumption that six zones add30/min. Replaced
+that proposal in docs/quantbot-campaign-economy-proposal.md with actual measurements:
+36 paired vanilla/DuneCity campaign settings plus27 controlled60-minute city fixtures.
+Default7% tax, last10-minute Level2 Atreides samples:2R/2I/2C yielded199.0 net/min;
+3R/1I/2C467.7;2R/2I/2C plus one100%-funded police station94.5. These include actual
+police and power costs. Adding an assumed300/min harvester projects499/768/395 total;
+these are not measured capped-AI gameplay outcomes. Six zones cannot be assumed to
+produce30/min; mix/density/land value/service costs matter. Future caps remain unvalidated.
+
+Current unrestricted AI measurements: Level3 Easy2521.8/min combined versus280.9
+vanilla (+797.8%), with33 peak zones; Level5 Easy4307.5 versus573.2 (+651.5%),63 zones.
+Full36-row matrix sums all enemy houses; per-house CSV available. One seed/first layout
+per level, automated human-side helper, up to10 game minutes; rates use actual elapsed
+cycles when campaigns finish early. No claim of reading the user's unavailable MBA log.
+
+Claude subscription worker produced diagnostic scaffolding within two bounded runs.
+Codex completed/reviewed it: road placement returns no object; player callbacks must be
+suppressed inside House::update; takeCredits drains city cash first, so meter power and
+police costs directly; use minute50–60 for a true10-minute window. Assertions verify
+conservation, no units, fixed structure counts and sufficient power across all27 traces.
+Only diagnostic main TU compiled and linked; dependency audits pass. No shipping runtime,
+save format, app version, service or gameplay balance changes. Current local app remains744.
+Evidence: ../outputs/quantbot-income-measured/{measured-report.md,measured-team-matrix.csv,
+measured-per-house.csv,controlled-zone-income.csv,controlled-fixtures,dunecity-telemetry}.
+Original estimated matrix is superseded; physical caps need a separate verified income policy.
+
+## 2026-09-21 — Classic campaign results and actual tax receipts, local 1.0.744
+
+Restored the original FAME.CPS framed results artwork replaced by the 716 menu
+restyle. Dune City content alone gets a fourth animated Tax collected by group;
+its four row backgrounds reuse the classic artwork, with compact label spacing.
+Vanilla/Tornie/Dune2R retain three groups. Team classification and score are unchanged.
+
+House tracks gross fixed-point receipts at the actual city payout, separately
+from spice, spendable city funds, service costs and projected annual revenue.
+The counter saturates safely at one billion credits. Save format 9841 persists
+it; older saves remain readable with zero historical tax receipts. UI totals
+use display-only doubles to sum houses without fixed-point overflow. Older
+apps cannot read the new save format; existing version rejection remains.
+
+Claude investigated the original art and produced the restoration and partial
+tax implementation via the subscription CLI. Codex reviewed/integrated it,
+fixed overflow/gating/layout, added tax save compatibility and display probes,
+and verified actual renders at 1024x768 and 640x480. All eight CTest groups pass;
+real House roundtrip/9840 alignment, spending/refunds/spice independence,
+mod gating, team attribution, saturation and finished animation probes pass.
+Two native peers hot join/promote with matching cycle-1800 state:
+76292739 / 215 objects / 15a4cab16d7019d4 / 454ef57cf3e1da2b.
+Evidence: ../outputs/mba-test-1.0.744/{stats-city-final,stats-compact,stats-vanilla-9,hot-join}.
+
+Local 1.0.744 delivery is complete: Developer ID signed; app and DMG notarization
+Accepted, stapled, Gatekeeper accepted. Full LAN-download SHA256 verified:
+82643de359daad46de2965124018783f11564ad80c4bbc55edc7e062af4ca13c.
+Download http://claw.local:18738/DuneCity-1.0.744-macOS.dmg.
+Evidence: ../outputs/mba-test-1.0.744/verification.json. No public release/update feed changed.
+
+Economy investigation: 36/36 unchanged-vanilla simulations completed (Atreides,
+first layout per level, seed486409243, up to10 game minutes, automated human-side
+helper). See docs/quantbot-campaign-economy-proposal.md for the requested full
+level1–9 Easy–Brutal matrix, explicit modeled-income assumptions, actual sample
+results, conditional tax/harvester substitution, and limitations. The matrix is
+not implemented. Easy can have two harvesters in later layouts (one per initial
+refinery); Brutal samples exceeded its nominal7 ceiling, peaking16. Source path
+city campaigns bypasses restricted rebuild planner; original MBA logs unavailable.
+Raw telemetry/CSV and repeatable runner are under ../outputs/mba-test-1.0.744/economy-matrix.
+
+The campaign AI economy/base-size issue is a separate requested investigation
+and proposal; no QuantBot balance changes are included in this build. User wants
+combined RCI caps (level2 Easy example6), modest total-income uplift over vanilla,
+and greater tax substitution for harvesters on higher difficulty. MBA game logs
+were not available on this host; do not claim its actual last game was inspected.
+
+## 2026-09-21 — Sidebar mission skip, local 1.0.743
+
+Restored Skip mission in the right-hand campaign controls, beneath Pollution in
+city mode and Paths in ordinary campaigns. A burgundy background distinguishes
+it from routine controls. The button opens a direct confirmation with Cancel
+focused; Cancel or Escape returns to gameplay. Confirm uses the existing
+authorized deterministic campaign command and victory/next-level path. Options
+retains its existing skip action. Replays/spectators/non-campaign games cannot
+skip, and the sidebar action hides while object controls occupy the sidebar.
+
+Native build/dependency audits and the real command-execution probe pass. The
+expanded probe checks city layout within a 480px interface, rendered color and
+dialog screenshots, cancellation/Escape, exactly one confirmed command, replay
+visibility, selected-object overlap, normal progression and final mission exit.
+Evidence is in ../outputs/mba-test-1.0.743/command-probe/. The prior compression,
+fast campaign startup, lobby policy and complete editor changes are retained.
+This is a local Mac candidate; no push or public release.
+
+Final source: 54ec0573. All eight CTest groups pass; after the final Escape
+dispatch correction, the command probe passes using actual SDL Return/Escape
+events. Signed/notarized app and DMG plus packaged runtime checks pass.
+Final package: ../outputs/mba-test-1.0.743/final-signed/DuneCity-1.0.743-macOS.dmg
+Download: http://claw.local:18738/DuneCity-1.0.743-macOS.dmg
+Downloaded SHA256: 06455eac013ceccfb4272a0d01129e4d4f350deb28374bcf91aa49d16fca64a6.
+Evidence: ../outputs/mba-test-1.0.743/verification.json. Earlier staging folders
+native/ and signed/ were superseded by native-final/ and final-signed/.
+
+## 2026-09-21 — Compression integrated into the MBA candidate, local 1.0.742
+
+Imported 7979748be11131e8813925e09325308606b1c5ab from the separate local
+improve/snapshot-transfer-compression worktree onto the 741 candidate. Kept both
+Workshop and compression test sources when resolving the overlapping CMake edit,
+and retained both worktrees' handover history. This candidate includes the fast
+approved campaign startup, lobby-only authored mods and complete city editor.
+Compression changes the spectator checkpoint transfer only; it does not add mod
+uploads or change campaign/lobby policy. Zlib is linked for native and browser
+builds, with the existing negotiated raw-transfer fallback retained.
+
+Combined verification: native and browser builds pass, all eight CTest groups
+pass, and the native ASan/UBSan and wasm32 wire harnesses each pass 92 checks.
+The standalone native harness was launched directly with
+DYLD_LIBRARY_PATH=/opt/homebrew/lib after compilation; passing it only to the
+system bash wrapper loses that variable and leaves SDL2's missing-SDL3 alert open.
+The packaged runtime initialization/rendering check passes independently.
+
+The real solo-host Twin Cities spectator/promotion probe sends 5,976,622 raw
+checkpoint bytes as 100,593 wire bytes and resumes both peers at cycle 1800 with
+217 objects and identical state digests. Actual Chromium clients running play742
+also pass direct Dune City campaign startup and hot joining into live spectating.
+Browser promotion and cross-device/NAT conditions were not repeated in this turn.
+The original compression worktree remains unchanged. Nothing pushed or released;
+no production server update was needed.
+
+Build source: 1a090ec3. Signed/notarized DMG:
+../outputs/mba-test-1.0.742/signed/DuneCity-1.0.742-macOS.dmg
+Download: http://claw.local:18738/DuneCity-1.0.742-macOS.dmg
+Downloaded SHA256: 0836b75ad48bb576d6dcd1171cf40adac4d75d911c42644d2982a225117461e4.
+Evidence: ../outputs/mba-test-1.0.742/verification.json and hot-join/.
+
+## 2026-09-21 — Spectator transfer compression (isolated development branch)
+
+Branch `improve/snapshot-transfer-compression` starts at main `5848c51`. It is local,
+unmerged, and unreleased; version metadata remains 1.0.737 pending release coordination.
+The separate worktree is `~/Documents/projects/dunecity-transfer-compression`.
+
+Spectator checkpoints now negotiate bounded, lossless zlib compression. Older hosts and
+viewers keep using the existing raw format. Level-9 ten-minute campaign samples fall from
+702–715 KB to 54–64 KB. See [the protocol and test guide](docs/spectator-transfer.md).
+
+Verification in this worktree:
+- Native build/dependency audit and all eight CTest groups pass (777 main test cases pass,
+  three existing skips). Native ASan/UBSan and wasm32 wire harnesses each pass 92 checks.
+  This Mac's standalone sanitizer harness needs `DYLD_LIBRARY_PATH=/opt/homebrew/lib`
+  so SDL2 can locate SDL3; the normal app and CTest targets already work.
+- Full pinned Emscripten build, generated-JS checks and packaged-mod validation pass.
+- Real local WebRTC spectating, old-737 host/new viewer, new host/old-737 viewer, and
+  declined/retried/approved spectator promotion all reach matching cycle-1800 state.
+- The 256x256 Twin Cities probe transfers 5,975,340 raw bytes as 88,012 bytes and reaches
+  matching cycle-1800 state with 217 objects. Player progress and viewer departure pass.
+- Logs and diagnostic executables are under `build/transfer-*`. The campaign-byte
+  benchmark is in `build/transfer-benchmark/results.txt`. Browser interactive crossplay
+  and Windows runtime testing were not repeated for this branch.
+
+## 2026-09-21 — Fast approved campaigns and lobby-only new mods, local 1.0.741
+
+Approved shipped mods (vanilla, dunecity, Tornie, Dune2R) now start campaigns
+without Workshop capture, publication, queueing or download. Admission/readiness
+use a self-identifying token from installed rule checksums; app/protocol and
+runtime configuration checks remain. The main Campaign route defaults online and
+starts automatically. Join Online -> Create Campaign retains the pregame roster.
+Authored copies do not inherit approval from BaseMod: they require the lobby and
+cannot hot join. Both admission and running-game discovery enforce the policy.
+The setup and lobby describe this restriction. Automatically generated approved
+snapshots selected by 738-740 migrate back to the shipped mod; authored IDs and
+saved game files are preserved. The complete 739 editor palette is retained.
+
+All eight native CTest groups pass. Expanded real-menu tests cover all approved
+mods with the content endpoint disabled, zero new snapshots on campaign startup,
+local hot-join activation, mismatched rules, custom-mod restrictions, old snapshot
+migration and both campaign entry routes at three sizes. A native two-peer Dune
+City spectator test continues at cycle 1800 with identical simulation digests.
+Real Chromium testing against the isolated local service reached gameplay within
+6.108 seconds of clicking Start Campaign. Both clients had /v1/content/* blocked;
+startup, hot joining and spectator-to-player promotion made zero content requests.
+The second browser player joined the live campaign, requested play, was accepted
+into shared control and both clients resumed. A separate Play Online -> Create
+Campaign test stayed in the editable pregame lobby until cancelled. All test tabs
+were closed and temporary network blocking removed. These are local checks, not
+a cross-network/MBA execution claim.
+
+Native/browser source: 6c38946a. The signed and notarized Mac candidate is under
+../outputs/mba-test-1.0.741/final-signed. Local browser test files are in play741;
+use relay=http://127.0.0.1:18738&relaydev=1 for the isolated service. No game push,
+tag or public release. The authorized 740 service deployment remains compatible;
+no additional production server change is needed for this policy. Package and
+live-flow evidence is recorded in ../outputs/mba-test-1.0.741/verification.json.
+
+Download: http://claw.local:18738/DuneCity-1.0.741-macOS.dmg
+Verified downloaded SHA256: e3f0b61753cd5cd5d5c1cb42fc247992fe3d0fdb16f736b99f5f6972d4957d5c.
+
+## 2026-09-21 — Online direct Campaign and explicit online lobby, local 1.0.740
+
+Corrects 739's offline default: Campaign starts online/public by default, then
+starts automatically through the normal acknowledged network handshake. Join
+Online -> Create Campaign retains the editable pregame lobby and Start button.
+Connectivity and entry route are separate choices. Direct campaigns keep their
+selected AI partner; the second controller can remain open for a later join.
+During connection/start the direct route displays progress instead of a roster.
+The complete city editor palette from 739 remains included.
+
+Also fixes Apache ingress: the packaged .htaccess omitted all content routes and
+admission/inspect, and its request limit rejected large Workshop manifests. The
+route allowlist and 524288-byte outer bound now match PHP; smaller signaling
+limits remain enforced by PHP. A regression checks every declared PHP route and
+the content bound. Public content/list returned Apache 404 during investigation.
+This service correction must be deployed before standalone public online tests.
+
+Native and browser builds pass. All eight CTest groups pass, including real menus
+at three sizes, both entry defaults, automatic-launch progress and retained AI.
+Real Chromium checks against the isolated local service confirm Campaign ->
+Start Campaign reaches live Dune City gameplay without a roster or second click;
+Play Online -> Create Campaign -> Create Lobby remains in its pregame roster.
+All 207 PHP tests and the verified service installer pass. Legacy claim tests
+pass 40 admission/grant/signaling/start cases for 1.0.737/protocol9 and another
+40 for protocol8. These are HTTP compatibility tests, not old executable runs.
+
+The signed/notarized DMG and ZIP are under ../outputs/mba-test-1.0.740/signed.
+The DMG is available at http://claw.local:18738/DuneCity-1.0.740-macOS.dmg;
+its downloaded SHA256 matches e5bd5656a9b86e5db50339d9bc8e373d3d4b509d7bb6b19efc1cb769049317dd.
+Code/package source is 8b352f03; browser test files live in play740 with explicit
+relay=http://127.0.0.1:18738&relaydev=1 parameters for the local service.
+The user authorized the public server update on 21 September. Website PR14
+(https://github.com/VR48/dunelegacy.com/pull/14) merged as a73ad507 and deployed
+successfully in run35543136731. Installed service release c340772c matches the
+verified 740 snapshot; existing public browser remains 1.0.737. All 207 service
+checks and 80 legacy protocol checks were repeated successfully before deploy.
+Live health, protocol9 directory and content listing pass; foreign origins and
+unknown/private paths remain rejected. A real Dune City mod upload passed the
+142738-byte Apache request (larger than the former bound), uploaded 290 unique
+files/10835830 bytes, committed revision ddcd9b38149235cfbaa455ea8dc43ec9626d965777505777a78b3b3d5fd70617,
+and read back the identical manifest and largest blob with verified SHA256.
+No live rooms or Discord test posts were created. Public online Workshop use is
+now enabled for the standalone candidate. Evidence: ../outputs/mba-test-1.0.740/
+deployment.json, live-endpoint-checks.json and live-service-verification.json.
+Website worktree: ../dunelegacy-workshop-service, clean branch fix/workshop-service-740.
+Prepared service bundle: ../outputs/mba-test-1.0.740/p2p-service.
+
+## 2026-09-20 — Complete city editor and direct solo campaigns, local 1.0.739
+
+Added Police Station, Stadium and Airport to the city-capable map editor palette,
+including RGBA icons for every house, correct placed-map graphics, and scrolling
+rows. Existing R/C/I zones, roads and nuclear plants remain available. City-only
+rows remain hidden for vanilla; gameplay footprints and map formats are unchanged.
+
+The main Campaign and Single Player entries now default to offline and launch
+through startSinglePlayerGame without a lobby or Workshop upload. Play Online ->
+Create Campaign explicitly retains online hosting. Offline setup hides public/
+private visibility and explains direct launch. This removes the community-service
+failure from the solo campaign path; it does not deploy the public Workshop API.
+
+Native build and dependency audit pass. All eight CTest groups pass, with the
+expanded real-menu probe checked at 640/854/1280 widths. It selects all eight city
+tools through the scroll view, places them, checks undo/redo and saves/reloads the
+map with exact item identities. Campaign controls verify both entry defaults.
+A real Dune City level-1 native campaign ran 3,750 cycles (one simulated minute).
+The local MBA test package is signed/notarized separately; no push or public release.
+
+## 2026-09-20 — Workshop integrated with released main, local 1.0.738
+
+Fresh origin/main and the published v1.0.737 tag both resolved to 5848c510;
+there were no unreleased commits on main at inspection. This local candidate
+merges all those changes with Workshop, retaining public/solo campaigns,
+browser P2P/matchmaking, graphics skins, menus and current hot-join behavior.
+
+Broad tests found and fixed the transport API integration, browser publication
+ordering and missing-mod resolution, first received-map directory creation,
+client/server manifest validation, Android-compatible staged file copies, and
+the stale gravel/missing Sand optional catalog. Native and browser builds pass,
+as do all eight CTest groups (784 main cases, three skipped), 206 PHP tests,
+42 Python checks, browser JS suites and wasm wire/lifecycle sanitizer probes.
+Five real native multiplayer checkpoint scenarios pass. Two real Chromium
+clients play successfully, including a missing 11 MiB mod resolved through the
+community service with exact byte verification and zero dropped commands.
+Received map bytes and numbered metadata also survive a full browser reload.
+See docs/workshop-validation-738.md for detailed scope, evidence and limits.
+
+The local app is 1.0.738. Nothing was pushed, tagged, released or deployed.
+The new community API still requires deployment. Windows/Linux/Android candidate
+execution and cross-device/NAT play remain separate checks.
+
+## 2026-09-20 — Workshop and exact content revisions, local 1.0.736
+
+Workshop now contains Map Editor, Mod Editor, Asset Editors and Community Maps &
+Mods; Extras contains replay/help/credits. Mod selection remains in game setup.
+The real mod editor stages typed rule/stat/AI and metadata edits. Full mod copies
+retain assets/campaigns/house metadata; Dune2R render settings are now authored
+per mod. Map saves capture numbered immutable revisions with exact mod dependencies.
+
+Workshop storage uses SHA-256 manifests and full verified snapshots. The PHP
+signaling service has standalone content list/upload/download routes, atomic
+version allocation, owner capabilities, chunk verification and quotas. Online
+hosting publishes before admission; LAN captures and queues publication while
+retaining bounded peer transfer. MOD4 settings pin original map/mod revisions;
+protocol10 and save9840 retain older save parsing. Engine capabilities survive
+hash-specific installed folder names. See docs/workshop.md for storage and flows.
+
+This is a local source/build change, not a public service deployment or release.
+The production PHP service needs deployment before the new community API works
+there. Claude CLI was unavailable (not logged in); Hermes supplied a protocol
+review. Available coding agents handled UI, service, and network integration.
+Validation: native Release app rebuilt as 1.0.736, version consistency and Ninja
+header-dependency audit passed. All eight CTest groups pass, including the real
+menu probe at 640/854/1280 widths, new immutable-storage tests, MOD4/legacy wire
+checks, and offline LAN import/tamper checks. Workshop/Extras/editor/community
+screens were visually inspected. PHP content 12 and signaling 167 tests pass;
+service-agent late-join 19/activity 7 tests also passed. The real C++ bounded-HTTP
+client/PHP integration passes interrupted resume, duplicate large assets,
+dependency closure, idempotent versioning, cache repair and ownership rejection.
+Browser/Windows/Android device builds and live two-device play were not run in
+this turn. Public deployment, push, tag and release remain separate actions.
 ## 2026-09-20 — Stop unpublished 737 for complete skin packaging
 
 The stable artifact audit found that the browser preload omitted the DuneCity

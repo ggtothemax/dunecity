@@ -37,6 +37,8 @@
 
 #include <INIMap/INIMapPreviewCreator.h>
 #include <GameInitSettings.h>
+#include <Network/WorkshopGameContent.h>
+#include <GUI/MsgBox.h>
 
 #include <globals.h>
 #include <main.h>
@@ -75,7 +77,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
             visibilityChoice.setVisible(online);
             visibilityChoice.setEnabled(online);
             allowJoinAfterStartCheckbox.setVisible(online);
-            allowJoinAfterStartCheckbox.setEnabled(online);
+            allowJoinAfterStartCheckbox.setEnabled(online && OnlineModPolicy::approved());
         });
         connectionRow.addWidget(&connectionChoice, 130);
         connectionRow.addWidget(HSpacer::create(8));
@@ -88,9 +90,9 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         connectionRow.addWidget(Spacer::create());
         mainVBox.addWidget(&connectionRow, 28);
         allowJoinAfterStartCheckbox.setText(_("Allow hot join"));
-        allowJoinAfterStartCheckbox.setChecked(setup->allowJoinAfterStart);
+        allowJoinAfterStartCheckbox.setChecked(setup->allowJoinAfterStart && OnlineModPolicy::approved());
         allowJoinAfterStartCheckbox.setVisible(setup->online);
-        allowJoinAfterStartCheckbox.setEnabled(setup->online);
+        allowJoinAfterStartCheckbox.setEnabled(setup->online && OnlineModPolicy::approved());
         mainVBox.addWidget(&allowJoinAfterStartCheckbox, 24);
     }
 
@@ -186,12 +188,12 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
     modHBox.addWidget(&modDropDown, 130);
     
     // Populate mod dropdown
-    availableMods = ModManager::instance().listMods();
+    availableMods = ModManager::instance().listModChoices();
     std::string activeModName = setup && !setup->mods.empty() ? setup->mods[setup->mod].name : ModManager::instance().getActiveModName();
     int activeIndex = 0;
     for (size_t i = 0; i < availableMods.size(); i++) {
-        modDropDown.addEntry(availableMods[i].displayName);
-        if (availableMods[i].name == activeModName) {
+        modDropDown.addEntry(availableMods[i].selectionLabel());
+        if (availableMods[i].matchesSelectionName(activeModName)) {
             activeIndex = static_cast<int>(i);
         }
     }
@@ -206,9 +208,11 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         if(previous == availableMods[choice].name) return;
         if(manager.setActiveMod(availableMods[choice].name)) {
             currentGameOptions = effectiveGameOptions = manager.loadEffectiveGameOptions(settings.gameOptions);
+            allowJoinAfterStartCheckbox.setEnabled(connectionChoice.getSelectedIndex() == 1 && OnlineModPolicy::approved());
+            if(!OnlineModPolicy::approved()) allowJoinAfterStartCheckbox.setChecked(false);
         } else {
             for(size_t i = 0; i < availableMods.size(); ++i)
-                if(availableMods[i].name == previous) modDropDown.setSelectedItem(static_cast<int>(i));
+                if(availableMods[i].matchesSelectionName(previous)) modDropDown.setSelectedItem(static_cast<int>(i));
         }
     });
     
@@ -237,7 +241,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
 
     buttonHBox.addWidget(Spacer::create(), 0.0625);
 
-    nextButton.setText(setup ? _("Players") : _("Next"));
+    nextButton.setText(_("Next"));
     nextButton.setOnClick(std::bind(&CustomGameMenu::onNext, this));
     buttonHBox.addWidget(&nextButton, 0.1);
     buttonHBox.addWidget(HSpacer::create(90));
@@ -278,7 +282,9 @@ void CustomGameMenu::onChildWindowClose(Window* pChildWindow) {
             std::string servername = settings.general.playerName + "'s Game";
             GameInitSettings gameInitSettings(getBasename(filename, true), savegamedata, servername);
 
-            int ret = CustomGamePlayers(gameInitSettings, true, bLANServer).showMenu();
+            int ret;
+            try { ret = CustomGamePlayers(gameInitSettings, true, bLANServer).showMenu(); }
+            catch(const std::exception& error) { openWindow(MsgBox::create(error.what())); return; }
             if(ret != MENU_QUIT_DEFAULT) {
                 quit(ret);
             }
@@ -327,7 +333,7 @@ void CustomGameMenu::onNext()
         setup->mod = selectedMod;
         setup->online = connectionChoice.getSelectedIndex() == 1;
         setup->publicGame = visibilityChoice.getSelectedIndex() == 1;
-        setup->allowJoinAfterStart = allowJoinAfterStartCheckbox.isChecked();
+        setup->allowJoinAfterStart = allowJoinAfterStartCheckbox.isChecked() && OnlineModPolicy::approved();
         setup->sharedHouse = multiplePlayersPerHouseCheckbox.isChecked();
         setup->rules = currentGameOptions;
         quit(MENU_SETUP_PLAYERS);
@@ -353,6 +359,14 @@ void CustomGameMenu::onNext()
         gameInitSettings = GameInitSettings(getBasename(mapFilename, true), readCompleteFile(mapFilename), multiplePlayersPerHouseCheckbox.isChecked(), currentGameOptions);
     }
 
+    try {
+        const auto selectedMod = ModManager::instance().getActiveModName();
+        if(WorkshopGameContent::applyMapDependency(mapFilename, gameInitSettings)
+           && selectedMod != ModManager::instance().getActiveModName()) {
+            effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+            gameInitSettings.setGameOptions(effectiveGameOptions);
+        }
+    } catch(const std::exception& error) { openWindow(MsgBox::create(error.what())); return; }
 #ifdef __EMSCRIPTEN__
     // Browser build: the lobby-creation constructor below is a long
     // synchronous block (map parse + widget build + signaling room setup).

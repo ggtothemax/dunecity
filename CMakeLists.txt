@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 # Project name and version
-project(DuneCity VERSION 1.0.737 LANGUAGES C CXX)
+project(DuneCity VERSION 1.0.753 LANGUAGES C CXX)
 if(APPLE)
     enable_language(OBJCXX)
 endif()
@@ -71,6 +71,7 @@ if(NOT EMSCRIPTEN)
     find_package(SDL2_mixer CONFIG REQUIRED)
     find_package(SDL2_ttf CONFIG REQUIRED)
     find_package(CURL REQUIRED)
+    find_package(ZLIB REQUIRED)
 endif()
 
 if(EMSCRIPTEN)

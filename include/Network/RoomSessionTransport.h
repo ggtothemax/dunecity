@@ -57,6 +57,7 @@ public:
         std::string     gameVersion;
         std::string     quantBotConfigHash;
         std::string     objectDataHash;
+        std::string modRevisionHash;
 
         // Abuse accounting for messages this peer sent that the client itself refused.
         Uint32          refusedMessages = 0;

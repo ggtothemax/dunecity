@@ -53,7 +53,7 @@
 class CrossplayMenu : public MenuBase {
 public:
     CrossplayMenu();
-    CrossplayMenu(const GameInitSettings& game, bool publicGame, const ChangeEventList& players = {}, bool allowLateJoin = true);
+    CrossplayMenu(const GameInitSettings& game, bool publicGame, const ChangeEventList& players = {}, bool allowLateJoin = true, bool startImmediately = false);
     ~CrossplayMenu() override;
 
     void update() override;
@@ -93,13 +93,15 @@ private:
     void refreshControls();
 
     bool validatePlayerName();
+    bool activateGameContent(const std::string& fingerprint, bool running);
 
     void onReceiveGameInfo(const GameInitSettings& gameInitSettings,
                            const ChangeEventList& changeEventList);
     void onPeerDisconnected(const std::string& playerName, bool isHost, int cause);
 
     /// Fingerprint of the bundled content, as the relay and the lobby both understand it.
-    static std::string contentFingerprint();
+    std::string contentFingerprint() const;
+    mutable std::string fingerprintMod, fingerprintHash;
 
     std::unique_ptr<GameInitSettings> preparedGame;
     ChangeEventList preparedPlayers;
@@ -108,6 +110,7 @@ private:
     bool joinPollPending = false;
     Uint32 nextJoinPoll = 0, joinRequestDeadline = 0;
     bool autoHostRequested = false;
+    bool startImmediately = false;
     DropDownBox modeFilter, modFilter;
     std::vector<ModInfo> availableMods;
     TextButton otherConnections;
@@ -117,6 +120,8 @@ private:
     Stage       stage = Stage::Choosing;
     bool        hostingCoop = false;
     bool        pendingHosting = false;
+    bool inspectingCode = false, codeInspected = false;
+    std::string inspectedCode;
     std::string roomCode;
     std::string statusText;
     std::unique_ptr<GameInitSettings> pendingGameInfo;

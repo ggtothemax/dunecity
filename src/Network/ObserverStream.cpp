@@ -9,7 +9,7 @@ namespace {
 // The 4 MiB save is supplemented by AI/path runtime state. A 256x256 Twin
 // Cities checkpoint already exceeds 5 MiB with two AIs. Keep a bounded 8 MiB
 // envelope on both endpoints; ordinary network-save and chunk limits stay fixed.
-constexpr Uint32 maxSnapshot=8u*1024*1024;
+constexpr Uint32 maxSnapshot=SnapshotTransfer::maxBytes;
 constexpr Uint32 chunkBytes=ObserverStreamPolicy::chunkBytes;
 constexpr Uint32 maxHistoryCycles=1500;
 constexpr std::size_t maxHistoryBytes=4u*1024*1024;
@@ -48,13 +48,13 @@ bool NetworkManager::beginObserverSnapshot(Uint32 peer, const GameInitSettings& 
         return false;
     }
     ObserverTransfer transfer;
-    transfer.snapshot.assign(out.getData(),out.getDataLength());
+    if(!transfer.checkpoint.prepare(std::string(out.getData(),out.getDataLength()))) return false;
     transfer.epoch=simulationSeed+(++observerSnapshotSerial);
     if(transfer.epoch==0) transfer.epoch=++observerSnapshotSerial;
     transfer.nextCycle=transfer.ackCycle=cycle;
     transfer.deadline=SDL_GetTicks()+120000;
-    SDL_Log("Spectator checkpoint sending: peer=%u bytes=%u cycle=%u",peer,
-        static_cast<unsigned>(transfer.snapshot.size()),cycle);
+    SDL_Log("Spectator checkpoint sending: peer=%u bytes=%u raw=%u cycle=%u",peer,
+        static_cast<unsigned>(transfer.checkpoint.bytes.size()),static_cast<unsigned>(out.getDataLength()),cycle);
     observerTransfers.emplace(peer,std::move(transfer));
     return true;
 }
@@ -100,7 +100,7 @@ void NetworkManager::updateObservers() {
            || (!observerHistory.empty() && t.nextCycle<observerHistory.front().first)) {
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                 "Spectator stream expired: peer=%u acknowledged=%u sent=%u total=%u ready=%d cycle=%u oldest=%u timeout=%d",
-                peer,t.offset,t.sent,static_cast<unsigned>(t.snapshot.size()),t.ready,t.nextCycle,
+                peer,t.offset,t.sent,static_cast<unsigned>(t.checkpoint.bytes.size()),t.ready,t.nextCycle,
                 observerHistory.empty() ? t.nextCycle : observerHistory.front().first,
                 SDL_TICKS_PASSED(SDL_GetTicks(),t.deadline));
             if(observerRestarts[peer]<ObserverStreamPolicy::maxRestarts) restart.push_back(peer);
@@ -111,12 +111,13 @@ void NetworkManager::updateObservers() {
         observerSendCursor=peer;
         if(!t.began) {
             t.began=true; t.sent=~Uint32(0);
-            if(!sendObserverPacket(peer,10,t.epoch,t.snapshot.size(),{})) dropped.push_back(peer);
-            ++sends; bytesSent+=24; continue;
+            const auto header=t.checkpoint.header();
+            if(!sendObserverPacket(peer,10,t.epoch,t.checkpoint.bytes.size(),header)) dropped.push_back(peer);
+            ++sends; bytesSent+=24+header.size(); continue;
         }
         if(t.sent==~Uint32(0)) continue; // Wait for the header acknowledgement.
-        if(ObserverStreamPolicy::canSendChunk(t.offset,t.sent,t.snapshot.size())) {
-            const auto bytes=t.snapshot.substr(t.sent,chunkBytes);
+        if(ObserverStreamPolicy::canSendChunk(t.offset,t.sent,t.checkpoint.bytes.size())) {
+            const auto bytes=t.checkpoint.bytes.substr(t.sent,chunkBytes);
             if(bytesSent+bytes.size()+24>64u*1024) continue;
             const auto offset=t.sent;
             t.sent+=bytes.size();
@@ -170,9 +171,17 @@ void NetworkManager::receiveObserverPacket(Uint32 peer, Uint32 op, Uint32 epoch,
             }
             return;
         }
-        if(op==10 && t.sent==~Uint32(0) && offset==0) t.sent=t.offset=0;
-        else if(op==11 && ObserverStreamPolicy::validChunkAck(t.offset,t.sent,t.snapshot.size(),offset)) t.offset=offset;
-        else if(op==13 && !t.ready && t.offset==t.snapshot.size() && offset==t.nextCycle) {
+        if(op==10 && t.began && t.sent==~Uint32(0)) {
+            const auto ack=t.checkpoint.acknowledge(offset);
+            if(ack==SnapshotTransfer::Sender::Ack::Invalid) return;
+            if(ack==SnapshotTransfer::Sender::Ack::RetryRaw) {
+                t.began=false;
+                SDL_Log("Spectator checkpoint legacy fallback: peer=%u bytes=%u",peer,
+                    static_cast<unsigned>(t.checkpoint.bytes.size()));
+            } else t.sent=t.offset=0;
+        }
+        else if(op==11 && ObserverStreamPolicy::validChunkAck(t.offset,t.sent,t.checkpoint.bytes.size(),offset)) t.offset=offset;
+        else if(op==13 && !t.ready && t.offset==t.checkpoint.bytes.size() && offset==t.nextCycle) {
             t.ready=true;
             SDL_Log("Spectator checkpoint loaded: peer=%u bytes=%u cycle=%u",peer,t.offset,offset);
         }
@@ -194,15 +203,15 @@ void NetworkManager::receiveObserverPacket(Uint32 peer, Uint32 op, Uint32 epoch,
     if(!direct->isSpectating()) return;
     const auto fail=[&]() { failObserver("The game transfer could not be read. Please try joining again."); if(pOnPeerDisconnected) pOnPeerDisconnected({},true,NETWORKDISCONNECT_TIMEOUT); };
     if(op==10) {
-        if(offset==0 || offset>maxSnapshot) { fail(); return; }
+        if(!SnapshotTransfer::readHeader(bytes,offset,observerDecodedSize)) { fail(); return; }
         observerEpoch=epoch; observerTotal=offset; observerBytes.clear(); observerIncoming.clear();
         joinSnapshot.reset(); observerRuntime.clear(); observerNextCycle=0;
         joinStage=JoinStage::Receiving; joinStatus="Downloading game state";
         observerCatchup=false; observerResyncPending=false; observerStartCycle=observerHostCycle=observerAppliedCycle=0;
         joinFailureReason.clear();
-        SDL_Log("Spectator checkpoint receiving: bytes=%u epoch=%u",offset,epoch);
+        SDL_Log("Spectator checkpoint receiving: bytes=%u decoded=%u epoch=%u",offset,observerDecodedSize ? observerDecodedSize : offset,epoch);
         bGameInProgress=false;
-        sendObserverPacket(peer,10,epoch,0,{}); return;
+        sendObserverPacket(peer,10,epoch,observerDecodedSize ? SnapshotTransfer::compressedAck : 0,{}); return;
     }
     if(epoch!=observerEpoch) return;
     if(op==11) {
@@ -211,7 +220,9 @@ void NetworkManager::receiveObserverPacket(Uint32 peer, Uint32 op, Uint32 epoch,
         observerBytes+=bytes;
         if(observerBytes.size()==observerTotal) {
             try {
-                IMemoryStream in(observerBytes.data(),observerBytes.size());
+                std::string decoded;
+                if(!SnapshotTransfer::decode(observerBytes,observerDecodedSize,decoded)) throw std::runtime_error("Invalid compressed checkpoint");
+                IMemoryStream in(decoded.data(),decoded.size());
                 auto next=std::make_unique<GameInitSettings>(in);
                 auto runtime=in.readString(); observerNextCycle=in.readUint32();
                 std::string error;

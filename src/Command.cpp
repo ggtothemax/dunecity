@@ -541,6 +541,11 @@ case CMD_INFANTRY_CAPTURE: {
             pScoutpost->doUpgradeToChemipost();
         } break;
         
+        case CMD_MATCH_PAUSE: {
+            if (parameter.size() != 1) return;
+            currentGame->executeMatchPause(playerID, parameter[0]);
+        } break;
+
         case CMD_PLAYER_PAUSE: {
             if(parameter.size() != 0) {
                 THROW(std::invalid_argument, "Command::executeCommand(): CMD_PLAYER_PAUSE needs 0 Parameters!");

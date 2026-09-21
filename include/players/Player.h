@@ -91,6 +91,9 @@ public:
         \param  damagerID   the shooter of the bullet, rocket, etc. if known; NONE_ID otherwise
     */
     virtual void finishTelemetry() { }
+
+    // Displayed city population ceiling; zero means no AI ceiling (including humans).
+    virtual int getCityPopulationLimit(int mapArea) const { return 0; }
     // Observational hook; must never influence command selection or simulation RNG.
     virtual void onCombatReward(Uint32 attacker, Uint32 target, const CombatReward::Totals& reward) { }
     virtual void onDamage(const ObjectBase* pObject, int damage, Uint32 damagerID) { }

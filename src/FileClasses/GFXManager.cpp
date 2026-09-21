@@ -1,3 +1,4 @@
+#include <mod/Workshop.h>
 /*
  *  This file is part of Dune Legacy.
  *
@@ -2010,7 +2011,7 @@ GFXManager::GFXManager() {
         };
 
         if(ModManager::instance().isInitialized()) {
-            const auto skinRoot = std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+            const auto skinRoot = std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
                 / "graphics_skins" / "Dune2";
             const auto zonesRoot = skinRoot / "zones";
             if(std::filesystem::is_directory(zonesRoot)) {
@@ -3093,6 +3094,19 @@ GFXManager::GFXManager() {
         } else {
             // Fall back to HighTechFactory if the Micropolis PNG is missing.
             uiGraphic[UI_MapEditor_NuclearPlant][h] = getSubPicture(objPic[ObjPic_HighTechFactory][HOUSE_HARKONNEN][0].get(), 2*3*D2_TILESIZE, 0, 3*D2_TILESIZE, 2*D2_TILESIZE);
+        }
+    }
+
+    // Civic atlases are RGBA. Fill every house explicitly, avoiding indexed
+    // palette remapping, and take only the static frame at the logical footprint.
+    struct CityEditorIcon { int uiID; int objectID; int tiles; };
+    for(const auto& icon : {CityEditorIcon{UI_MapEditor_PoliceStation, ObjPic_PoliceStation, 2},
+                            CityEditorIcon{UI_MapEditor_Stadium, ObjPic_Stadium, 3},
+                            CityEditorIcon{UI_MapEditor_Airport, ObjPic_Airport, 3}}) {
+        for(int house = 0; house < NUM_HOUSES; ++house) {
+            uiGraphic[icon.uiID][house] = getSubPicture(
+                objPic[icon.objectID][HOUSE_HARKONNEN][0].get(), 0, 0,
+                icon.tiles * D2_TILESIZE, icon.tiles * D2_TILESIZE);
         }
     }
 
@@ -6386,7 +6400,7 @@ void GFXManager::loadDuneCitySkinOverrides() {
 
     if(!ModManager::instance().isInitialized()) return;
     const std::filesystem::path zonesRoot =
-        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
         / "graphics_skins" / "Dune2" / "zones";
     if(!std::filesystem::is_directory(zonesRoot)) {
         SDL_Log("GFXManager: DuneCity Dune2 skin has no mounted zones; SimCity fallback remains active");
@@ -6458,7 +6472,7 @@ void GFXManager::loadDuneCitySkinOverrides() {
     SDL_Log("GFXManager: Loaded %d exact DuneCity Dune2 density/value cells", loadedCells);
 
     const std::filesystem::path buildingsRoot =
-        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
         / "graphics_skins" / "Dune2" / "buildings";
     if(!std::filesystem::is_directory(buildingsRoot)) {
         SDL_Log("GFXManager: DuneCity Dune2 skin has no mounted special buildings; SimCity fallback remains active");
@@ -6773,7 +6787,7 @@ bool GFXManager::drawHDObjPic(unsigned int id, int house, unsigned int z,
 
     Uint8 blend = SDL_ALPHA_OPAQUE;
     if(ModManager::instance().isInitialized()
-       && ModManager::instance().getActiveModName() == "Dune2R") {
+       && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Dune2R") {
         blend = getDune2RVisualBlend();
         if(blend == 0) {
             return false;
@@ -6857,7 +6871,7 @@ void GFXManager::loadDune2RVisualPreference() {
 
 Uint8 GFXManager::getDune2RVisualBlend() {
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return 0;
     }
     loadDune2RVisualPreference();
@@ -6888,7 +6902,7 @@ bool GFXManager::isDune2RVisualsEnabled() {
 
 void GFXManager::setDune2RVisualsEnabled(bool enabled) {
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
     const Uint8 currentBlend = getDune2RVisualBlend();
@@ -7036,12 +7050,12 @@ void GFXManager::loadEnhancedWorldManifests() {
     enhancedTerrainDefinitions.clear();
 
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
 
     const std::filesystem::path unitsRoot =
-        std::filesystem::path(ModManager::instance().getModPath("Dune2R"))
+        std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
         / "graphics_hd" / "units";
     if(!std::filesystem::is_directory(unitsRoot)) {
         return;
@@ -7209,7 +7223,7 @@ void GFXManager::loadDuneCityZoneManifests() {
         return;
     }
     const std::filesystem::path zonesRoot =
-        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
         / "graphics_skins" / "Dune2" / "zones";
     if(!std::filesystem::is_directory(zonesRoot)) {
         return;
@@ -7313,7 +7327,7 @@ void GFXManager::loadDuneCityBuildingManifests() {
         return;
     }
     const std::filesystem::path buildingsRoot =
-        std::filesystem::path(ModManager::instance().getModPath("dunecity"))
+        std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
         / "graphics_skins" / "Dune2" / "buildings";
     if(!std::filesystem::is_directory(buildingsRoot)) {
         return;
@@ -7384,13 +7398,13 @@ void GFXManager::loadEnhancedRenderModes() {
     enhancedUnitRenderModes.clear();
 
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
 
     loadEnhancedUnitManifests();
     try {
-        INIFile config(getConfigFilepath());
+        INIFile config(ModManager::instance().getModPath(ModManager::instance().getActiveModName()) + "/workshop-render.ini");
         for(const auto& definition : enhancedUnitDefinitions) {
             for(int stateIndex = 0; stateIndex < static_cast<int>(kEnhancedStateNames.size()); ++stateIndex) {
                 const auto state = static_cast<EnhancedUnitState>(stateIndex);
@@ -7439,7 +7453,7 @@ std::vector<GFXManager::EnhancedUnitEditorInfo> GFXManager::getEnhancedUnitEdito
     loadEnhancedUnitManifests();
     std::vector<EnhancedUnitEditorInfo> result;
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return result;
     }
 
@@ -7465,7 +7479,7 @@ GFXManager::EnhancedRenderMode GFXManager::getEnhancedUnitRenderMode(
     int itemID, int house, EnhancedUnitState state, int direction) {
     if(direction < 0 || direction >= kEnhancedDirectionCount
        || !ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return EnhancedRenderMode::Layered;
     }
 
@@ -7480,14 +7494,14 @@ GFXManager::EnhancedRenderMode GFXManager::getEnhancedUnitRenderMode(
     return EnhancedRenderMode::FullAnimation;
 }
 
-void GFXManager::setEnhancedUnitRenderMode(int itemID, int house,
+bool GFXManager::setEnhancedUnitRenderMode(int itemID, int house,
                                            EnhancedUnitState state,
                                            int direction,
                                            EnhancedRenderMode mode) {
     if(direction < 0 || direction >= kEnhancedDirectionCount
        || !ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
-        return;
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
+        return false;
     }
 
     loadEnhancedRenderModes();
@@ -7499,8 +7513,8 @@ void GFXManager::setEnhancedUnitRenderMode(int itemID, int house,
     }
 
     try {
-        const std::string path = getConfigFilepath();
-        INIFile config(path);
+        const std::string path = ModManager::instance().getModPath(ModManager::instance().getActiveModName()) + "/workshop-render.ini";
+        INIFile config = std::filesystem::exists(path) ? INIFile(path) : INIFile(false, std::string("Mod sprite rendering"));
         const std::string configKey = enhancedRenderModeConfigKey(
             itemID, house, state, direction);
         if(mode == EnhancedRenderMode::FullAnimation) {
@@ -7509,18 +7523,25 @@ void GFXManager::setEnhancedUnitRenderMode(int itemID, int house,
             config.setStringValue("Dune2R EditoR", configKey,
                                   enhancedRenderModeName(mode), false);
         }
-        if(!config.saveChangesTo(path)) {
+        const auto temporary=std::filesystem::path(path).parent_path()/".workshop-render.tmp";
+        if(!config.saveChangesTo(temporary.string())) {
             SDL_Log("GFXManager: Could not save Dune2R EditoR preferences to %s",
                     path.c_str());
+            enhancedRenderModesLoaded = false;
+            return false;
         }
+        Workshop::replaceFile(temporary,path);
+        return true;
     } catch(const std::exception& e) {
         SDL_Log("GFXManager: Could not save Dune2R EditoR preference: %s", e.what());
+        enhancedRenderModesLoaded = false;
+        return false;
     }
 }
 
 void GFXManager::invalidateEnhancedUnitMountsIfChanged(bool force) {
     if(!ModManager::instance().isInitialized()
-       || ModManager::instance().getActiveModName() != "Dune2R") {
+       || ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) != "Dune2R") {
         return;
     }
 
@@ -7532,7 +7553,7 @@ void GFXManager::invalidateEnhancedUnitMountsIfChanged(bool force) {
     enhancedUnitMountLastCheck = now;
 
     const std::filesystem::path marker =
-        std::filesystem::path(ModManager::instance().getModPath("Dune2R"))
+        std::filesystem::path(ModManager::instance().getModPath(ModManager::instance().getActiveModName()))
         / "graphics_hd" / "units" / ".mount-revision";
     std::string revision;
     if(std::ifstream input(marker); input) {

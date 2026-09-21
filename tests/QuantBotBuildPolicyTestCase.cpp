@@ -21,6 +21,33 @@ TEST_CASE("QuantBot respects the single-palace option even in a large city", "[q
     REQUIRE(palaceTarget(false, true, 60000) == 3);
 }
 
+TEST_CASE("QuantBot caps palaces per difficulty without loosening stricter rules", "[quantbot][production]") {
+    // Difficulty values match QuantBot::Difficulty: Easy 0, Medium 1, Hard 2,
+    // Brutal 3, Defend 4.
+    REQUIRE(difficultyPalaceCap(0) == 1);
+    REQUIRE(difficultyPalaceCap(1) == 3);
+    REQUIRE(difficultyPalaceCap(2) > 3);
+    REQUIRE(difficultyPalaceCap(3) > 3);
+
+    // Easy never exceeds one palace, Medium never exceeds three, however large
+    // the city grows.
+    REQUIRE(palaceTarget(false, true, 300000, 0) == 1);
+    REQUIRE(palaceTarget(false, true, 60000, 1) == 3);
+    REQUIRE(palaceTarget(false, true, 300000, 1) == 3);
+
+    // Below the cap the population target still governs.
+    REQUIRE(palaceTarget(false, true, 30000, 1) == 2);
+
+    // Hard and Brutal keep the unchanged target.
+    REQUIRE(palaceTarget(false, true, 300000, 2) == palaceTarget(false, true, 300000));
+    REQUIRE(palaceTarget(false, true, 300000, 3) == palaceTarget(false, true, 300000));
+
+    // Stricter existing rules win at every difficulty.
+    REQUIRE(palaceTarget(true, true, 300000, 2) == 1);
+    REQUIRE(palaceTarget(true, true, 300000, 3) == 1);
+    REQUIRE(palaceTarget(false, false, 300000, 1) == 1);
+}
+
 TEST_CASE("QuantBot strategic savings leave excess funds available for tanks", "[quantbot][production]") {
     REQUIRE(spendableCredits(59044, 2000) == 57044);
     REQUIRE(spendableCredits(1000, 2000) == 0);
@@ -1541,4 +1568,33 @@ TEST_CASE("Medium and Hard campaign waves use fixed credits and independent open
     }
     CHECK(openingDelayMs(3,1599783965,45000,0)==0);
     CHECK(openingDelayMs(2,1599783965,45000,0)!=openingDelayMs(2,1599783965,45000,1));
+}
+
+TEST_CASE("Custom attacks commit a strict share of the owned ground army", "[quantbot][army][regression]") {
+    using namespace SimpleArmyPolicy;
+    std::vector<Responder> infantry;
+    for(uint32_t id=1;id<=76;++id) infantry.push_back({id,100,0});
+    // The configured share is the only limit: a large army sends far more than
+    // the retired eight/fourteen units and the retired 2400/4200 value caps.
+    REQUIRE(customAttack(18850,0,25,infantry).size()==47);
+    REQUIRE(customAttack(18850,0,40,infantry).size()==75);
+    // Survivors of earlier waves keep their place inside that same share.
+    REQUIRE(customAttack(18850,4600,25,infantry).size()==1);
+    REQUIRE(customAttack(18850,4712,25,infantry).empty());
+    REQUIRE(customAttack(2000,0,25,infantry).size()==5);
+    REQUIRE(customAttack(2000,300,25,infantry).size()==2);
+    REQUIRE(customAttack(2000,500,25,infantry).empty());
+    REQUIRE(customAttack(2000,0,0,infantry).empty());
+    // Strict budget, no single-unit fallback: too small an army simply waits.
+    REQUIRE(customAttack(300,0,25,{{7,300,0}}).empty());
+    std::vector<Responder> heavy;
+    for(uint32_t id=1;id<=20;++id) heavy.push_back({id,600,0});
+    REQUIRE(customAttack(18850,0,25,heavy).size()==7);
+    REQUIRE(customAttack(18850,0,40,heavy).size()==12);
+    REQUIRE(customAttack(2000,0,50,infantry).size()==10);
+    REQUIRE(customAttack(2000,0,60,infantry).size()==12);
+    auto reversed=infantry;std::reverse(reversed.begin(),reversed.end());
+    REQUIRE(customAttack(18850,0,25,reversed)==customAttack(18850,0,25,infantry));
+    // The deliberately lenient campaign helper remains separate.
+    REQUIRE(limitedAttack(300,0,25,{{7,300,0}})==std::vector<uint32_t>{7});
 }

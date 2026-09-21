@@ -48,6 +48,29 @@
 #include <cstdlib>
 #include <string>
 
+void SkipMissionButton::updateTextures() {
+    Button::updateTextures();
+    if(pUnpressedTexture) return;
+    auto surface = [&](bool pressed, bool active) {
+        auto& style = GUIStyle::getInstance();
+        auto result = sdl2::surface_ptr(SDL_CreateRGBSurfaceWithFormat(
+            0, getSize().x, getSize().y, 32, SCREEN_FORMAT));
+        if(!result) return result;
+        SDL_FillRect(result.get(), nullptr, pressed ? COLOR_RGB(92, 34, 42) : COLOR_RGB(132, 46, 56));
+        drawRect(result.get(), 0, 0, getSize().x - 1, getSize().y - 1,
+                 active ? COLOR_RGB(255, 211, 116) : COLOR_RGB(205, 119, 116));
+        int fontSize = 18;
+        while(fontSize > 8 && (static_cast<int>(style.getTextWidth(getText(), fontSize)) + 12 > getSize().x
+              || static_cast<int>(style.getTextHeight(fontSize)) + 4 > getSize().y)) --fontSize;
+        auto label = pFontManager->createSurfaceWithText(getText(), COLOR_RGB(255, 244, 232), fontSize);
+        auto rect = calcDrawingRect(label.get(), getSize().x / 2 + (pressed ? 1 : 0),
+                                   getSize().y / 2 + (pressed ? 1 : 0), HAlign::Center, VAlign::Center);
+        SDL_BlitSurface(label.get(), nullptr, result.get(), &rect);
+        return result;
+    };
+    setSurfaces(surface(false, false), surface(true, true), surface(false, true));
+}
+
 GameInterface::GameInterface() : Window(0,0,0,0) {
     pObjectContainer = nullptr;
     objectID = NONE_ID;
@@ -78,6 +101,12 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
 
     topBarHBox.addWidget(&newsticker, 3.0);
 
+    topBarHBox.addWidget(Spacer::create());
+
+    pauseButton.setText(_("Pause"));
+    pauseButton.setTooltipText(_("Pause or resume the match (Space). Any active player can use this."));
+    pauseButton.setOnClick(std::bind(&Game::toggleMatchPause, currentGame));
+    topBarHBox.addWidget(&pauseButton);
     topBarHBox.addWidget(Spacer::create());
 
     optionsButton.setText(_("Options"));
@@ -132,7 +161,7 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         Point(viewControlsRight - viewButtonWidth, viewControlsY),
         Point(viewButtonWidth, viewButtonHeight));
     const bool showViewControls = ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "Dune2R";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Dune2R";
     dune2rZoomButton.setVisible(showViewControls);
     dune2rVisualButton.setVisible(showViewControls);
 
@@ -225,6 +254,15 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         "Show pollution: green is clean, purple is polluted. Click again to hide (Shift+4; Shift+1 off).",
         DuneCity::CityOverlayMode::Pollution, autoRepairY + 160);
 
+    skipMissionButton.setText(_("Skip mission"));
+    skipMissionButton.setTooltipText(_("Skip this mission and continue to the next level (confirmation required)."));
+    skipMissionButton.setOnClick(std::bind(&Game::onSkipMission, currentGame));
+    skipMissionButton.setVisible(currentGame->canSkipMission());
+    windowWidget.addWidget(&skipMissionButton,
+        Point(getRendererWidth() - sideBar.getSize().x + 24,
+              autoRepairY + (currentGame->isCitySimEnabled() ? 204 : 84)),
+        Point(ornithopterButtonWidth, 36));
+
     // add chat manager
     windowWidget.addWidget(&chatManager, Point(20, 60), Point(getRendererWidth() - sideBar.getSize().x, 360));
 
@@ -264,7 +302,7 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         if (modManager.isInitialized()) {
             ModInfo info = modManager.getModInfo(currentGame->getGameInitSettings().getModName());
             if (!info.displayName.empty()) {
-                modDisplayName = info.displayName;
+                modDisplayName = info.displayName + (info.version.empty() ? "" : " " + info.version);
             } else if (!info.name.empty()) {
                 modDisplayName = info.name;
             }
@@ -273,7 +311,7 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
         std::transform(modDisplayName.begin(), modDisplayName.end(), modDisplayName.begin(),
             [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         modVersionLabel.setTextFontSize(10);
-        modVersionLabel.setText("MOD: " + modDisplayName + "  v" + std::string(VERSION));
+        modVersionLabel.setText("MOD: " + modDisplayName);
         modVersionLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
         modVersionLabel.setAlignment(static_cast<Alignment_Enum>(Alignment_Left | Alignment_VCenter));
 
@@ -297,9 +335,13 @@ GameInterface::~GameInterface() {
 }
 
 void GameInterface::draw(Point position) {
+    const std::string pauseText=currentGame->isGamePaused() ? _("Resume")
+        : (currentGame->isPauseRequestPending() ? _("Pausing...") : _("Pause"));
+    if(pauseButton.getText()!=pauseText) pauseButton.setText(pauseText);
+    pauseButton.setEnabled(currentGame->canToggleMatchPause() && (currentGame->isGamePaused() || !currentGame->isPauseRequestPending()));
     updateJoinRequestButton();
     const bool dune2rActive = ModManager::instance().isInitialized()
-        && ModManager::instance().getActiveModName() == "Dune2R";
+        && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Dune2R";
     dune2rZoomButton.setVisible(dune2rActive);
     dune2rVisualButton.setVisible(dune2rActive);
     if(dune2rActive) {
@@ -515,6 +557,7 @@ void GameInterface::updateObjectInterface() {
     landValueOverlayButton.setVisible(showOverlayButtons);
     crimeOverlayButton.setVisible(showOverlayButtons);
     pollutionOverlayButton.setVisible(showOverlayButtons);
+    skipMissionButton.setVisible(selection.empty() && currentGame->canSkipMission());
     // Keep pressed states in sync with keyboard shortcuts and other overlays.
     landValueOverlayButton.setToggleState(currentGame->getCityOverlayMode() == DuneCity::CityOverlayMode::LandValue);
     crimeOverlayButton.setToggleState(currentGame->getCityOverlayMode() == DuneCity::CityOverlayMode::CrimeRate);

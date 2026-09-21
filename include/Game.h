@@ -26,6 +26,7 @@
 #include <ObjectData.h>
 #include <ObjectManager.h>
 #include <CommandManager.h>
+#include <Network/MatchControlState.h>
 #include <GameInterface.h>
 #include <INIMap/INIMapLoader.h>
 #include <GameInitSettings.h>
@@ -42,6 +43,7 @@
 
 #include <stdarg.h>
 #include <string>
+#include <optional>
 #include <set>
 #include <map>
 #include <utility>
@@ -415,7 +417,7 @@ public:
         This method returns wether the game is currently paused
         \return true, if paused, false otherwise
     */
-    bool isGamePaused() const { return bPause; };
+    bool isGamePaused() const { return bPause || matchControl.pausedAt(gameCycleCount); };
 
     /**
         This method returns wether the game is finished
@@ -614,7 +616,18 @@ private:
         can be set by the person creating the game.
         \return the current game speed
     */
+public:
     int getGameSpeed() const;
+    bool canChangeGameSettings() const;
+    bool requestGameSpeed(int speed);
+    bool canToggleMatchPause() const;
+    bool isPauseRequestPending() const { return pauseRequestPending; }
+    void toggleMatchPause();
+    void executeMatchPause(Uint8 issuer, Uint32 requestCycle);
+    void handleMatchControl(Uint32 revision, Uint32 speed, Uint32 pauseCycle, Uint32 resumedCycle);
+    void handleMatchResumeRequest(const std::string& player, Uint32 pauseCycle);
+    void publishMatchControl();
+
 
 public:
     enum {
@@ -908,6 +921,15 @@ private:
     TriggerManager      triggerManager;         ///< This is the manager for all the triggers the scenario has (e.g. reinforcements)
 
     bool    bQuitGame = false;                  ///< Should the game be quited after this game quit
+    MatchControlState matchControl;
+    bool pauseRequestPending = false;
+    struct MenuPause {
+        Uint32 requestCycle;
+        Uint32 pauseCycle = 0;
+        bool closed = false;
+    };
+    std::optional<MenuPause> menuPause; // Host UI ownership; never serialized as world state.
+    Uint32 lastMatchControlBroadcast = 0;
     bool    bPause = false;                     ///< Is the game currently halted
     bool    bMenu = false;                      ///< Is there currently a menu shown (options or mentat menu)
     std::unique_ptr<HumanPlayer> spectatorViewPlayer; // UI identity only; never registered or saved.

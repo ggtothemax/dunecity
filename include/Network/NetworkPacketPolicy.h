@@ -223,6 +223,28 @@ inline PacketVerdict classifyPacket(const PacketContext& context) {
             if(!inGame)      return PacketVerdict::RejectWrongPhase;
             return PacketVerdict::Accept;
 
+        case NETWORKPACKET_MATCH_CONTROL:
+            // The shared match settings (speed, pause, resume) are the host's to decide, so a
+            // client only ever honours them on the connection to the host. Same shape as
+            // SETPATHBUDGET, with the established check made explicit: this changes what every
+            // peer's simulation loop does.
+            if(!identified)  return PacketVerdict::RejectUnidentifiedPeer;
+            if(isHost)       return PacketVerdict::RejectWrongRole;
+            if(!fromHost)    return PacketVerdict::RejectNotHostPeer;
+            if(!established) return PacketVerdict::RejectPreHandshake;
+            if(!inGame)      return PacketVerdict::RejectWrongPhase;
+            return PacketVerdict::Accept;
+
+        case NETWORKPACKET_MATCH_RESUME_REQUEST:
+            // A request, not an order: only the host receives it, and only from a peer that
+            // finished admission. Whether the sender is an active human player is the game's
+            // decision - this is the transport half of it.
+            if(!identified)  return PacketVerdict::RejectUnidentifiedPeer;
+            if(!isHost)      return PacketVerdict::RejectWrongRole;
+            if(!established) return PacketVerdict::RejectPreHandshake;
+            if(!inGame)      return PacketVerdict::RejectWrongPhase;
+            return PacketVerdict::Accept;
+
         case NETWORKPACKET_MOD_INFO:
         case NETWORKPACKET_MOD_CHUNK:
         case NETWORKPACKET_MOD_COMPLETE:

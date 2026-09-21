@@ -23,6 +23,7 @@ ContentCompatibility::Fingerprint knownGood() {
     fingerprint.gameVersion    = "1.0.655";
     fingerprint.quantBotHash   = "0123456789abcdef";
     fingerprint.objectDataHash = "fedcba9876543210";
+    fingerprint.modRevisionHash = std::string(64, 'a');
     return fingerprint;
 }
 
@@ -103,4 +104,13 @@ TEST_CASE("an unnamed peer still produces a usable sentence", "[relay][content]"
     REQUIRE(ContentCompatibility::compare(knownGood(), peer, "", reason)
             == ContentCompatibility::Verdict::Mismatch);
     REQUIRE(reason.find("The other player") != std::string::npos);
+}
+
+TEST_CASE("matching INIs do not hide a different full mod package", "[relay][content][workshop]") {
+    auto peer = knownGood();
+    peer.modRevisionHash = std::string(64, 'b');
+    std::string reason;
+    REQUIRE(ContentCompatibility::compare(knownGood(), peer, "guest", reason) == ContentCompatibility::Verdict::Mismatch);
+    peer.modRevisionHash.clear();
+    REQUIRE(ContentCompatibility::compare(knownGood(), peer, "guest", reason) == ContentCompatibility::Verdict::AwaitingPeer);
 }

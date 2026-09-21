@@ -47,6 +47,7 @@ cc[cc.index('-o') + 1] = str(obj)
 cc[cc.index('-c') + 1] = str(source)
 map_path = root / 'data/maps/multiplayer/2P - 51x31 - 1v1 - Habbanya-Autumn.ini'
 cc.append('-DPROBE_MAP_PATH="' + str(map_path) + '"')
+cc.append('-fno-access-control')  # Inspect real sidebar/modal state only in this diagnostic binary.
 app = out / 'command-probe.app/Contents'
 (app / 'MacOS').mkdir(parents=True, exist_ok=True)
 resources = app / 'Resources'
@@ -66,7 +67,9 @@ with (out / 'run.log').open('w') as log:
     subprocess.run([str(binary), '--window', '--showlog'], cwd=out, env=env,
                    stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
 text = (out / 'run.log').read_text()
-for marker in ('OWNERSHIP_PROBE_PASS:', 'COMMAND_BATCH_PROBE_PASS:', 'RELAY_PAUSE_PROBE_PASS:', 'CAMPAIGN_SKIP_PROBE_PASS:', 'FEEDBACK_EDITOR_PROBE_PASS:', 'MAP_INPUT_PROBE_PASS:', 'FEEDBACK_SUBMISSION_PROBE_PASS:', 'UNIT_SELECTION_PROBE_PASS:', 'AI_PARTNER_PROBE_PASS:', 'BUILDING_SELECTION_PROBE_PASS:'):
+if 'SIDEBAR_SKIP_PROBE_PASS:' not in text:
+    raise RuntimeError('Missing sidebar mission confirmation result')
+for marker in ('SANDWORM_TARGET_PROBE_PASS:', 'OWNERSHIP_PROBE_PASS:', 'COMMAND_BATCH_PROBE_PASS:', 'RELAY_PAUSE_PROBE_PASS:', 'CAMPAIGN_SKIP_PROBE_PASS:', 'FEEDBACK_EDITOR_PROBE_PASS:', 'MAP_INPUT_PROBE_PASS:', 'FEEDBACK_SUBMISSION_PROBE_PASS:', 'UNIT_SELECTION_PROBE_PASS:', 'AI_PARTNER_PROBE_PASS:', 'BUILDING_SELECTION_PROBE_PASS:'):
     if marker not in text:
         raise RuntimeError('Missing completion marker: ' + marker)
 subprocess.run(['python3', str(root / 'scripts/check-build-deps.py'), str(build)], check=True, cwd=root)

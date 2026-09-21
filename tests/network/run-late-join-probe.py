@@ -17,6 +17,8 @@ parser.add_argument('--build-dir', type=Path, default=root / 'build')
 parser.add_argument('--output-dir', type=Path)
 parser.add_argument('--endpoint', help='Explicit isolated HTTPS test service; never use the production lobby.')
 parser.add_argument('--browser',action='store_true',help='Use the browser game as Newcomer; connect using browser.json, then create browser-observed after inspection.')
+parser.add_argument('--host-binary', type=Path, help='Existing probe executable for host compatibility testing (same map).')
+parser.add_argument('--newcomer-binary', type=Path, help='Existing probe executable for viewer compatibility testing (same map).')
 parser.add_argument('--stall',action='store_true',help='Leave the spectator unresponsive until its stream times out; the players must continue.')
 parser.add_argument('--solo',action='store_true',help='One native host, with no second active peer.')
 parser.add_argument('--city',action='store_true',help='Dune City, four-house Ergsun-Odenkirk, shared hard AI host.')
@@ -33,6 +35,8 @@ if args.four_corners and args.twin_cities:
     parser.error('Choose one map: --four-corners or --twin-cities')
 if os.environ.get('JOIN_FAST_WARMUP') and (not args.solo or args.mode not in ('spectate', 'reject_spectate')):
     parser.error('JOIN_FAST_WARMUP requires --solo and a spectator-only mode')
+if os.environ.get('JOIN_MATCH_CONTROLS') and (args.solo or args.browser or args.mode!='spectate'):
+    parser.error('JOIN_MATCH_CONTROLS requires two native players and --mode spectate')
 build = args.build_dir.resolve()
 out = args.output_dir.resolve() if args.output_dir else Path(tempfile.mkdtemp(prefix='dunecity-late-join-probe-'))
 out.mkdir(parents=True, exist_ok=True)
@@ -136,7 +140,8 @@ try:
         if args.browser: env['JOIN_BROWSER']='1'
         if args.busy: env['JOIN_BUSY']='1'
         if args.stall: env['JOIN_STALL']='1'
-        processes.append(subprocess.Popen([str(binary),'--window','--showlog'],cwd=out,env=env,stdout=log,stderr=subprocess.STDOUT))
+        role_binary = (args.host_binary if role=='Host' else args.newcomer_binary if role=='Newcomer' else None) or binary
+        processes.append(subprocess.Popen([str(role_binary.resolve()),'--window','--showlog'],cwd=out,env=env,stdout=log,stderr=subprocess.STDOUT))
     deadline=time.monotonic()+(620 if args.browser or os.environ.get('JOIN_FAST_WARMUP') else 170)
     while time.monotonic()<deadline:
         compared=originals if args.mode=='abort' or args.browser or args.stall or os.environ.get('JOIN_DESYNC_ALWAYS') else roles

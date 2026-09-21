@@ -2,6 +2,7 @@
 #include <units/UnitBase.h>
 #include <dunecity/PoliceCoveragePolicy.h>
 #include <players/AIDecisionLog.h>
+#include <players/Player.h>
 #include <dunecity/CityTrafficPolicy.h>
 /*
  *  CityEffectsRuntime.cpp
@@ -27,11 +28,13 @@
 #include <Tile.h>
 #include <House.h>
 #include <structures/StructureBase.h>
+#include <structures/BuilderBase.h>
 #include <structures/ZoneStructure.h>
 
 #include <SDL2/SDL_log.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
 #include <limits>
 #include <vector>
@@ -846,6 +849,40 @@ void CitySimulation::runZoneGrowth() {
         }
     }
 
+    // One shared budget per house, updated after each node. Multiple growing
+    // lots in the same scan must not each spend the same remaining population.
+    std::array<int, kMaxCityHouses> cityPopulation{};
+    std::array<int, kMaxCityHouses> cityLimits{};
+    for(int h=0; h<kMaxCityHouses; ++h) {
+        const auto* house = currentGame->getHouse(static_cast<HOUSETYPE>(h));
+        if(!house) continue;
+        for(const auto& player : house->getPlayerList()) {
+            const int limit = player->getCityPopulationLimit(map.getSizeX()*map.getSizeY());
+            // Human/shared houses and unrestricted bots are never constrained.
+            if(limit <= 0) { cityLimits[h]=0; break; }
+            cityLimits[h] = cityLimits[h] ? std::min(cityLimits[h],limit) : limit;
+        }
+    }
+    for(const auto& n : nodes) {
+        const int h = n.pStruct->getOwner()->getHouseID();
+        cityPopulation[h] += getStructurePopulation(n.pStruct,n.level)
+            + (n.pStruct->getItemID()==Structure_Palace ? getPalaceCommercialPopulation(n.level) : 0);
+    }
+
+    // Reserve initial population for orders already accepted by construction
+    // yards, so natural growth cannot spend the space before placement occurs.
+    for(const auto* structure : structureList) {
+        const auto* builder = dynamic_cast<const BuilderBase*>(structure);
+        if(!builder || builder->getProductionQueueSize()==0) continue;
+        const int h=builder->getOwner()->getHouseID();
+        if(cityLimits[h]<=0) continue;
+        for(const auto& queued : builder->getBuildList()) {
+            if(!isStructure(queued.itemID)) continue;
+            cityPopulation[h] += queued.num * (getZonePopulation(queued.itemID,1)
+                + (queued.itemID==Structure_Palace ? getPalaceCommercialPopulation(1) : 0));
+        }
+    }
+
     // Global supply totals (all players) — used in growth loop employment tracking
     int totalResidentialSupply = 0;
     int totalJobSupply = 0;
@@ -982,6 +1019,17 @@ void CitySimulation::runZoneGrowth() {
             ? ResidentialPopulation::grow(initialPopulation,populationDensityMap_.worldGet(pos.x,pos.y)) : 0;
         const int targetLevel = residentialLot ? ResidentialPopulation::density(nextResidentialPopulation) : n.level+1;
 
+        const int ownerHouse = n.pStruct->getOwner()->getHouseID();
+        const int palaceBefore = n.pStruct->getItemID()==Structure_Palace
+            ? getPalaceCommercialPopulation(initialLevel) : 0;
+        const int proposedPopulation = residentialLot ? nextResidentialPopulation
+            : getZonePopulation(n.pStruct->getItemID(),targetLevel);
+        const int palaceAfter = n.pStruct->getItemID()==Structure_Palace
+            ? getPalaceCommercialPopulation(targetLevel) : 0;
+        const bool withinCityLimit = cityLimits[ownerHouse] <= 0
+            || (static_cast<int64_t>(cityPopulation[ownerHouse]) + proposedPopulation
+                + palaceAfter - initialPopulation - palaceBefore) * kPopDisplayMultiplier <= cityLimits[ownerHouse];
+
         // Local supply within kSupplyRadius — summed from spatial grid blocks.
         int localComm = 0, localInd = 0, localRes = 0;
         {
@@ -1074,7 +1122,7 @@ void CitySimulation::runZoneGrowth() {
 
         // --- Growth attempt: requires zscore above threshold ---
         if (zscore > kZscoreGrowthGate && (residentialLot ? nextResidentialPopulation > initialPopulation : n.level < n.maxLevel)
-            && growthRolled && !pollutionBlocked) {
+            && growthRolled && !pollutionBlocked && withinCityLimit) {
             const int lvFloor = getDemandLandValueFloor(std::max(1,targetLevel));
             if (landValue >= lvFloor) {
                 bool meets = false;
@@ -1227,6 +1275,8 @@ void CitySimulation::runZoneGrowth() {
             }
         }
         const int finalPopulation = getStructurePopulation(n.pStruct,n.level);
+        cityPopulation[ownerHouse] += finalPopulation - initialPopulation
+            + (n.pStruct->getItemID()==Structure_Palace ? getPalaceCommercialPopulation(n.level) : 0) - palaceBefore;
         const bool populationChanged = finalPopulation != initialPopulation;
         // Observe the decision without changing its rolls, score or ordering.
         if (AITelemetry::log().enabled() && (populationChanged || lastProcessedDay_ % 96u == 0)) {
@@ -1256,7 +1306,8 @@ void CitySimulation::runZoneGrowth() {
                     .set("pollution_blocked",pollutionBlocked).set("pollution_slowed",pollutionSlowed)
                     .set("growth_roll",roll).set("growth_roll_passed",growthRolled).set("score_satisfied",zscore>kZscoreGrowthGate)
                     .set("at_max_level",initialLevel>=n.maxLevel).set("population_before",initialPopulation)
-                    .set("population_after",finalPopulation));
+                    .set("population_after",finalPopulation).set("ai_population_limit",cityLimits[ownerHouse])
+                    .set("ai_population_budget_available",withinCityLimit));
         }
     }
 
@@ -1494,6 +1545,9 @@ void CitySimulation::runDailyBudget() {
         const FixPoint tickPaid    = FixPoint(annualPaid)    / kBudgetTicksPerYear;
         const FixPoint net = tickRevenue - tickPaid;
 
+        // Gross receipts are the debriefing statistic: record them before the
+        // police charge, the credit cap or any later spending touch the balance.
+        house->addCityTaxReceipts(tickRevenue);
         house->addCityCredits(tickRevenue - tickPaid);
         AITelemetry::log().account(hID, "city_gross", tickRevenue.getRawValue());
         AITelemetry::log().account(hID, "police_charged", tickPaid.getRawValue());

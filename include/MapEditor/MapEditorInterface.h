@@ -85,7 +85,7 @@ private:
     */
     bool onRadarClick(Coord worldPosition, bool bRightMouseButton, bool bDrag);
 
-    void onSave();
+    void onSave(bool share = false);
 
     void onLoad();
 
@@ -137,6 +137,8 @@ private:
     SymbolButton        newButton;
     SymbolButton        loadButton;
     SymbolButton        saveButton;
+    TextButton          shareButton;
+    bool                shareAfterSave = false;
     SymbolButton        undoButton;
     SymbolButton        redoButton;
     SymbolButton        playersButton;
@@ -256,15 +258,19 @@ private:
     // dune city mod is active. Buttons are always declared so the shared
     // setHouse symbol-wiring and onStructButton toggle reset can address
     // them uniformly without further branching.
-    // Two rows so the wider Nuclear sprite doesn't overflow the sidebar
-    // width — zones live on row 1, Road + Nuclear on row 2.
+    // Separate rows keep the 3x3 civic buildings within the scrolling sidebar.
     HBox                editorModeStructs_HBoxCityZones;
     HBox                editorModeStructs_HBoxCityInfra;
+    HBox                editorModeStructs_HBoxCityCivic;
+    HBox                editorModeStructs_HBoxCityAirport;
     SymbolButton        editorModeStructs_ZoneResidential;
     SymbolButton        editorModeStructs_ZoneCommercial;
     SymbolButton        editorModeStructs_ZoneIndustrial;
     SymbolButton        editorModeStructs_Road;
     SymbolButton        editorModeStructs_NuclearPlant;
+    SymbolButton        editorModeStructs_PoliceStation;
+    SymbolButton        editorModeStructs_Stadium;
+    SymbolButton        editorModeStructs_Airport;
     bool                cityStructsVisible_ = false;
     bool                tornieContentVisible_ = false;
 

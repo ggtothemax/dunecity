@@ -23,6 +23,7 @@
 #include <Network/NetworkPacketPolicy.h>
 #include <Network/NetworkPacketTypes.h>
 #include <Network/PathBudgetSync.h>
+#include <Network/SnapshotTransfer.h>
 #include <mod/ModTransferValidation.h>
 
 #include <enet/enet.h>
@@ -421,6 +422,27 @@ void testModPayloadBounds() {
           "offset past the payload is refused");
 }
 
+void testSnapshotCompression() {
+    using namespace SnapshotTransfer;
+    Sender sender;
+    const std::string original(maxBytes, '\0');
+    check(sender.prepare(original), "maximum checkpoint compresses");
+    std::uint32_t decodedSize=0;
+    check(readHeader(sender.header(), sender.bytes.size(), decodedSize), "compressed header parses");
+    check(decodedSize==maxBytes, "decoded length survives wasm32 header parsing");
+    std::string decoded;
+    check(decode(sender.bytes, decodedSize, decoded) && decoded==original, "maximum checkpoint restores exactly");
+    check(!decode(sender.bytes, 8, decoded), "expansion beyond advertised length rejected");
+    check(!decode(sender.bytes, 0xffffffffu, decoded), "oversized decode rejected before allocation");
+    check(!decode(sender.bytes+"x", decodedSize, decoded), "trailing compressed bytes rejected");
+    auto corrupt=sender.bytes; corrupt.back()^=1;
+    check(!decode(corrupt, decodedSize, decoded), "checksum corruption rejected");
+    check(!readHeader(std::string("DCZ1\xff\xff\xff\xff",8), 8, decodedSize), "oversized header rejected");
+    check(sender.acknowledge(0)==Sender::Ack::RetryRaw, "legacy receiver requests raw retry");
+    check(sender.header().empty() && sender.bytes==original, "fallback keeps original checkpoint");
+    check(sender.acknowledge(0)==Sender::Ack::Ready, "legacy retry acknowledged");
+}
+
 } // namespace
 
 int main() {
@@ -439,6 +461,7 @@ int main() {
     testTrafficBudgets();
     testStatValues();
     testModPayloadBounds();
+    testSnapshotCompression();
 
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

@@ -4,8 +4,12 @@
 #include <GameInitSettings.h>
 #include <Command.h>
 #include <GUI/dune/FeedbackWindow.h>
+#include <GUI/QstBox.h>
 #include <FileClasses/LoadSavePNG.h>
 #include <units/UnitBase.h>
+#include <units/MCV.h>
+#include <misc/OMemoryStream.h>
+#include <misc/IMemoryStream.h>
 #include <structures/BuilderBase.h>
 #include <Map.h>
 #include <ScreenBorder.h>
@@ -17,6 +21,7 @@
 #include <stdexcept>
 #include <fstream>
 #include <iterator>
+#include "../units/sandworm-target-probe.inc"
 int runOwnershipProbe() {
     settings.general.playerName = "Host";
     settings.network.metaServer = "http://127.0.0.1:1/";
@@ -37,10 +42,61 @@ int runOwnershipProbe() {
     auto* owner = game->getHouse(HOUSE_ATREIDES);
     auto* enemy = game->getHouse(HOUSE_HARKONNEN);
     if(!owner || !enemy) throw std::runtime_error("ownership fixture houses missing");
+    runSandwormTargetProbe(*owner);
     auto* hostPlayer = game->getPlayerByName("Host");
     auto* coopPlayer = game->getPlayerByName("Coop");
     auto* enemyPlayer = game->getPlayerByName("Enemy");
     if(!hostPlayer || !coopPlayer || !enemyPlayer) throw std::runtime_error("ownership fixture players missing");
+    {
+        auto rules = game->gameInitSettings.getGameOptions();
+        rules.maximumNumberOfConstructionYardsOverride = -1;
+        game->gameInitSettings.setGameOptions(rules);
+        auto* mcv = static_cast<MCV*>(owner->createUnit(Unit_MCV, true));
+        Coord site = Coord::Invalid();
+        for(int y=1; y<currentGameMap->getSizeY()-3 && !site.isValid(); ++y)
+            for(int x=1; x<currentGameMap->getSizeX()-3; ++x)
+                if(mcv->canDeploy(x,y)) { site=Coord(x,y); break; }
+        if(!site.isValid()) throw std::runtime_error("No yard fixture site");
+        if(owner->getNumItems(Structure_ConstructionYard) == 0) {
+            if(!owner->placeStructure(NONE_ID,Structure_ConstructionYard,site.x,site.y,false,true))
+                throw std::runtime_error("Cannot create initial fixture yard");
+            site = Coord::Invalid();
+            for(int y=1; y<currentGameMap->getSizeY()-3 && !site.isValid(); ++y)
+                for(int x=1; x<currentGameMap->getSizeX()-3; ++x)
+                    if(mcv->canDeploy(x,y)) { site=Coord(x,y); break; }
+            if(!site.isValid()) throw std::runtime_error("No second yard fixture site");
+        }
+        mcv->deploy(site);
+        const int before = owner->getNumItems(Structure_ConstructionYard);
+        if(before < 1) throw std::runtime_error("Yard fixture needs initial yard");
+        rules.maximumNumberOfConstructionYardsOverride = before;
+        game->gameInitSettings.setGameOptions(rules);
+        if(mcv->canDeploy(site.x,site.y) || mcv->doDeploy()
+           || owner->getNumItems(Structure_ConstructionYard) != before)
+            throw std::runtime_error("MCV bypassed yard cap");
+        // The same MCV remains alive and can deploy when the rule permits it.
+        rules.maximumNumberOfConstructionYardsOverride = before + 1;
+        game->gameInitSettings.setGameOptions(rules);
+        if(!mcv->doDeploy() || owner->getNumItems(Structure_ConstructionYard) != before+1)
+            throw std::runtime_error("Blocked MCV lost or could not deploy below cap");
+        OMemoryStream output; output.open();
+        game->gameInitSettings.save(output);
+        IMemoryStream input(output.getData(), output.getDataLength());
+        GameInitSettings copy(input);
+        if(copy.getGameOptions().maximumNumberOfConstructionYardsOverride != before+1)
+            throw std::runtime_error("Yard cap lost in network/save setup");
+        std::string legacy(output.getData(),output.getDataLength());
+        const auto marker = legacy.rfind("5DOM");
+        if(marker == std::string::npos) throw std::runtime_error("MOD5 fixture missing");
+        legacy[marker]='4'; legacy.resize(legacy.size()-4);
+        IMemoryStream oldInput(legacy.data(),legacy.size());
+        GameInitSettings old(oldInput);
+        if(old.getGameOptions().maximumNumberOfConstructionYardsOverride != -1)
+            throw std::runtime_error("Older setup did not default to unlimited yards");
+        rules.maximumNumberOfConstructionYardsOverride = -1;
+        game->gameInitSettings.setGameOptions(rules);
+        SDL_Log("YARD_CAP_PROBE_PASS: refused deployment preserves MCV; MOD5 roundtrip and MOD4 default pass");
+    }
     UnitBase* unit = owner->createUnit(Unit_Tank, true);
     unit->doSetAttackMode(GUARD);
     auto order=[&](Uint8 player, Uint32 mode) { Command(player, CMD_UNIT_SETMODE, unit->getObjectID(), mode).executeCommand(); };
@@ -124,7 +180,68 @@ int runOwnershipProbe() {
         auto* controller = game->getPlayerByName(level == 4 ? "Host" : "Coop");
         if(!controller || !game->canSkipMission()) throw std::runtime_error("campaign skip unavailable");
         {
+            const bool wasCity = game->citySimEnabled_;
+            game->citySimEnabled_ = true;
+            GameInterface cityInterface;
+            cityInterface.updateObjectInterface();
+            const auto* skip = cityInterface.windowWidget.getWidgetDataFromWidget(&cityInterface.skipMissionButton);
+            const auto* pollution = cityInterface.windowWidget.getWidgetDataFromWidget(&cityInterface.pollutionOverlayButton);
+            if(!cityInterface.skipMissionButton.isVisible() || skip->position.y < pollution->position.y + pollution->size.y
+               || skip->position.y + skip->size.y > 480)
+                throw std::runtime_error("city sidebar skip overlaps Pollution or falls below compact screen");
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderClear(renderer);
+            cityInterface.draw(Point(0,0));
+            auto citySidebar = renderReadSurface(renderer);
+            SavePNG(citySidebar.get(), "skip-mission-city-sidebar.png");
+            game->citySimEnabled_ = wasCity;
+        }
+        {
             GameInterface interface;
+            game->getSelectedList().clear();
+            interface.updateObjectInterface();
+            if(!interface.skipMissionButton.isVisible()) throw std::runtime_error("campaign sidebar skip missing");
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderClear(renderer);
+            interface.draw(Point(0,0));
+            auto sidebar = renderReadSurface(renderer);
+            SavePNG(sidebar.get(), "skip-mission-sidebar.png");
+            const auto commandsBefore = game->getCommandManager().timeslot;
+            auto openSkip = [&]() {
+                interface.skipMissionButton.handleMouseLeft(5, 5, true);
+                interface.skipMissionButton.handleMouseLeft(5, 5, false);
+                auto* menu = game->pInGameMenu.get();
+                auto* question = menu ? dynamic_cast<QstBox*>(menu->pChildWindow) : nullptr;
+                if(!question || !question->button2.isActive())
+                    throw std::runtime_error("sidebar skip confirmation missing or Cancel not default");
+                return question;
+            };
+            auto* question = openSkip();
+            game->pInGameMenu->draw();
+            auto confirmation = renderReadSurface(renderer);
+            SavePNG(confirmation.get(), "skip-mission-confirmation.png");
+            SDL_Event cancel{}; cancel.type = SDL_KEYDOWN; cancel.key.keysym.sym = SDLK_RETURN;
+            game->pInGameMenu->handleInput(cancel);
+            if(game->isGameFinished() || game->isGamePaused() || game->bMenu
+               || game->getCommandManager().timeslot.size() != commandsBefore.size())
+                throw std::runtime_error("Cancel skipped the mission");
+            game->resumeGame(); game->pInGameMenu.reset();
+            openSkip();
+            SDL_Event escape{}; escape.type = SDL_KEYDOWN; escape.key.keysym.sym = SDLK_ESCAPE;
+            game->pInGameMenu->handleInput(escape);
+            if(game->isGamePaused() || game->bMenu) throw std::runtime_error("Escape did not return to game");
+            game->pInGameMenu.reset();
+            question = openSkip();
+            question->onButton(QSTBOX_BUTTON1);
+            game->pInGameMenu->processChildWindowOpenCloses();
+            size_t skipCount = 0;
+            for(const auto& slot : game->getCommandManager().timeslot)
+                for(const auto& command : slot) if(command.getCommandID() == CMD_CAMPAIGN_SKIP) ++skipCount;
+            if(skipCount != 1) throw std::runtime_error("confirmation did not queue exactly one skip command");
+            game->getCommandManager().timeslot = commandsBefore;
+            game->pInGameMenu.reset();
+            game->bReplay = true; interface.updateObjectInterface();
+            if(interface.skipMissionButton.isVisible()) throw std::runtime_error("replay allows mission skip");
+            game->bReplay = false; interface.updateObjectInterface();
+            SDL_Log("SIDEBAR_SKIP_PROBE_PASS: visible campaign action, Cancel default, cancellation safe, confirmation queues skip, replay hidden");
             // Selecting a builder used to swallow all subsequent map clicks.
             bool foundBuilder = false;
             for(auto* structure : structureList) {
@@ -132,6 +249,7 @@ int runOwnershipProbe() {
                     game->getSelectedList().clear();
                     game->getSelectedList().insert(structure->getObjectID());
                     interface.updateObjectInterface();
+                    if(interface.skipMissionButton.isVisible()) throw std::runtime_error("skip overlaps selected object controls");
                     foundBuilder = true;
                     break;
                 }

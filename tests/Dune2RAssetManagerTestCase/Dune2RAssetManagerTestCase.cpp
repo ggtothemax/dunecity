@@ -107,7 +107,7 @@ TEST_CASE("Dune2R source catalog loads immutable packs", "[Dune2RAssets]") {
     Dune2RAssetManager manager(modPath.string());
     REQUIRE(manager.getRevision().size() == 40);
     REQUIRE(manager.getRevision().find_first_not_of("0123456789abcdef") == std::string::npos);
-    for(const auto* id : {"gravel", "refinery", "harkonnendevastator", "ordostank"}) {
+    for(const auto* id : {"gravel", "sand", "refinery", "harkonnendevastator", "ordostank"}) {
         const auto& packs = manager.getPacks();
         const auto found = std::find_if(packs.begin(), packs.end(), [&](const auto& pack) { return pack.id == id; });
         REQUIRE(found != packs.end());

@@ -51,7 +51,7 @@ class INIFile;
 class CustomGamePlayers : public MenuBase
 {
 public:
-    CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server = true, bool LANServer = true, CustomPlaySetup* setup = nullptr, const ChangeEventList* initialPlayers = nullptr);
+    CustomGamePlayers(const GameInitSettings& newGameInitSettings, bool server = true, bool LANServer = true, CustomPlaySetup* setup = nullptr, const ChangeEventList* initialPlayers = nullptr, bool startImmediately = false);
     virtual ~CustomGamePlayers();
     int showMenu() override;
 
@@ -82,6 +82,13 @@ private:
     void rebuildSetup(bool keepPlayers);
     CustomPlaySetup* setup = nullptr;
     bool restoringSetup = false;
+    bool startImmediately = false;
+    bool automaticStartPending = false;
+    bool installerApprovedForDisplay = false;
+    StaticContainer launchWidget;
+    Label launchTitle;
+    TextView launchStatus;
+    TextButton cancelLaunch;
     HBox setupMapRow, setupModeRow;
     DropDownBox setupMap, setupMod, setupConnection, setupVisibility;
     Checkbox setupShared;
@@ -207,6 +214,9 @@ private:
     bool                    bConfigMismatchDetected;
     std::string             hostModName;                ///< The mod name sent by the host
     std::string             hostModChecksum;            ///< The mod checksum sent by the host
+    bool waitingForModInstall = false, rebuildAfterModTransfer = false;
+    bool communityModDownloadAttempted = false, communityModDownloadInProgress = false;
+    ChangeEventList delayedModChanges;
     bool                    bModDownloadInProgress;     ///< Whether mod download is in progress
     std::set<std::string>   clientsAckedMod;            ///< Clients that have acknowledged mod sync (host only)
     bool                    bWaitingForModAcks;         ///< Whether host is waiting for mod ACKs

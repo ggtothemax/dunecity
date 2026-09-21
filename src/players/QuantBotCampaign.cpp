@@ -1,14 +1,33 @@
 #include <players/QuantBot.h>
+#include <players/QuantBotCityPolicy.h>
 #include <players/HumanPlayer.h>
 #include <House.h>
 #include <Game.h>
 #include <Map.h>
 #include <misc/CampaignControls.h>
+#include <dunecity/CitySimulation.h>
+#include <players/QuantBotConfig.h>
+#include <units/Harvester.h>
 #include <sand.h>
 #include <structures/StructureBase.h>
 #include <units/UnitBase.h>
 #include <Trigger/ReinforcementTrigger.h>
 #include <Trigger/TriggerManager.h>
+#include <FileClasses/INIFile.h>
+#include <FileClasses/FileManager.h>
+#include <dunecity/CityEffects.h>
+#include <structures/BuilderBase.h>
+#include <structures/ZoneStructure.h>
+#include <dunecity/CityStructurePopulation.h>
+
+int QuantBot::getCityPopulationLimit(int mapArea) const {
+    if(!currentGame || !currentGame->isCitySimEnabled() || supportMode
+       || gameMode != GameMode::Custom || isCampaignGameType(currentGame->gameType)) return 0;
+    // A co-op helper cannot impose an AI limit on a human-controlled house.
+    for(const auto& player : getHouse()->getPlayerList())
+        if(dynamic_cast<const HumanPlayer*>(player.get())) return 0;
+    return std::max(0, QuantBotCityPolicy::populationLimit(static_cast<int>(difficulty),mapArea));
+}
 
 bool QuantBot::isAlliedWithHuman() const {
     if (!getHouse()) return false;
@@ -18,6 +37,161 @@ bool QuantBot::isAlliedWithHuman() const {
             if (dynamic_cast<const HumanPlayer*>(player.get())) return true;
     }
     return false;
+}
+
+// Original permissions and budget are independent of later construction or spice loss.
+bool QuantBot::campaignCityEconomy() const {
+    return isCampaignEnemy() && currentGame->isCitySimEnabled()
+        && currentGame->getGameInitSettings().getModName() == "dunecity"
+        && currentGame->getCitySimulation() && currentGame->getCitySimulation()->isInitialized();
+}
+
+void QuantBot::noteCampaignOriginalState(bool legacySave) {
+    campaignOriginalStructures.clear();
+    for (Uint32 item=ItemID_FirstID; item<=ItemID_LastID; ++item)
+        if (isStructure(item) && initialItemCount[item]>0) campaignOriginalStructures.insert(item);
+    int refineries = initialItemCount[Structure_Refinery];
+    // Old saves contain AI-added permissions in initialItemCount. Recover the
+    // authored named-house scenario where available, including destroyed types.
+    if (legacySave) {
+        try {
+            const auto& setup = getGameInitSettings();
+            auto file = setup.getFiledata().empty() ? pFileManager->openCampaignFile(setup.getFilename())
+                : sdl2::RWops_ptr(SDL_RWFromConstMem(setup.getFiledata().data(),int(setup.getFiledata().size())));
+            INIFile scenario(file.get());
+            if (scenario.hasSection("STRUCTURES")) {
+                std::set<Uint32> types; int authoredRefineries=0; bool namedHouses=false;
+                for (const auto& key:scenario.getSection("STRUCTURES")) {
+                    std::string houseName,building,health,position;
+                    const bool generic=key.getKeyName().compare(0,3,"GEN")==0;
+                    if (generic) {
+                        if (!splitString(key.getStringValue(),houseName,building)) continue;
+                    } else if (key.getKeyName().compare(0,2,"ID")!=0
+                        || !splitString(key.getStringValue(),houseName,building,health,position)) continue;
+                    const int house = getHouseByName(houseName);
+                    if (house<0 || house>=NUM_HOUSES) continue;
+                    namedHouses=true;
+                    if (house!=getHouse()->getHouseID()) continue;
+                    const auto item=getItemIDByName(building);
+                    if (!isStructure(item) || !currentGame->objectData.data[item][house].enabled) continue;
+                    if (!generic || item==Structure_Wall) types.insert(item);
+                    if (item==Structure_Refinery) ++authoredRefineries;
+                }
+                if (namedHouses) {campaignOriginalStructures=std::move(types);refineries=authoredRefineries;}
+            }
+        } catch (const std::exception&) {
+            // Custom/removed older content retains its saved permissions.
+            logWarn("Cannot recover original campaign scenario; retaining legacy building permissions");
+        }
+    }
+    campaignBaseline.refineries=refineries;
+    const auto& settings=getQuantBotConfig().getSettings(int(difficulty));
+    int allowedRefineries=difficulty==Difficulty::Hard && getGameInitSettings().getMission()>=21 ? 2 : refineries;
+    allowedRefineries=std::max(allowedRefineries,settings.refineryMinimum);
+    int allowance=std::max(0,settings.harvesterLimitPerRefineryMultiplier*allowedRefineries);
+    if (const int ceiling=harvesterCountCeiling();ceiling>0) allowance=std::min(allowance,ceiling);
+    if (const int ceiling=getHouse()->getMaxHarvesters();ceiling>0) allowance=std::min(allowance,ceiling);
+    campaignBaseline.allowance=refineries>0 ? allowance : 0;
+    campaignBaselineCaptured=true;
+}
+
+bool QuantBot::campaignPermitsStructure(Uint32 item) const {
+    if (!campaignCityEconomy() || !isStructure(item)) return true;
+    // An RTS building's city employment role is NOT permission to introduce it.
+    if (isZoneStructure(item) || item==Structure_PoliceStation || item==Structure_NuclearPlant
+        || item==Structure_Stadium || item==Structure_Airport
+        || item==Structure_Road || item==Structure_Slab1 || item==Structure_Slab4) return true;
+    return campaignBaselineCaptured ? campaignOriginalStructures.count(item)>0 : initialItemCount[item]>0;
+}
+
+bool QuantBot::campaignPostSpice() const {
+    if (!campaignCityEconomy() || campaignMapHasSpice) return false;
+    for (const auto* unit:getUnitList()) if (unit->getOwner()==getHouse() && unit->getHealth()>0)
+        if (const auto* worker=dynamic_cast<const Harvester*>(unit);worker && worker->getAmountOfSpice()>0) return false;
+    return QuantBotCityCampaignPolicy::postSpiceConfirmed(0,0,campaignSpiceZeroSince,
+        getGameCycleCount(),MILLI2CYCLES(30000));
+}
+
+QuantBotCityCampaignPolicy::Limits QuantBot::campaignCityLimits() const {
+    if (!campaignCityEconomy()) return {};
+    return QuantBotCityCampaignPolicy::limits(int(difficulty),
+        QuantBotCityCampaignPolicy::displayLevel(currentGame->techLevel),campaignBaseline,
+        campaignPostSpice(),getHouse()->getMaxHarvesters());
+}
+
+int QuantBot::campaignHarvesterTarget() const {
+    return campaignMapHasSpice ? campaignCityLimits().harvesters : 0;
+}
+
+int QuantBot::campaignHarvesterCeiling() const {
+    if (!campaignCityEconomy() || !campaignBaselineCaptured) return -1;
+    return std::min(std::max(0,harvesterLimit),campaignHarvesterTarget());
+}
+
+bool QuantBot::campaignCanAddHarvester() const {
+    const int ceiling = campaignHarvesterCeiling();
+    return ceiling < 0 || campaignCommittedCount(Unit_Harvester)
+        + campaignCommittedCount(Unit_RebelHarvester) < ceiling;
+}
+
+int QuantBot::campaignCommittedCount(Uint32 item) const {
+    int count=getHouse()->getNumItems(item);
+    for (const auto* structure:getStructureList()) if (structure->getOwner()==getHouse())
+        if (const auto* builder=dynamic_cast<const BuilderBase*>(structure))
+            for (const auto& queued:builder->getBuildList()) if (queued.itemID==item) count+=queued.num;
+    return count;
+}
+
+int QuantBot::campaignIncomeForecastPerMinute() const {
+    if (!campaignCityEconomy()) return 0;
+    const auto* sim=currentGame->getCitySimulation();
+    const auto& state=sim->getHouseState(getHouse()->getHouseID());
+    const int tax=sim->getCityTax(),land=state.avgLandValue>0 ? state.avgLandValue : 128;
+    int income=DuneCity::computeAnnualTaxRevenue(state.taxBaseEighths,tax,land);
+    // Forecast committed/developing zones using the actual tax and population
+    // functions, never a universal credits-per-zone constant.
+    for (Uint32 kind:{Structure_ZoneResidential,Structure_ZoneCommercial,Structure_ZoneIndustrial}) {
+        int expectedPopulation=std::max(0,campaignCommittedCount(kind)-getHouse()->getNumItems(kind))
+            * DuneCity::getZonePopulation(kind,1);
+        for (const auto* structure:getStructureList()) if(structure->getOwner()==getHouse() && structure->getItemID()==kind) {
+            const auto pos=structure->getLocation();
+            if (!getMap().tileExists(pos.x,pos.y)) continue;
+            const int population=DuneCity::getStructurePopulation(structure,getMap().getTile(pos.x,pos.y)->getCityZoneDensity());
+            expectedPopulation+=std::max(0,DuneCity::getZonePopulation(kind,1)-population);
+        }
+        income+=DuneCity::computeAnnualTaxRevenue(DuneCity::taxablePopulationEighths(kind,expectedPopulation,1),tax,land)/2;
+    }
+    income-=state.lastPoliceExpense;
+    if (getHouse()->isPowerRequired()) income-=getHouse()->getPowerRequirement()/8;
+    if (campaignMapHasSpice) {
+        const int workers=std::max(campaignHarvesterTarget(),campaignCommittedCount(Unit_Harvester)+campaignCommittedCount(Unit_RebelHarvester));
+        income+=workers*QuantBotCityCampaignPolicy::kReferenceIncomePerHarvester;
+    }
+    return std::max(0,income);
+}
+
+bool QuantBot::campaignAllowsZone(int zonesIncludingQueued) const {
+    return !campaignCityEconomy() || QuantBotCityCampaignPolicy::allowsDiscretionaryExpansion(
+        zonesIncludingQueued,campaignCityLimits().sharedZoneCap,campaignIncomeForecastPerMinute(),
+        QuantBotCityCampaignPolicy::totalIncomeGoalPerMinute(campaignBaseline));
+}
+
+bool QuantBot::campaignAvailableToBuild(const BuilderBase* builder, Uint32 item) const {
+    if (!builder->isAvailableToBuild(item) || !campaignPermitsStructure(item)) return false;
+    if (item==Unit_MCV && !campaignPermitsStructure(Structure_ConstructionYard)) return false;
+    if (campaignCityEconomy() && isZoneStructure(item))
+        return campaignAllowsZone(campaignCommittedCount(Structure_ZoneResidential)
+            +campaignCommittedCount(Structure_ZoneCommercial)+campaignCommittedCount(Structure_ZoneIndustrial));
+    return true;
+}
+
+void QuantBot::doProduceItem(const BuilderBase* builder, Uint32 item) const {
+    if (!campaignAvailableToBuild(builder,item)) return;
+    if (campaignCityEconomy() && (item==Unit_Harvester || item==Unit_RebelHarvester)) {
+        const int ceiling=campaignHarvesterCeiling();
+        if (ceiling>=0 && campaignCommittedCount(Unit_Harvester)+campaignCommittedCount(Unit_RebelHarvester)>=ceiling) return;
+    }
+    Player::doProduceItem(builder,item);
 }
 
 int QuantBot::harvesterCountCeiling() const {

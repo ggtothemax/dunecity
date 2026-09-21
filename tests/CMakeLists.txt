@@ -10,6 +10,10 @@ add_executable(dunelegacy_tests)
 # Note: Catch2WithMain provides main(), no testmain.cpp needed
 target_sources(dunelegacy_tests
     PRIVATE
+        WorkshopStoreTestCase.cpp
+        ${CMAKE_SOURCE_DIR}/src/mod/WorkshopStore.cpp
+        SnapshotTransferTestCase.cpp
+        ${CMAKE_SOURCE_DIR}/src/Network/SnapshotTransfer.cpp
         CoopGameSettingsTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/GameInitSettings.cpp
         ${CMAKE_SOURCE_DIR}/src/misc/IFileStream.cpp
@@ -18,6 +22,9 @@ target_sources(dunelegacy_tests
         RendererSizeTestCase.cpp
         CursorAppearanceTestCase.cpp
         QuantBotBuildPolicyTestCase.cpp
+        QuantBotCityPolicyTestCase.cpp
+        MatchControlTestCase.cpp
+        QuantBotCityCampaignPolicyTestCase.cpp
         AIDecisionLogTestCase.cpp
         CityPlacementPolicyTestCase.cpp
         GroundAccessPolicyTestCase.cpp
@@ -121,6 +128,7 @@ target_link_libraries(dunelegacy_tests
         SDL2::SDL2
         $<IF:$<TARGET_EXISTS:SDL2_mixer::SDL2_mixer>,SDL2_mixer::SDL2_mixer,SDL2_mixer::SDL2_mixer-static>
         CURL::libcurl
+        ZLIB::ZLIB
 )
 
 if(APPLE)
@@ -165,6 +173,7 @@ add_test(NAME lobby_authorization_tests COMMAND dunelegacy_tests "[lobby][securi
 # Emscripten where size_t is 32 bits). It needs no game data and no Catch2.
 add_executable(network_wire_harness
     wasm/NetworkWireHarness.cpp
+    ${CMAKE_SOURCE_DIR}/src/Network/SnapshotTransfer.cpp
     ${CMAKE_SOURCE_DIR}/src/misc/format.cpp
     ${CMAKE_SOURCE_DIR}/src/enet/callbacks.c
     ${CMAKE_SOURCE_DIR}/src/enet/compress.c
@@ -187,6 +196,7 @@ target_include_directories(network_wire_harness
 
 target_link_libraries(network_wire_harness
     PRIVATE
+        ZLIB::ZLIB
         SDL2::SDL2
         $<IF:$<TARGET_EXISTS:SDL2_mixer::SDL2_mixer>,SDL2_mixer::SDL2_mixer,SDL2_mixer::SDL2_mixer-static>
 )
@@ -384,6 +394,14 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             ${CMAKE_SOURCE_DIR}/tests/menu/run-menu-probe.py
             --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/menu-probe)
         set_tests_properties(menu_navigation_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        add_test(NAME game_command_regressions COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/network/run-command-execution-probe.py
+            --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/command-probe)
+        set_tests_properties(game_command_regressions PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+        add_test(NAME quantbot_custom_attack COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --custom-attack-probe --repeatable
+            --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/custom-attack-probe)
+        set_tests_properties(quantbot_custom_attack PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
     endif()
 endif()
 

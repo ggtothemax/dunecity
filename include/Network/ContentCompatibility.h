@@ -40,10 +40,12 @@ struct Fingerprint {
     std::string gameVersion;
     std::string quantBotHash;
     std::string objectDataHash;
+    std::string modRevisionHash;
 
     /// True when every field has a value. An absent field is never treated as a match.
     bool complete() const {
-        return !gameVersion.empty() && !quantBotHash.empty() && !objectDataHash.empty();
+        return !gameVersion.empty() && !quantBotHash.empty() && !objectDataHash.empty()
+            && modRevisionHash.size() == 64 && modRevisionHash.find_first_not_of("0123456789abcdef") == std::string::npos;
     }
 };
 
@@ -90,6 +92,7 @@ inline Verdict compare(const Fingerprint& local, const Fingerprint& peer,
     if(peer.quantBotHash != local.quantBotHash) {
         differences += "\n- QuantBot Config.ini";
     }
+    if(peer.modRevisionHash != local.modRevisionHash) differences += "\n- a different map/mod Workshop dependency";
     if(peer.objectDataHash != local.objectDataHash) {
         differences += "\n- ObjectData.ini";
     }

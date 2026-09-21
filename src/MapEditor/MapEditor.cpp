@@ -1,3 +1,5 @@
+#include <mod/Workshop.h>
+#include <mod/ModManager.h>
 /*
  *  This file is part of Dune Legacy.
  *
@@ -107,6 +109,9 @@ unsigned int getMapEditorStructureUIGraphic(int itemID) noexcept {
         case Structure_Chemipost:           return UI_MapEditor_Chemipost;
         case Structure_LoveFactory:         return UI_MapEditor_LoveFactory;
         case Structure_ChaosFactory:        return UI_MapEditor_ChaosFactory;
+        case Structure_PoliceStation:       return UI_MapEditor_PoliceStation;
+        case Structure_Stadium:             return UI_MapEditor_Stadium;
+        case Structure_Airport:             return UI_MapEditor_Airport;
         default:                            return NUM_UIGRAPHICS;
     }
 }
@@ -828,7 +833,18 @@ void MapEditor::saveMap(const std::string& filepath) {
         }
     }
 
-    loadedINIFile->saveChangesTo(filepath, getMapVersion() < 2);
+    bool forkShared = false;
+    if(std::filesystem::exists(filepath + ".workshop.ini")) {
+        INIFile previous(filepath + ".workshop.ini");
+        forkShared = previous.getBoolValue("Workshop", "Immutable", false);
+    }
+    if(forkShared || loadedINIFile->getStringValue("Workshop", "ID", "").empty())
+        loadedINIFile->setStringValue("Workshop", "ID", Workshop::newID());
+    const std::string stagedPath = filepath + ".saving";
+    if(!loadedINIFile->saveChangesTo(stagedPath, getMapVersion() < 2))
+        throw std::runtime_error("The map could not be saved. Check the destination and free disk space.");
+    Workshop::replaceFile(stagedPath, filepath);
+    Workshop::saveMap(filepath, ModManager::instance().getActiveModName());
 
     lastSaveName = filepath;
     bChangedSinceLastSave = false;
@@ -1738,6 +1754,9 @@ void MapEditor::drawMap(ScreenBorder* pScreenborder, bool bCompleteMap) {
                 case Structure_ZoneCommercial:      objectPic = ObjPic_ZoneCommercial;      break;
                 case Structure_ZoneIndustrial:      objectPic = ObjPic_ZoneIndustrial;      break;
                 case Structure_NuclearPlant:        objectPic = ObjPic_NuclearPlant;        break;
+                case Structure_PoliceStation:       objectPic = ObjPic_PoliceStation;       break;
+                case Structure_Stadium:             objectPic = ObjPic_Stadium;             break;
+                case Structure_Airport:             objectPic = ObjPic_Airport;             break;
                 case Structure_AdvancedWindTrap:    objectPic = ObjPic_AdvancedWindTrap;    break;
                 case Structure_AdvancedWindTrapMK2: objectPic = ObjPic_AdvancedWindTrap2x3; break;
                 case Structure_AdvancedWindTrapMK3: objectPic = ObjPic_AdvancedWindTrap3x2; break;

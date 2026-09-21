@@ -19,7 +19,7 @@ OUT="${ROOT}/build/wasm-harness"
 
 mkdir -p "${OUT}"
 
-SOURCES=("${ROOT}/tests/wasm/NetworkWireHarness.cpp" "${ROOT}/src/misc/format.cpp")
+SOURCES=("${ROOT}/tests/wasm/NetworkWireHarness.cpp" "${ROOT}/src/misc/format.cpp" "${ROOT}/src/Network/SnapshotTransfer.cpp")
 INCLUDES=("-I${ROOT}/include" "-I${ROOT}/src" "-I${ROOT}/src/enet")
 
 # Compile the bundled ENet sources as C, separately from the C++ harness.
@@ -43,7 +43,7 @@ case "${MODE}" in
         }
         build_enet emcc
         em++ -std=c++17 -O1 -fexceptions -sDISABLE_EXCEPTION_CATCHING=0 \
-             -sUSE_SDL=2 -sUSE_SDL_MIXER=2 -sALLOW_MEMORY_GROWTH=1 \
+             -sUSE_ZLIB=1 -sUSE_SDL=2 -sUSE_SDL_MIXER=2 -sALLOW_MEMORY_GROWTH=1 \
              -sMAXIMUM_MEMORY=2147483648 -sEXIT_RUNTIME=1 -sENVIRONMENT=node \
              "${INCLUDES[@]}" "${SOURCES[@]}" "${OBJECTS[@]}" \
              -o "${OUT}/network-wire-harness.js"
@@ -56,7 +56,7 @@ case "${MODE}" in
         SDL_LIBS="$(pkg-config --libs sdl2 SDL2_mixer 2>/dev/null || sdl2-config --libs)"
         # shellcheck disable=SC2086
         "${CXX}" -std=c++17 -O1 -g -fsanitize=address,undefined \
-             "${INCLUDES[@]}" ${SDL_CFLAGS} "${SOURCES[@]}" "${OBJECTS[@]}" ${SDL_LIBS} \
+             "${INCLUDES[@]}" ${SDL_CFLAGS} "${SOURCES[@]}" "${OBJECTS[@]}" ${SDL_LIBS} -lz \
              -o "${OUT}/network-wire-harness"
         "${OUT}/network-wire-harness"
         ;;

@@ -35,6 +35,8 @@ const EXPECTED = [
   [GAME.CONFIG_HASH, true, 'any', 'lobby', 'any'],
   [GAME.SETPATHBUDGET, true, 'host', 'match', 'any'],
   [GAME.CLIENTSTATS, true, 'client', 'match', 'host'],
+  [GAME.MATCH_CONTROL, true, 'host', 'match', 'any'],
+  [GAME.MATCH_RESUME_REQUEST, true, 'client', 'match', 'host'],
   [GAME.MOD_INFO, false],
   [GAME.MOD_REQUEST, false],
   [GAME.MOD_CHUNK, false],

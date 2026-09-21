@@ -19,6 +19,8 @@
 #include "shared-spending-probe.inc"
 #include "opening-economy-probe.inc"
 #include "army-movement-probe.inc"
+#include "custom-attack-probe.inc"
+#include "custom-city-cap-probe.inc"
 #include "factory-recovery-probe.inc"
 #include "radar-power-probe.inc"
 #include "campaign-stats-probe.inc"
@@ -28,6 +30,8 @@
 #include "campaign-pacing-probe.inc"
 #include "campaign-repair-probe.inc"
 #include "campaign-helper-economy-probe.inc"
+#include "city-income-probe.inc"
+#include "campaign-city-economy-probe.inc"
 
 int runCampaignBalanceProbe() {
     const int level = std::atoi(std::getenv("BALANCE_LEVEL"));
@@ -108,6 +112,14 @@ int runCampaignBalanceProbe() {
         runControlsProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
+    if (std::getenv("BALANCE_CITY_CAMPAIGN_PROBE")) {
+        runCampaignCityEconomyProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_CITY_INCOME_PROBE")) {
+        runCityIncomeProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
     if (std::getenv("BALANCE_CITY_PLACEMENT_PROBE")) {
         runCityPlacementProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
@@ -122,6 +134,10 @@ int runCampaignBalanceProbe() {
     }
     if (std::getenv("BALANCE_ARMY_PROBE")) {
         runArmyMovementProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_CUSTOM_ATTACK_PROBE")) {
+        runCustomAttackProbe(*game);runCustomCityCapProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_RADAR_PROBE")) {

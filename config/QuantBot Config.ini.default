@@ -88,8 +88,8 @@ Easy_HarvesterLimitLargeMap=8
 Easy_HarvesterLimitHugeMap=15
 Easy_MilitaryValueLimitSmallMap=3000
 Easy_MilitaryValueLimitMediumMap=8000
-Easy_MilitaryValueLimitLargeMap=20000
-Easy_MilitaryValueLimitHugeMap=30000
+Easy_MilitaryValueLimitLargeMap=15000
+Easy_MilitaryValueLimitHugeMap=25000
 # Defense scramble: units to send when attacked
 Easy_StructureDefenders=10
 Easy_HarvesterDefenders=5
@@ -111,8 +111,8 @@ Medium_HarvesterLimitLargeMap=15
 Medium_HarvesterLimitHugeMap=25
 Medium_MilitaryValueLimitSmallMap=5000
 Medium_MilitaryValueLimitMediumMap=12000
-Medium_MilitaryValueLimitLargeMap=35000
-Medium_MilitaryValueLimitHugeMap=50000
+Medium_MilitaryValueLimitLargeMap=25000
+Medium_MilitaryValueLimitHugeMap=40000
 # Defense scramble: units to send when attacked
 Medium_StructureDefenders=15
 Medium_HarvesterDefenders=10

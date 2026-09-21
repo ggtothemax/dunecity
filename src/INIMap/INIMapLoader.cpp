@@ -175,7 +175,7 @@ void INIMapLoader::loadMap() {
 
     if(pGame->techLevel == 0) {
         const int defaultTechLevel = (ModManager::instance().isInitialized()
-                                      && ModManager::instance().getActiveModName() == "Tornie") ? 9 : 8;
+                                      && ModManager::instance().getContentBase(ModManager::instance().getActiveModName()) == "Tornie") ? 9 : 8;
         pGame->techLevel = inifile->getIntValue("BASIC","TechLevel", defaultTechLevel);
     }
 

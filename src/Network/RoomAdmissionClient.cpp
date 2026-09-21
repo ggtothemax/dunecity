@@ -58,7 +58,9 @@ std::string buildFormBody(const AdmissionRequest& request) {
     body += "&gameProtocol=" + std::to_string(static_cast<unsigned>(request.gameProtocol));
     body += "&contentHash=" + RoomAdmission::encodeFormValue(request.contentHash);
     body += "&runtime=" + RoomAdmission::encodeFormValue(request.runtime);
-    if(request.operation == AdmissionOperation::JoinRequest) {
+    if(request.operation == AdmissionOperation::Inspect) {
+        body += "&room=" + RoomAdmission::encodeFormValue(request.roomCode);
+    } else if(request.operation == AdmissionOperation::JoinRequest) {
         body += "&room=" + RoomAdmission::encodeFormValue(request.roomCode);
         body += "&name=" + RoomAdmission::hexText(request.displayName);
         body += request.publicOnly ? "&publicOnly=1" : "&publicOnly=0";
@@ -100,6 +102,7 @@ std::string buildEndpointUrl(const AdmissionRequest& request) {
         base.pop_back();
     }
     switch(request.operation) {
+        case AdmissionOperation::Inspect: return base + "/v1/admission/inspect";
         case AdmissionOperation::JoinRequest: return base + "/v1/admission/request";
         case AdmissionOperation::JoinStatus: return base + "/v1/admission/request-status";
         case AdmissionOperation::Visibility: return base + "/v1/admission/visibility";
@@ -196,7 +199,7 @@ void RoomAdmissionClient::begin(const AdmissionRequest& request) {
         finishWithError("The game could not describe itself to the game service.");
         return;
     }
-    if(request.operation == AdmissionOperation::Room && !request.hosting && !request.listing) {
+    if((request.operation == AdmissionOperation::Room || request.operation == AdmissionOperation::Inspect) && !request.hosting && !request.listing) {
         std::string normalized;
         if(!RoomRelay::normalizeRoomCode(request.roomCode, normalized)) {
             finishWithError("That game code is not valid. Codes look like ABCD-EFGH-JKMN.");
@@ -210,7 +213,7 @@ void RoomAdmissionClient::begin(const AdmissionRequest& request) {
     }
 
     AdmissionRequest normalizedRequest = request;
-    if(request.operation == AdmissionOperation::Room && !request.hosting && !request.listing) {
+    if((request.operation == AdmissionOperation::Room || request.operation == AdmissionOperation::Inspect) && !request.hosting && !request.listing) {
         RoomRelay::normalizeRoomCode(request.roomCode, normalizedRequest.roomCode);
     }
 

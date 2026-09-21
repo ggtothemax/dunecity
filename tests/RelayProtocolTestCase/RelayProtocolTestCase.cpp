@@ -44,7 +44,8 @@ const std::vector<Uint32> allPacketTypes = {
     NETWORKPACKET_SELECTIONLIST, NETWORKPACKET_CONFIG_HASH, NETWORKPACKET_SETPATHBUDGET,
     NETWORKPACKET_CLIENTSTATS, NETWORKPACKET_MOD_INFO, NETWORKPACKET_MOD_REQUEST,
     NETWORKPACKET_MOD_CHUNK, NETWORKPACKET_MOD_COMPLETE, NETWORKPACKET_MOD_ACK,
-    NETWORKPACKET_KEEPALIVE, NETWORKPACKET_COOP_MISSION
+    NETWORKPACKET_KEEPALIVE, NETWORKPACKET_COOP_MISSION,
+    NETWORKPACKET_MATCH_CONTROL, NETWORKPACKET_MATCH_RESUME_REQUEST
 };
 
 /**
@@ -144,6 +145,8 @@ TEST_CASE("the shared payload handler claims exactly the shared packet set", "[r
     REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_STARTGAME));
     REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_COMMANDLIST));
     REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_SELECTIONLIST));
+    REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_MATCH_CONTROL));
+    REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_MATCH_RESUME_REQUEST));
     REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_CLIENTSTATS));
     REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_SETPATHBUDGET));
     REQUIRE(GamePayloadRouter::handles(NETWORKPACKET_SENDGAMEINFO));
@@ -251,4 +254,16 @@ TEST_CASE("a state digest only compares like with like", "[relay][digest]") {
     REQUIRE(GameStateDigest::decode(encoded, sizeof(encoded), decoded));
     REQUIRE(decoded == a);
     REQUIRE_FALSE(GameStateDigest::decode(encoded, sizeof(encoded) - 1, decoded));
+}
+
+TEST_CASE("Private room inspection returns the exact mod without issuing a grant", "[workshop][admission]") {
+    AdmissionResponse response;
+    std::string error;
+    const std::string body = "status=ok\nprotocol=1\nroom=ABCD-EFGH-JKMN\ncontentHash=" + std::string(64, 'a') + "\nrunning=1\n";
+    REQUIRE(RoomAdmission::parseAdmissionResponse(body, response, error, false, AdmissionOperation::Inspect));
+    REQUIRE(response.contentHash == std::string(64, 'a'));
+    REQUIRE(response.running);
+    REQUIRE(response.grant.empty());
+    REQUIRE_FALSE(RoomAdmission::parseAdmissionResponse("status=ok\nprotocol=1\nroom=ABCD-EFGH-JKMN\n", response, error, false, AdmissionOperation::Inspect));
+    REQUIRE_FALSE(RoomAdmission::parseAdmissionResponse("status=ok\nprotocol=1\nroom=ABCD-EFGH-JKMN\ncontentHash=../file\n", response, error, false, AdmissionOperation::Inspect));
 }
