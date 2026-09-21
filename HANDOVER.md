@@ -30,6 +30,14 @@ back up749, and never interrupt a running game. No push/public release requested
 Old saves/replays may pin previous mod configurations; use a new match for these
 updated military targets.
 
+Delivery750 verified: source065ae7ea. App and DMG accepted by Apple; installed
+/Applications/dunecity.app on Stefans-MacBook-Air.local with existing Desktop
+shortcut retained. Installed executable SHA256
+1ade8b90c006a3605e53551f93d1a315e98be11333144b811d7ea11998d38871
+matches the signed archive. The installed bundle contains all four new military
+limits.749 backed up under DuneCity Local Test/backups. No app launch or profile
+editing. Full receipts: ../outputs/mba-test-1.0.750/verification.json.
+
 ## 2026-09-21 — Custom Easy/Medium attack pressure, local 1.0.749
 
 Stefan's MBA Four Quadrants128x128 tech8 custom Easy replay (seed1330896984)
