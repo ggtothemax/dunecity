@@ -14,7 +14,12 @@ isolation, repeated paused entry, explicit resume and matching state at1800 and
 after spectator departure at1900. Screenshots checked. No protocol/save change;
 version bump747 includes all746 controls. Browser/ENet interactive play not repeated.
 Evidence: /tmp/dunecity-host-menu-pause and ../outputs/mba-test-1.0.747/validation/.
-Local signed package is being prepared; no public release, push or update feed.
+Local delivery complete: source aeab3f50; Developer ID signature, Apple app/DMG
+acceptance, staples, Gatekeeper and mounted portable-runtime checks pass.
+Download verified byte-for-byte at
+http://claw.local:18738/DuneCity-1.0.747-macOS.dmg.
+Durable receipts/hash/tests: ../outputs/mba-test-1.0.747/verification.json and
+validation/. Nothing pushed or published to public release/update channels.
 
 ## 2026-09-21 — Multiplayer host settings and shared pause, local 1.0.746
 
