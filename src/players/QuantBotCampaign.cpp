@@ -1,4 +1,5 @@
 #include <players/QuantBot.h>
+#include <players/QuantBotCityPolicy.h>
 #include <players/HumanPlayer.h>
 #include <House.h>
 #include <Game.h>
@@ -18,6 +19,15 @@
 #include <structures/BuilderBase.h>
 #include <structures/ZoneStructure.h>
 #include <dunecity/CityStructurePopulation.h>
+
+int QuantBot::getCityPopulationLimit(int mapArea) const {
+    if(!currentGame || !currentGame->isCitySimEnabled() || supportMode
+       || gameMode != GameMode::Custom || isCampaignGameType(currentGame->gameType)) return 0;
+    // A co-op helper cannot impose an AI limit on a human-controlled house.
+    for(const auto& player : getHouse()->getPlayerList())
+        if(dynamic_cast<const HumanPlayer*>(player.get())) return 0;
+    return std::max(0, QuantBotCityPolicy::populationLimit(static_cast<int>(difficulty),mapArea));
+}
 
 bool QuantBot::isAlliedWithHuman() const {
     if (!getHouse()) return false;

@@ -69,7 +69,8 @@
 //             would silently ignore.
 // Version 12: MOD5 game setup carries construction-yard limits. Older peers
 //             cannot enforce the rule and must not join the same simulation.
-#define NETWORK_PROTOCOL_VERSION            12
+// Version 13: QuantBot population admission and growth ceilings change lockstep decisions.
+#define NETWORK_PROTOCOL_VERSION            13
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

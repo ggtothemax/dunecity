@@ -21,7 +21,7 @@
 #include <mod/ModMentatConfig.h>
 
 // Increment when Stefan releases changed Dune City mod content, independently of the app.
-inline constexpr const char* DUNECITY_MOD_VERSION = "1.001";
+inline constexpr const char* DUNECITY_MOD_VERSION = "1.002";
 
 #include <algorithm>
 #include <functional>

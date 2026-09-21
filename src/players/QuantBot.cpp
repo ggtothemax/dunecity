@@ -50,6 +50,7 @@
 #include <structures/StarPort.h>
 #include <structures/ConstructionYard.h>
 #include <players/QuantBotBuildPolicy.h>
+#include <players/QuantBotCityPolicy.h>
 #include <players/CityEconomyInvestmentPolicy.h>
 #include <players/QuantBotSpendingPolicy.h>
 #include <players/CityPlacementPolicy.h>
@@ -3675,6 +3676,49 @@ void QuantBot::build(int militaryValue) {
     if(yardLimit > 0) cityYardTarget = std::min(cityYardTarget, yardLimit);
     const int cityConstructionCapacity = itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV];
 
+    // Custom-game city size ceiling for this AI house. Campaign games keep
+    // their own stricter gates, and a human city is never limited here.
+    const int populationCeiling = getCityPopulationLimit(getMap().getSizeX()*getMap().getSizeY());
+    const auto cityGrowthLimits = populationCeiling > 0
+        ? QuantBotCityPolicy::limits(static_cast<int>(difficulty), getMap().getSizeX()*getMap().getSizeY())
+        : QuantBotCityPolicy::Limits{};
+    int cityZonesIncludingQueued = itemCount[Structure_ZoneResidential]
+        + itemCount[Structure_ZoneCommercial] + itemCount[Structure_ZoneIndustrial];
+    auto initialCityPopulation = [](Uint32 item) {
+        return isStructure(item) ? DuneCity::getZonePopulation(item,1)
+            + (item==Structure_Palace ? DuneCity::getPalaceCommercialPopulation(1) : 0) : 0;
+    };
+    int cityPendingPopulation = 0;
+    int currentCityPopulation = 0;
+    if(populationCeiling > 0) {
+        for(Uint32 item=Structure_FirstID; item<=Structure_LastID; ++item)
+            cityPendingPopulation += std::max(0,itemCount[item]-getHouse()->getNumItems(item))*initialCityPopulation(item);
+        for(const auto* structure : getStructureList()) {
+            if(structure->getOwner()!=getHouse()) continue;
+            const auto item=structure->getItemID();
+            const Coord pos=structure->getLocation();
+            if(!getMap().tileExists(pos.x,pos.y)) continue;
+            const int level=DuneCity::isCityZoneStructure(item)
+                ? getMap().getTile(pos.x,pos.y)->getCityZoneDensity()
+                : DuneCity::effectiveCityLevel(item,std::max(1,int(structure->getCityOccupancy())));
+            const int population=DuneCity::getStructurePopulation(structure,level)
+                + (item==Structure_Palace ? DuneCity::getPalaceCommercialPopulation(level) : 0);
+            currentCityPopulation += population;
+            cityPendingPopulation += std::max(0,initialCityPopulation(item)-population);
+        }
+    }
+    const int cityDisplayPopulation = QuantBotCityPolicy::displayPopulation(currentCityPopulation);
+    int cityPendingDisplayPopulation = QuantBotCityPolicy::displayPopulation(cityPendingPopulation);
+    auto cityAdmitsStructure = [&](Uint32 item) {
+        if(populationCeiling <= 0 || !isStructure(item)) return true;
+        if(DuneCity::isCityZoneStructure(item)
+           && !QuantBotCityPolicy::allowsZone(cityZonesIncludingQueued,cityGrowthLimits.sharedZoneCap)) return false;
+        const int added=QuantBotCityPolicy::displayPopulation(initialCityPopulation(item));
+        // Zero-population services, power and roads remain available even in an oversized save.
+        return added==0 || QuantBotCityPolicy::allowsPopulation(cityDisplayPopulation,
+            cityPendingDisplayPopulation,added,populationCeiling);
+    };
+
     auto decisionState = [&]() {
         return AITelemetry::Record().set("credits", getHouse()->getCredits()).set("spendable", money)
             .set("military", militaryValue).set("military_limit", militaryValueLimit)
@@ -3719,6 +3763,11 @@ void QuantBot::build(int militaryValue) {
             .set("campaign_city_zone_cap",campaignCityLimits().sharedZoneCap).set("campaign_city_post_spice",campaignPostSpice())
             .set("campaign_city_income_goal",QuantBotCityCampaignPolicy::totalIncomeGoalPerMinute(campaignBaseline))
             .set("campaign_city_income_forecast",campaignIncomeForecastPerMinute())
+            .set("city_population_limit",cityGrowthLimits.displayPopulationLimit)
+            .set("city_population_display",cityDisplayPopulation)
+            .set("city_population_pending",cityPendingDisplayPopulation)
+            .set("city_zone_cap",cityGrowthLimits.sharedZoneCap)
+            .set("city_zones_including_queued",cityZonesIncludingQueued)
             .set("harvester_engine_limit", getHouse()->getMaxHarvesters())
             .set("funded_harvester_target", vanillaEconomy ? spiceHarvesterTarget : fundedHarvesterTarget)
             .set("storage_capacity", getHouse()->getCapacity())
@@ -3771,7 +3820,8 @@ void QuantBot::build(int militaryValue) {
             // comparison below decides whether more spice capacity is better.
             const char* reason = "lower_rank_not_evaluated";
             if (selected == NONE_ID) {
-                if (!campaignAvailableToBuild(builder,candidate)) reason = "unavailable";
+                if (!cityAdmitsStructure(candidate)) reason = "city_limit";
+                else if (!campaignAvailableToBuild(builder,candidate)) reason = "unavailable";
                 else if (!findPlaceLocation(candidate).isValid()) reason = "no_site";
                 else { selected = candidate; reason = "selected"; }
             }
@@ -5114,6 +5164,7 @@ void QuantBot::build(int militaryValue) {
 
                 // Record actual queue acceptance for unit and structure production.
 				auto produceItemWithLogging = [&](Uint32 itemID, int sourceLine, const char* rule = "unit_mix_or_prerequisite") {
+                    if(!cityAdmitsStructure(itemID)) return false;
                     if (itemID==Structure_RepairYard && !canAddRepairYard(itemCount[Structure_RepairYard])) return false;
                     // Also cover campaign rebuild orders, which bypass the strategic planner.
                     if (itemID==Structure_Palace && itemCount[Structure_Palace] >=
@@ -5151,6 +5202,8 @@ void QuantBot::build(int militaryValue) {
 					doProduceItem(pBuilder, itemID);
 					const bool accepted = pBuilder->getProductionQueueSize() > before;
                     if (accepted) {
+                        cityPendingDisplayPopulation += QuantBotCityPolicy::displayPopulation(initialCityPopulation(itemID));
+                        if(DuneCity::isCityZoneStructure(itemID)) ++cityZonesIncludingQueued;
                         money-=quotedPrice;
                         capitalOrderedCost+=quotedPrice;
                         if (AITelemetry::log().enabled()) capitalOrders.set(std::to_string(pBuilder->getObjectID())+":"+std::to_string(before),

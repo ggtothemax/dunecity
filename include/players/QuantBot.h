@@ -76,6 +76,7 @@ public:
     bool ignoresUnitCountLimit() const { return difficulty==Difficulty::Hard || difficulty==Difficulty::Brutal; }
     bool isAlliedWithHuman() const;
     int harvesterCountCeiling() const;
+    int getCityPopulationLimit(int mapArea) const override;
     int campaignAllyHarvesterLimit() const;
     bool canAddRepairYard(int includingQueued) const;
 

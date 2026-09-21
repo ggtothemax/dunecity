@@ -1,3 +1,27 @@
+## 2026-09-21 — Local752 custom QuantBot city ceilings
+
+Implements approved displayed-population ceilings per AI house, by map tile area:
+<=1024: Easy5000/Medium10000/Hard20000; <=4096:10000/20000/40000;
+<=16384:20000/40000/80000; larger:30000/60000/120000. Brutal and Defend
+uncapped. Shared total R+C+I zone cap scales from48 zones per20000 population
+(rounded up); QuantBot chooses its mix. Orders reserve queued population and
+zone slots across yards. Runtime growth shares the house budget across nodes
+and reserves accepted construction orders. RTS city roles and both Palace
+population contributions count. Existing oversized cities are preserved, with
+further positive growth blocked; zero-population services remain buildable.
+Campaign policy, human/shared houses and support-mode helpers are excluded.
+No change to approved military limits, attack percentages, palace or yard rules.
+App1.0.752, independent mod1.002, network13 rejects incompatible simulations;
+save layout remains9843. No server update, push or public release.
+
+Claude supplied initial policy/planner work in bounded subscription runs, then
+hit turn limits; Codex completed integration and verification. All ten CTest
+groups pass across full run and focused fixture corrections. Tests cover the
+matrix, boundary/queued admission, real Easy growth blocking, uncapped Brutal,
+and human-shared/campaign exemptions. Initial60-minute FourQuadrants run reached
+48 queued-inclusive zones and20020 population; final queue reservation correction
+and follow-up simulation evidence recorded with local delivery below.
+
 ## 2026-09-21 — Local751: mod identity, lobby admission and building caps
 
 Dune City mod is Stefan's independently versioned1.001 (`DUNECITY_MOD_VERSION`),
