@@ -35,6 +35,16 @@ claw.local already had the authorized DuneCity Air identity; added its IdentityF
 mapping to local ~/.ssh/config. No Air SSH settings or credentials changed.
 MBA diagnostic session1789979475402524-0 and auto.rpl preserved in local evidence.
 
+Delivery verified: source64205d48. App and DMG accepted by Apple; signatures,
+staples, Gatekeeper and mounted portable runtime pass. Local DMG URL:
+http://claw.local:18738/DuneCity-1.0.748-macOS.dmg
+SHA2568e9c763fe327dafb799e50d4660b6dc14e7feb29af7a245fbe8d46547853618e.
+Installed on MBA at /Applications/dunecity.app; signed executable SHA256 matches
+packaged ZIP. Desktop/DuneCity.app is a shortcut. Previous747 retained under
+Library/Application Support/DuneCity Local Test/backups/dunecity-1.0.747.app.
+No game launched or user profile modified during installation. Full verification
+and receipts: ../outputs/mba-test-1.0.748/verification.json and validation/.
+
 ## 2026-09-21 — Host Options auto-pause, local 1.0.747
 
 Opening the host's in-game Options menu (including Escape) requests the existing
