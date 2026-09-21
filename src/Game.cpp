@@ -4021,12 +4021,12 @@ void Game::onSkipMission() {
                 currentGame->confirmSkipMission();
             currentGame->resumeGame();
         }
-        bool handleKeyPress(SDL_KeyboardEvent& key) override {
-            if(key.keysym.sym == SDLK_ESCAPE) {
+        void handleInput(SDL_Event& event) override {
+            if(event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE) {
                 currentGame->resumeGame();
-                return true;
+                return;
             }
-            return Window::handleKeyPress(key);
+            Window::handleInput(event);
         }
     };
     pInGameMenu=std::make_unique<Confirmation>(); bMenu=true; pauseGame("skip_mission");

@@ -163,15 +163,15 @@ int runOwnershipProbe() {
             game->pInGameMenu->draw();
             auto confirmation = renderReadSurface(renderer);
             SavePNG(confirmation.get(), "skip-mission-confirmation.png");
-            question->onButton(QSTBOX_BUTTON2);
-            game->pInGameMenu->processChildWindowOpenCloses();
+            SDL_Event cancel{}; cancel.type = SDL_KEYDOWN; cancel.key.keysym.sym = SDLK_RETURN;
+            game->pInGameMenu->handleInput(cancel);
             if(game->isGameFinished() || game->isGamePaused() || game->bMenu
                || game->getCommandManager().timeslot.size() != commandsBefore.size())
                 throw std::runtime_error("Cancel skipped the mission");
             game->resumeGame(); game->pInGameMenu.reset();
             openSkip();
-            SDL_KeyboardEvent escape{}; escape.keysym.sym = SDLK_ESCAPE;
-            game->pInGameMenu->handleKeyPress(escape);
+            SDL_Event escape{}; escape.type = SDL_KEYDOWN; escape.key.keysym.sym = SDLK_ESCAPE;
+            game->pInGameMenu->handleInput(escape);
             if(game->isGamePaused() || game->bMenu) throw std::runtime_error("Escape did not return to game");
             game->pInGameMenu.reset();
             question = openSkip();
