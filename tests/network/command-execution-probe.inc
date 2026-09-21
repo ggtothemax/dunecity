@@ -18,6 +18,7 @@
 #include <stdexcept>
 #include <fstream>
 #include <iterator>
+#include "../units/sandworm-target-probe.inc"
 int runOwnershipProbe() {
     settings.general.playerName = "Host";
     settings.network.metaServer = "http://127.0.0.1:1/";
@@ -38,6 +39,7 @@ int runOwnershipProbe() {
     auto* owner = game->getHouse(HOUSE_ATREIDES);
     auto* enemy = game->getHouse(HOUSE_HARKONNEN);
     if(!owner || !enemy) throw std::runtime_error("ownership fixture houses missing");
+    runSandwormTargetProbe(*owner);
     auto* hostPlayer = game->getPlayerByName("Host");
     auto* coopPlayer = game->getPlayerByName("Coop");
     auto* enemyPlayer = game->getPlayerByName("Enemy");

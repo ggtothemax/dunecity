@@ -451,6 +451,9 @@ bool Sandworm::update() {
 
 bool Sandworm::canAttack(const ObjectBase* object) const {
     if((object != nullptr)
+        // Sleeping/withdrawn worms can still be referenced by AI threat checks but
+        // have no map tile. Check our own position before comparing sand regions.
+        && currentGameMap->tileExists(location)
         && object->isAGroundUnit()
         && (object->getItemID() != Unit_Sandworm)   //wont kill other sandworms
         //&& object->isVisible(getOwner()->getTeamID())

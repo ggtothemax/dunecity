@@ -81,6 +81,23 @@ int runMenuProbe() {
         menuRequire(mods.setActiveMod("dunecity"), "Cannot select Dune City");
         const auto original = Workshop::saveMod("dunecity");
         menuRequire(Workshop::activateModRevision(original.hash), "Cannot simulate the previous build's mod selection");
+        const auto cachedName = mods.getActiveModName();
+        const auto choices = mods.listModChoices();
+        menuRequire(std::none_of(choices.begin(), choices.end(), [&](const auto& mod) { return mod.name == cachedName; }),
+                    "Official mod appears twice in the picker");
+        const auto official = std::find_if(choices.begin(), choices.end(), [](const auto& mod) { return mod.name == "dunecity"; });
+        menuRequire(official != choices.end() && official->matchesSelectionName(cachedName)
+                    && official->selectionLabel() == "Dune City " + modBuildLabel(VERSION),
+                    "Official mod lost its build number or cached selection alias");
+        const auto registry = mods.listMods();
+        menuRequire(std::any_of(registry.begin(), registry.end(), [&](const auto& mod) { return mod.name == cachedName; }),
+                    "Picker filtering removed a pinned save dependency");
+        {
+            CustomGameMenu menu(false, false);
+            const auto index = menu.modDropDown.getSelectedIndex();
+            menuRequire(index >= 0 && menu.availableMods[index].name == "dunecity",
+                        "Active cached Dune City copy fell back to a different mod");
+        }
         OnlineModPolicy::restoreApprovedSelection();
         menuRequire(mods.getActiveModName() == "dunecity", "Upgrade left an approved mod on the sharing path");
         const std::string draft = "New campaign probe";
@@ -294,13 +311,14 @@ int runMenuProbe() {
     if(files.empty()) { dir = getDuneLegacyDataDir()+"/data/maps/multiplayer/"; files=getFileNamesList(dir,"ini",true); }
     menuRequire(!files.empty(),"No bundled custom maps");
     for(const auto& file : files) setup.maps.push_back(dir+file);
-    setup.mods = ModManager::instance().listMods();
+    setup.mods = ModManager::instance().listModChoices();
     for(size_t i=0;i<setup.mods.size();++i) if(setup.mods[i].name=="vanilla") setup.mod=i;
     setup.rules = effectiveGameOptions;
     for(bool online : {false, true}) {
         auto mapSetup = setup;
         mapSetup.online = online;
         CustomGameMenu browser(false, false, &mapSetup);
+        menuRequire(browser.nextButton.getText() == _("Next"), "Map chooser still labels Next as Players");
         menuRequire(browser.mapList.getNumEntries() > 10, "Original scrolling map browser is missing");
         menuRequire(browser.getSelectedMapPath() == setup.maps[setup.map], "Map browser lost selected map");
         menuRequire(browser.mainVBox.getMinimumSize().x <= browser.mainVBox.getSize().x, "Map browser controls exceed menu width");
@@ -844,6 +862,14 @@ int runMenuProbe() {
         const auto withAssets = Workshop::saveMod(draft);
         const auto installed = Workshop::installMod(withAssets);
         Workshop::store().verifyDirectory(withAssets,manager.getModPath(installed));
+        auto hasChoice = [&](const std::string& name) {
+            const auto choices = manager.listModChoices();
+            return std::any_of(choices.begin(), choices.end(), [&](const auto& mod) { return mod.name == name; });
+        };
+        menuRequire(!hasChoice(installed) && hasChoice(draft), "Identical draft and snapshot are duplicated");
+        { std::ofstream asset(std::filesystem::path(path)/nested,std::ios::binary); asset << "changed authored sprite bytes"; }
+        menuRequire(hasChoice(installed) && hasChoice(draft), "Changed draft hid a distinct saved revision");
+        { std::ofstream asset(std::filesystem::path(path)/nested,std::ios::binary); asset << "nested authored sprite bytes"; }
         const std::string copiedDraft = "Workshop Nested Copy Probe";
         std::filesystem::remove_all(manager.getModPath(copiedDraft));
         menuRequire(manager.createMod(copiedDraft,installed), "Cannot make editable copy of a cached revision");

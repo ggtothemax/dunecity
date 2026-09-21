@@ -1,11 +1,13 @@
 # In-game multiplayer controls
 
-Local candidate 1.0.747 includes Pause/Resume to the top bar and multiplayer Options
+Local candidate 1.0.748 includes Pause/Resume to the top bar and multiplayer Options
 menu. Space uses the same action. Every human player occupying a playing seat
 can pause or resume, regardless of which player paused first. Spectators cannot.
 Opening the host's Options menu (including Escape) requests a shared pause.
-Guest and spectator menus stay local. Opening an already-paused menu or closing
-a menu does not resume the match; any active player can use Resume. The menu
+Guest and spectator menus stay local. Back to Game and Escape resume a pause
+created by opening the host menu, including a quick close before its pause command
+arrives. A pre-existing manual pause stays paused. Any active player can still
+use Resume. The menu
 updates its pause status and button while open.
 
 Game Settings is available during multiplayer. The host can change game speed

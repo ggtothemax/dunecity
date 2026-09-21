@@ -169,12 +169,12 @@ HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules, bool showLobby) : 
     label("Choose a house above, then start below.", 48, 339);
 
     label("Campaign mod", 48, 365);
-    availableMods = ModManager::instance().listMods();
+    availableMods = ModManager::instance().listModChoices();
     int activeIndex = 0;
     for(size_t i = 0; i < availableMods.size(); ++i) {
         const auto& mod = availableMods[i];
-        modDropDown.addEntry(mod.displayName.empty() ? mod.name : mod.displayName, static_cast<int>(i));
-        if(mod.name == ModManager::instance().getActiveModName()) activeIndex = static_cast<int>(i);
+        modDropDown.addEntry(mod.selectionLabel(), static_cast<int>(i));
+        if(mod.matchesSelectionName(ModManager::instance().getActiveModName())) activeIndex = static_cast<int>(i);
     }
     modDropDown.setSelectedItem(activeIndex);
     modDropDown.setOnSelectionChange(std::bind(&HouseChoiceMenu::onModSelectionChanged, this, std::placeholders::_1));

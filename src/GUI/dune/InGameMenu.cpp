@@ -101,7 +101,7 @@ InGameMenu::InGameMenu(bool bMultiplayer, int color)
     if (bMultiplayer) {
         gap();addButton(pauseGameButton,_("Pause match"),[]() {
             currentGame->toggleMatchPause();
-            currentGame->resumeGame(); // Close this menu, preserving the shared pause.
+            currentGame->resumeGame(); // Close the menu after the explicit control action.
         });
     }
     gap();addButton(quitButton,_("Quit to Menu"),std::bind(&InGameMenu::onQuit,this));

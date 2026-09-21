@@ -14,7 +14,25 @@ static bool probeMatchControls(Game& game, const std::string& role, const std::s
     const int stage=exists("done-2") ? 3 : exists("done-1") ? 2 : 1;
     const std::string tag=std::to_string(stage), mine=role+"-"+tag;
     const Uint32 cycle=game.getGameCycleCount();
-    if(exists("done-3") || (stage==2 && cycle<300) || (stage==3 && !viewer && cycle<700)) return false;
+    if(exists("done-3")) {
+        if(host && cycle>=1000 && !exists("quick-close")) {
+            game.onOptions();
+            SDL_KeyboardEvent escape{}; escape.type=SDL_KEYDOWN; escape.keysym.sym=SDLK_ESCAPE;
+            game.pInGameMenu->handleKeyPress(escape); game.pInGameMenu.reset();
+            write("quick-close"); // Close before the lockstep pause command arrives.
+        }
+        if(host && cycle>=1200 && !exists("escape-requested")) {
+            game.onOptions(); write("escape-requested");
+        }
+        if(host && exists("escape-requested") && !exists("escape-resumed") && game.isGamePaused()) {
+            SDL_KeyboardEvent escape{}; escape.type=SDL_KEYDOWN; escape.keysym.sym=SDLK_ESCAPE;
+            game.pInGameMenu->handleKeyPress(escape); game.pInGameMenu.reset();
+            if(game.isGamePaused()) throw std::runtime_error("Escape did not resume the host menu pause");
+            write("escape-resumed");
+        }
+        return false;
+    }
+    if((stage==2 && cycle<300) || (stage==3 && !viewer && cycle<700)) return false;
     if(stage==2 && !viewer && cycle==300) {
         write(role+"-ready");
         if(!exists("Host-ready") || !exists("Partner-ready")) return true;
@@ -64,8 +82,10 @@ static bool probeMatchControls(Game& game, const std::string& role, const std::s
             dynamic_cast<InGameMenu*>(game.pInGameMenu.get())->onSettings();
             joinCapture(game,out+"/controls-settings-"+mine+".bmp");
             game.pInGameMenu->closeChildWindow();
-            game.resumeGame(); game.pInGameMenu.reset();
-            if(!game.isGamePaused()) throw std::runtime_error("closing Options resumed shared pause");
+            if(stage!=3 || !host) {
+                game.resumeGame(); game.pInGameMenu.reset();
+                if(!game.isGamePaused()) throw std::runtime_error("closing Options resumed a pre-existing pause");
+            }
             InGameSettingsMenu options;
             if(options.gameSpeedPlus.isEnabled()!=host || options.gameSpeedMinus.isEnabled()!=host)
                 throw std::runtime_error("speed settings authority differs from host role");
@@ -94,7 +114,10 @@ static bool probeMatchControls(Game& game, const std::string& role, const std::s
             } else if(stage==3 && host && exists("Newcomer-3-paused")) {
                 if(read("Newcomer-3-paused")!=std::to_string(cycle))
                     throw std::runtime_error("late spectator did not inherit the paused cycle");
-                game.toggleMatchPause(); write("done-3");
+                dynamic_cast<InGameMenu*>(game.pInGameMenu.get())->onResume();
+                game.pInGameMenu.reset();
+                if(game.isGamePaused()) throw std::runtime_error("Back to Game did not resume host menu pause");
+                write("done-3");
             }
         }
     }

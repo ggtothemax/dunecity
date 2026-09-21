@@ -43,6 +43,7 @@
 
 #include <stdarg.h>
 #include <string>
+#include <optional>
 #include <set>
 #include <map>
 #include <utility>
@@ -922,6 +923,12 @@ private:
     bool    bQuitGame = false;                  ///< Should the game be quited after this game quit
     MatchControlState matchControl;
     bool pauseRequestPending = false;
+    struct MenuPause {
+        Uint32 requestCycle;
+        Uint32 pauseCycle = 0;
+        bool closed = false;
+    };
+    std::optional<MenuPause> menuPause; // Host UI ownership; never serialized as world state.
     Uint32 lastMatchControlBroadcast = 0;
     bool    bPause = false;                     ///< Is the game currently halted
     bool    bMenu = false;                      ///< Is there currently a menu shown (options or mentat menu)

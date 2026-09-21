@@ -567,6 +567,50 @@ std::vector<ModInfo> ModManager::listMods() const {
     return mods;
 }
 
+std::vector<ModInfo> ModManager::listModChoices() const {
+    auto mods = listMods();
+    const auto revisions = Workshop::store().list("mod"); // Metadata only; activation verifies file bytes.
+    std::map<std::string, const Workshop::Revision*> byHash;
+    for(const auto& revision : revisions) byHash.emplace(revision.hash, &revision);
+    // Old clients cached the shipped mods as automatic Workshop snapshots. Their
+    // content-derived ID identifies them independently of the current build; an
+    // authored mod has its own ID and must remain a separate choice.
+    for(auto& owner : mods) {
+        if(owner.name != "vanilla" && owner.name != DUNECITY_MOD_NAME
+           && owner.name != "Tornie" && owner.name != "Dune2R") continue;
+        for(const auto& cached : mods) {
+            if(!isWorkshopSnapshotMod(cached.name) || cached.revisionHash.empty()) continue;
+            try {
+                const auto found = byHash.find(cached.revisionHash);
+                if(found == byHash.end()) continue;
+                const auto& revision = *found->second;
+                if(revision.base != owner.name) continue;
+                auto manifest = revision.manifest;
+                const auto field = manifest.find("\nid=" + revision.id + "\n");
+                if(field == std::string::npos) continue;
+                manifest.replace(field + 4, revision.id.size(), std::string(32, '0'));
+                if(Workshop::hashBytes(manifest).substr(0,32) == revision.id)
+                    owner.selectionAliases.push_back(cached.name);
+            } catch(const std::exception&) { /* Unverified copies remain visible. */ }
+        }
+    }
+    std::vector<ModInfo> choices;
+    for(const auto& mod : mods) {
+        const bool alias = std::any_of(mods.begin(), mods.end(), [&](const ModInfo& owner) {
+            return owner.name != mod.name && owner.matchesSelectionName(mod.name);
+        });
+        if(!alias) choices.push_back(mod);
+    }
+    return withoutRedundantWorkshopSnapshots(choices, [this, &byHash](const ModInfo& owner, const std::string& hash) {
+        try {
+            const auto found = byHash.find(hash);
+            if(found == byHash.end()) return false;
+            Workshop::store().verifyDirectory(*found->second, getModPath(owner.name));
+            return true;
+        } catch(const std::exception&) { return false; }
+    });
+}
+
 ModInfo ModManager::getModInfo(const std::string& name) const {
     ModInfo info;
     info.name = name;
@@ -602,11 +646,17 @@ ModInfo ModManager::getModInfo(const std::string& name) const {
         info.revisionVersion = std::max(0, revision.getIntValue("Workshop", "Version", 0));
         const auto hash = revision.getStringValue("Workshop", "Hash", "");
         if(hash.size() == 64 && hash.find_first_not_of("0123456789abcdef") == std::string::npos) {
+            info.revisionHash = hash;
             std::ifstream version(Workshop::store().root() / "revisions" / hash / "version");
             unsigned canonical = 0;
             if(version >> canonical) info.revisionVersion = canonical;
         }
     }
+
+    // The bundled official mod is identified by the application build it ships with, not by a
+    // Workshop revision counter that publishing it would otherwise add: 1.0.748 reads as
+    // "Dune City 1.748". Installed copies keep their revision label and stay distinguishable.
+    if(name == DUNECITY_MOD_NAME) info.officialVersion = modBuildLabel(VERSION);
     return info;
 }
 

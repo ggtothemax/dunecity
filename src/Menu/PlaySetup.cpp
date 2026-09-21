@@ -136,13 +136,13 @@ void continueRecentGame() {
 void playCustomGame(bool online) {
     CustomPlaySetup setup;
     setup.maps = maps();
-    setup.mods = ModManager::instance().listMods();
+    setup.mods = ModManager::instance().listModChoices();
     setup.rules = effectiveGameOptions;
     setup.online = online;
     // One controller per house is the legible default; advanced sharing stays available.
     setup.sharedHouse = false;
     for(size_t i = 0; i < setup.mods.size(); ++i)
-        if(setup.mods[i].name == ModManager::instance().getActiveModName()) setup.mod = static_cast<int>(i);
+        if(setup.mods[i].matchesSelectionName(ModManager::instance().getActiveModName())) setup.mod = static_cast<int>(i);
     if(setup.maps.empty()) { PlayError(_("No custom maps found. Create a map in Workshop > Map Editor, then return here.")).showMenu(); return; }
     bool chooseMap = true;
     for(;;) {

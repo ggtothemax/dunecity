@@ -72,14 +72,14 @@ ModMenu::~ModMenu() = default;
 void ModMenu::refreshModList(const std::string& select) {
     modListBox.clearAllEntries();
     mods.clear();
-    for(const auto& mod : ModManager::instance().listMods()) {
+    for(const auto& mod : ModManager::instance().listModChoices()) {
         if(purpose == Purpose::AssetEditors && ModManager::instance().getContentBase(mod.name) != "Dune2R") continue;
         mods.push_back(mod);
     }
     int selected = 0;
     for(size_t i = 0; i < mods.size(); ++i) {
         modListBox.addEntry(mods[i].selectionLabel() + (bundledMod(mods[i].name) ? _("  (bundled)") : immutableMod(mods[i].name) ? _("  (shared version)") : _("  (draft)")));
-        if(mods[i].name == select) selected = static_cast<int>(i);
+        if(mods[i].matchesSelectionName(select)) selected = static_cast<int>(i);
     }
     if(!mods.empty()) modListBox.setSelectedItem(selected);
     updateModDetails();

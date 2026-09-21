@@ -104,6 +104,10 @@ public:
      * \return Vector of ModInfo for each mod
      */
     std::vector<ModInfo> listMods() const;
+
+    /// User-facing choices, with redundant cached revisions represented by their source mod.
+    /// listMods() remains the complete registry for saved games and pinned dependencies.
+    std::vector<ModInfo> listModChoices() const;
     
     /**
      * Get info for a specific mod.

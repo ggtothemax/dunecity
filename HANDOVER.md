@@ -1,3 +1,40 @@
+## 2026-09-21 — Four Quadrants crash, menu resume and mod choices, local 1.0.748
+
+Reproduced Stefan's actual MBA replay from 1.0.747: Four Quadrants, seed545318708,
+throws `Tile (-1, -1) does not exist!` at cycle39600. Throw-site stack identifies
+`Sandworm::canAttack -> QuantBot::checkAllUnits -> QuantBot::update -> House::update`.
+This coincided with a Starport purchase, but the exception came from an existing
+sleeping sandworm being evaluated as an attacker. `sleep()` deliberately removes
+it from terrain, marks it inactive/invisible, and parks it at INVALID_POS until
+respawn. `canAttack` now rejects an invalid own position before reading terrain.
+Exact replay passes through60000 after the fix. New real-engine regression covers
+sleep, redeployment, valid connected-sand targets and off-map targets; registered
+with command regressions in CTest. No simulation/save/network format bump.
+
+Host Back to Game / Escape now releases only the pause created by that Options
+menu. Manual pre-existing pauses remain explicit. Closing while the command is
+in flight releases its eventual pause; a later distinct pause is preserved.
+Native three-peer controls test passes normal close, Escape and rapid close,
+manual pause preservation, paused spectator join and matching state through1900.
+
+Map chooser says Next. Campaign/custom/editor mod choices show official Dune City
+as `Dune City 1.748`. Content-derived automatic Workshop copies from old builds
+are represented by the official entry, including correct initial selection when
+a cached name was active. Changed authored mods remain separate. Picker filtering
+is separate from the complete registry, so pinned save dependencies stay intact.
+Metadata-only enumeration avoids rehashing every official cached asset per menu.
+
+Validation: native dependency audits and version check pass; all nine CTest groups
+pass (new terrain fixture corrected, then its group rerun successfully). Menu
+rendering tested640x480,854x480,1280x720. Actual replay before/after plus native
+three-peer controls evidence under ../outputs/mba-test-1.0.748/validation/.
+Browser interactive play not repeated. No public push/release/update feed change.
+
+Remote access to MBA verified: Stefans-MacBook-Air.local, userstefan, arm64.
+claw.local already had the authorized DuneCity Air identity; added its IdentityFile
+mapping to local ~/.ssh/config. No Air SSH settings or credentials changed.
+MBA diagnostic session1789979475402524-0 and auto.rpl preserved in local evidence.
+
 ## 2026-09-21 — Host Options auto-pause, local 1.0.747
 
 Opening the host's in-game Options menu (including Escape) requests the existing

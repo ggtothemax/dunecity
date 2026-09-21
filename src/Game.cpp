@@ -3667,8 +3667,18 @@ void Game::initializeNetwork() {
 void Game::resumeGame()
 {
     bMenu = false;
-    // Closing a network menu never changes the explicit shared pause state.
+    // Only undo the pause this host menu requested. A pre-existing pause, or a
+    // later manual pause from another player, keeps its explicit Resume action.
     if(pNetworkManager != nullptr) {
+        if(pNetworkManager->isServer() && menuPause) {
+            menuPause->closed = true;
+            if(menuPause->pauseCycle != 0) {
+                const auto cycle = menuPause->pauseCycle;
+                menuPause.reset();
+                if(matchControl.pauseCycle == cycle) handleMatchResumeRequest(localPlayerName, cycle);
+            }
+            // If the command is still in flight, executeMatchPause releases it.
+        }
         return;
     }
     if(bPause && settings.general.diagnosticLogs) {
@@ -3924,8 +3934,10 @@ void Game::onOptions()
         // Only ever a pause request: an explicit shared pause is never lifted here.
         if(pNetworkManager && pNetworkManager->isServer() && !isGamePaused()
            && !pauseRequestPending && canToggleMatchPause()) {
+            menuPause = MenuPause{gameCycleCount};
             toggleMatchPause();
         }
+        if(menuPause) menuPause->closed = false;
         Uint32 color = getHouseColorRGB(getHouseVisualHouse(pLocalHouse->getHouseID()), 3);
         pInGameMenu = std::make_unique<InGameMenu>((isNetworkGameType(gameType)), color);
         bMenu = true;
@@ -6253,10 +6265,21 @@ void Game::executeMatchPause(Uint8 issuer, Uint32 requestCycle) {
     if (player->getPlayername() == localPlayerName) pauseRequestPending = false;
     // Coalesce overlapping button presses, including ones still queued when the
     // first pause is resumed. A new press at the resumed boundary remains valid.
-    if (requestCycle > gameCycleCount || requestCycle < matchControl.pauseCycle) return;
+    const bool fromMenu = menuPause && player->getPlayername() == localPlayerName
+        && requestCycle == menuPause->requestCycle;
+    if (requestCycle > gameCycleCount || requestCycle < matchControl.pauseCycle) {
+        if(fromMenu) menuPause.reset();
+        return;
+    }
     matchControl.pauseAfter(gameCycleCount + 1);
+    if(fromMenu) menuPause->pauseCycle = matchControl.pauseCycle;
     if (pNetworkManager->isServer()) { ++matchControl.revision; publishMatchControl(); }
     addToNewsTicker(player->getPlayername() + _(" paused the game"));
+    if(fromMenu && menuPause->closed) {
+        const auto cycle = menuPause->pauseCycle;
+        menuPause.reset();
+        handleMatchResumeRequest(localPlayerName, cycle);
+    }
 }
 
 void Game::handleMatchControl(Uint32 revision, Uint32 speed, Uint32 pause, Uint32 resumed) {

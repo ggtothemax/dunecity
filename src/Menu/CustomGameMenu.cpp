@@ -188,12 +188,12 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
     modHBox.addWidget(&modDropDown, 130);
     
     // Populate mod dropdown
-    availableMods = ModManager::instance().listMods();
+    availableMods = ModManager::instance().listModChoices();
     std::string activeModName = setup && !setup->mods.empty() ? setup->mods[setup->mod].name : ModManager::instance().getActiveModName();
     int activeIndex = 0;
     for (size_t i = 0; i < availableMods.size(); i++) {
         modDropDown.addEntry(availableMods[i].selectionLabel());
-        if (availableMods[i].name == activeModName) {
+        if (availableMods[i].matchesSelectionName(activeModName)) {
             activeIndex = static_cast<int>(i);
         }
     }
@@ -212,7 +212,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
             if(!OnlineModPolicy::approved()) allowJoinAfterStartCheckbox.setChecked(false);
         } else {
             for(size_t i = 0; i < availableMods.size(); ++i)
-                if(availableMods[i].name == previous) modDropDown.setSelectedItem(static_cast<int>(i));
+                if(availableMods[i].matchesSelectionName(previous)) modDropDown.setSelectedItem(static_cast<int>(i));
         }
     });
     
@@ -241,7 +241,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
 
     buttonHBox.addWidget(Spacer::create(), 0.0625);
 
-    nextButton.setText(setup ? _("Players") : _("Next"));
+    nextButton.setText(_("Next"));
     nextButton.setOnClick(std::bind(&CustomGameMenu::onNext, this));
     buttonHBox.addWidget(&nextButton, 0.1);
     buttonHBox.addWidget(HSpacer::create(90));
