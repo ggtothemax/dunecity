@@ -52,6 +52,16 @@ void runCustomAttackProbe(Game& game) {
             require(hunter->getAttackMode()==HUNT && hunter->getGuardPoint()==guard,
                 "Home rally stole an active attacker");
         }
+        reset(QuantBot::Difficulty::Easy);bot->launchGroundHunt();
+        game.gameType=GameType::Campaign;
+        auto* helperReserve=army.back();
+        bot->doMove2Pos(helperReserve,helperReserve->getX(),helperReserve->getY(),false);
+        helperReserve->setForced(false);
+        const auto assaultCenter=bot->findSquadCenter(house->getHouseID());
+        bot->moveToOptimalSquadPosition(helperReserve,1);
+        require(blockDistance(helperReserve->getGuardPoint(),assaultCenter)<=3,
+            "Custom reserve rule changed campaign helper movement");
+        game.gameType=GameType::CustomGame;
         reset(QuantBot::Difficulty::Easy);
         getQuantBotConfig().easy.attackForceMilitaryValueRatio=0;
         bot->launchGroundHunt();require(hunters()==0,"Zero percent still attacked");

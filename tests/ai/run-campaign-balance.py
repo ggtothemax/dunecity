@@ -15,12 +15,14 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 
 root = Path(__file__).resolve().parents[2]
 house_names = ('harkonnen','atreides','ordos','fremen','sardaukar','mercenary','neutral','rebels','custom','wildspade','kleshmersh','tharpique')
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build-dir', type=Path, default=root / 'build')
 parser.add_argument('--output-dir', type=Path, required=True)
+parser.add_argument('--repeatable', action='store_true', help='Keep each CTest run in a fresh subdirectory')
 parser.add_argument('--custom-map', type=Path, help='Run all occupied slots of a custom map instead of the campaign')
 parser.add_argument('--free-for-all', action='store_true', help='Give each custom-map house its own team')
 parser.add_argument('--capture-mib', type=int, default=1024, help='Diagnostic capture allowance; shipped default is unchanged')
@@ -114,7 +116,11 @@ if args.custom_map:
 build, out = args.build_dir.resolve(), args.output_dir.resolve()
 source_commit = subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip()
 source_modified = bool(subprocess.check_output(['git','status','--porcelain'],cwd=root,text=True).strip())
-out.mkdir(parents=True, exist_ok=False)
+if args.repeatable:
+    out.mkdir(parents=True, exist_ok=True)
+    out = Path(tempfile.mkdtemp(prefix='run-', dir=out))
+else:
+    out.mkdir(parents=True, exist_ok=False)
 subprocess.run(['python3',str(root/'scripts/check-build-deps.py'),str(build)],check=True,cwd=root)
 target = 'bin/dunecity.app/Contents/MacOS/dunecity'
 commands = subprocess.check_output(['ninja','-C',str(build),'-t','commands',target],text=True).splitlines()

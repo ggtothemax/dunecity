@@ -8350,7 +8350,8 @@ void QuantBot::kiteAwayFromThreat(const UnitBase* pUnit, const ObjectBase* pThre
 	// Short combat spacing follows the fighting army, never the home rally. A
 	// unit that was not sent on the wave backs onto the body it belongs to.
 	Coord squadCenter = findSquadCenter(getHouse()->getHouseID(),
-        gameMode!=GameMode::Custom || difficulty>Difficulty::Medium || pUnit->getAttackMode()==HUNT);
+        isCampaignGameType(currentGame->gameType) || gameMode!=GameMode::Custom
+        || difficulty>Difficulty::Medium || pUnit->getAttackMode()==HUNT);
 
 	// If no squad center, just move directly away from threat
 	if (!squadCenter.isValid()) {
@@ -8441,8 +8442,8 @@ void QuantBot::moveToOptimalSquadPosition(const UnitBase* unit, FixPoint radius,
         || unit->wasForced() || unit->isMoving() || unit->getAttackMode()==HUNT) return;
     // Easy and Medium keep their reserve at home. Only the units actually sent
     // on a wave advance, and this function never touches a hunting unit.
-    const bool homeAnchored = gameMode==GameMode::Custom
-        && (difficulty==Difficulty::Easy || difficulty==Difficulty::Medium);
+    const bool homeAnchored = !isCampaignGameType(currentGame->gameType)
+        && gameMode==GameMode::Custom && (difficulty==Difficulty::Easy || difficulty==Difficulty::Medium);
     Coord regroup = (unit->getAttackMode()==RETREAT || homeAnchored)
         ? squadRallyLocation : findSquadCenter(getHouse()->getHouseID());
     if (regroup.isInvalid()) regroup = homeAnchored
@@ -8821,7 +8822,8 @@ void QuantBot::retreatAllUnits() {
                             // Check if we've reached the retreat position. An
                             // attack centroid is not a place to end a retreat.
                             Coord actualSquadCenter = findSquadCenter(getHouse()->getHouseID(),
-                                gameMode!=GameMode::Custom || difficulty>Difficulty::Medium);
+                                isCampaignGameType(currentGame->gameType) || gameMode!=GameMode::Custom
+                                || difficulty>Difficulty::Medium);
                             FixPoint distToSquadCenter = actualSquadCenter.isValid() ? 
                                 blockDistance(pUnit->getLocation(), actualSquadCenter) : FixPt_MAX;
                             FixPoint distToRallyPoint = squadRallyLocation.isValid() ? 

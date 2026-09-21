@@ -10,7 +10,9 @@ forced/busy survivors; no oversized-single-unit exception. Hard/Brutal use their
 configured percentages without new absolute caps. No campaign economy, attack
 schedule, save or network format change. Easy/Medium idle reserves use the home
 rally instead of following the HUNT centroid. Their defensive kiting/retreat
-centers exclude hunters. Custom light raider dodges preserve HUNT so they remain
+centers exclude hunters. These changes explicitly exclude campaign helpers even
+when their internal gameMode is Custom; real-engine coverage verifies that boundary.
+Custom light raider dodges preserve HUNT so they remain
 counted. Telemetry adds ground budget, simultaneous pressure and explicit caps.
 
 Claude supplied a partial implementation in the bounded retry (both runs hit
@@ -27,8 +29,8 @@ These are simulations of recorded commands under the new AI, not a claim that
 the changed match follows the original state after the first behavior change.
 
 Build/dependency audit/version checks pass. Local Mac package/delivery receipts
-will be recorded in ../outputs/mba-test-1.0.749/verification.json. Do not replace
-or interrupt the currently running748 on the Air. Nothing pushed or publicly
+will be recorded in ../outputs/mba-test-1.0.749/verification.json. Stefan quit748 and explicitly requested replacing the normal installed app
+and retaining the existing Desktop shortcut. Nothing pushed or publicly
 released. Restart into749/new match for the new behavior; loading a pre-fix save
 does not automatically recall units that were already attacking.
 
