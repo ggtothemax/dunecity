@@ -12,6 +12,8 @@ target_sources(dunelegacy_tests
     PRIVATE
         WorkshopStoreTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/mod/WorkshopStore.cpp
+        SnapshotTransferTestCase.cpp
+        ${CMAKE_SOURCE_DIR}/src/Network/SnapshotTransfer.cpp
         CoopGameSettingsTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/GameInitSettings.cpp
         ${CMAKE_SOURCE_DIR}/src/misc/IFileStream.cpp
@@ -123,6 +125,7 @@ target_link_libraries(dunelegacy_tests
         SDL2::SDL2
         $<IF:$<TARGET_EXISTS:SDL2_mixer::SDL2_mixer>,SDL2_mixer::SDL2_mixer,SDL2_mixer::SDL2_mixer-static>
         CURL::libcurl
+        ZLIB::ZLIB
 )
 
 if(APPLE)
@@ -167,6 +170,7 @@ add_test(NAME lobby_authorization_tests COMMAND dunelegacy_tests "[lobby][securi
 # Emscripten where size_t is 32 bits). It needs no game data and no Catch2.
 add_executable(network_wire_harness
     wasm/NetworkWireHarness.cpp
+    ${CMAKE_SOURCE_DIR}/src/Network/SnapshotTransfer.cpp
     ${CMAKE_SOURCE_DIR}/src/misc/format.cpp
     ${CMAKE_SOURCE_DIR}/src/enet/callbacks.c
     ${CMAKE_SOURCE_DIR}/src/enet/compress.c
@@ -189,6 +193,7 @@ target_include_directories(network_wire_harness
 
 target_link_libraries(network_wire_harness
     PRIVATE
+        ZLIB::ZLIB
         SDL2::SDL2
         $<IF:$<TARGET_EXISTS:SDL2_mixer::SDL2_mixer>,SDL2_mixer::SDL2_mixer,SDL2_mixer::SDL2_mixer-static>
 )

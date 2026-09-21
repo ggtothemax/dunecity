@@ -18,6 +18,7 @@
 #ifndef NETWORKMANAGER_H
 #define NETWORKMANAGER_H
 
+#include <Network/SnapshotTransfer.h>
 #include <Network/NetworkTransportTypes.h>
 #include <Network/ChangeEventList.h>
 #include <Network/CommandList.h>
@@ -540,7 +541,7 @@ private:
     void updateObservers();
     void forwardObserverChat(const std::string& sender, const std::string& message);
     struct ObserverTransfer {
-        std::string snapshot;
+        SnapshotTransfer::Sender checkpoint;
         Uint32 epoch=0, offset=0, sent=0, nextCycle=0, ackCycle=0, deadline=0;
         bool began=false, ready=false;
         Uint32 progressAt=0;
@@ -549,6 +550,7 @@ private:
     std::deque<std::pair<Uint32,std::string>> observerHistory, observerIncoming;
     std::size_t observerHistoryBytes=0;
     std::string observerBytes, observerRuntime;
+    Uint32 observerDecodedSize=0;
     Uint32 observerEpoch=0, observerTotal=0, observerNextCycle=0, observerSendCursor=0;
     Uint32 observerStartCycle=0, observerHostCycle=0, observerAppliedCycle=0;
     bool observerCatchup=false, observerResyncPending=false;

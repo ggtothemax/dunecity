@@ -227,6 +227,7 @@ target_sources(dunecity
     Network/WebRtcPeerLifecycle.cpp
         Network/LateJoin.cpp
         Network/ObserverStream.cpp
+        Network/SnapshotTransfer.cpp
         Network/GamePayloadRouter.cpp
         Network/RoomRelayClient.cpp
         Network/RoomAdmissionClient.cpp
@@ -571,6 +572,7 @@ if(EMSCRIPTEN)
         COMMENT "Package the pinned matchmaking runtime"
         VERBATIM)
     target_compile_options(dunecity PRIVATE
+        "SHELL:-sUSE_ZLIB=1"
         "SHELL:-sUSE_SDL=2"
         "SHELL:-sUSE_SDL_MIXER=2"
         "SHELL:-sUSE_SDL_TTF=2"
@@ -582,6 +584,7 @@ if(EMSCRIPTEN)
         # optimizer pipeline. Binaryen's -O3 local2Stack pass grows prohibitively
         # on this Asyncify build (over 20 minutes / 12 GB in the release probe).
         "$<$<CONFIG:Release>:-O2>"
+        "SHELL:-sUSE_ZLIB=1"
         "SHELL:-sUSE_SDL=2"
         "SHELL:-sUSE_SDL_MIXER=2"
         "SHELL:-sUSE_SDL_TTF=2"
@@ -634,6 +637,7 @@ else()
             $<IF:$<TARGET_EXISTS:SDL2_ttf::SDL2_ttf>,SDL2_ttf::SDL2_ttf,SDL2_ttf::SDL2_ttf-static>
             $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
             CURL::libcurl
+            ZLIB::ZLIB
             $<IF:$<TARGET_EXISTS:miniupnpc::miniupnpc>,miniupnpc::miniupnpc,${MINIUPNPC_LIBRARY}>
             $<$<BOOL:${DISCORD_RPC_LIBRARY}>:${DISCORD_RPC_LIBRARY}>
             $<$<PLATFORM_ID:Android>:c++_shared>

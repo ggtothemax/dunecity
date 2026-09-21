@@ -158,7 +158,8 @@ int runLateJoinProbe() {
             }
             return network.lateJoinReady() || cancelled;
         });
-        if(observer && !cancelled && (!sawProgress || network.lateJoinPercent()!=100))
+        // Compressed checkpoints may fit in one chunk and legitimately jump 0 -> 100.
+        if(observer && !cancelled && ((!sawProgress && network.observerTotal>48u*1024) || network.lateJoinPercent()!=100))
             throw std::runtime_error("download progress did not report actual transfer completion");
         if(cancelled && mode=="abort") { joinWrite(out+"/Newcomer-cancelled","yes"); network.setOnPeerDisconnected({}); pNetworkManager.reset(); return MENU_QUIT_DEFAULT; }
         if(observer) {

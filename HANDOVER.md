@@ -1,3 +1,38 @@
+## 2026-09-21 — Compression integrated into the MBA candidate, local 1.0.742
+
+Imported 7979748be11131e8813925e09325308606b1c5ab from the separate local
+improve/snapshot-transfer-compression worktree onto the 741 candidate. Kept both
+Workshop and compression test sources when resolving the overlapping CMake edit,
+and retained both worktrees' handover history. This candidate includes the fast
+approved campaign startup, lobby-only authored mods and complete city editor.
+Compression changes the spectator checkpoint transfer only; it does not add mod
+uploads or change campaign/lobby policy. Zlib is linked for native and browser
+builds, with the existing negotiated raw-transfer fallback retained.
+
+## 2026-09-21 — Spectator transfer compression (isolated development branch)
+
+Branch `improve/snapshot-transfer-compression` starts at main `5848c51`. It is local,
+unmerged, and unreleased; version metadata remains 1.0.737 pending release coordination.
+The separate worktree is `~/Documents/projects/dunecity-transfer-compression`.
+
+Spectator checkpoints now negotiate bounded, lossless zlib compression. Older hosts and
+viewers keep using the existing raw format. Level-9 ten-minute campaign samples fall from
+702–715 KB to 54–64 KB. See [the protocol and test guide](docs/spectator-transfer.md).
+
+Verification in this worktree:
+- Native build/dependency audit and all eight CTest groups pass (777 main test cases pass,
+  three existing skips). Native ASan/UBSan and wasm32 wire harnesses each pass 92 checks.
+  This Mac's standalone sanitizer harness needs `DYLD_LIBRARY_PATH=/opt/homebrew/lib`
+  so SDL2 can locate SDL3; the normal app and CTest targets already work.
+- Full pinned Emscripten build, generated-JS checks and packaged-mod validation pass.
+- Real local WebRTC spectating, old-737 host/new viewer, new host/old-737 viewer, and
+  declined/retried/approved spectator promotion all reach matching cycle-1800 state.
+- The 256x256 Twin Cities probe transfers 5,975,340 raw bytes as 88,012 bytes and reaches
+  matching cycle-1800 state with 217 objects. Player progress and viewer departure pass.
+- Logs and diagnostic executables are under `build/transfer-*`. The campaign-byte
+  benchmark is in `build/transfer-benchmark/results.txt`. Browser interactive crossplay
+  and Windows runtime testing were not repeated for this branch.
+
 ## 2026-09-21 — Fast approved campaigns and lobby-only new mods, local 1.0.741
 
 Approved shipped mods (vanilla, dunecity, Tornie, Dune2R) now start campaigns
