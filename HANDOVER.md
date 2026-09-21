@@ -19,7 +19,12 @@ Host/Partner/Newcomer match at cycle1800 and original peers match after departur
 Screenshots reviewed for toolbar and host-only settings. Evidence:
 /tmp/dunecity-multiplayer-controls/live-4 and ctest*.log, relay-tests-2.log.
 Interactive browser crossplay and ENet LAN play were not repeated.
-Local signed package is being prepared; no public release, push or update feed.
+Local delivery complete: source019a70f3; Developer ID signature, Apple app/DMG
+acceptance, staples, Gatekeeper and mounted portable-runtime checks all pass.
+Download verified byte-for-byte at
+http://claw.local:18738/DuneCity-1.0.746-macOS.dmg.
+Package and durable evidence: ../outputs/mba-test-1.0.746/verification.json and
+validation/. Nothing pushed or published to the public release/update channels.
 
 ## 2026-09-21 — Implemented QuantBot city campaign economy, local 1.0.745
 
