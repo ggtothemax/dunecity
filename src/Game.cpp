@@ -73,6 +73,7 @@ std::mutex Game::performanceLogMutex;
 #include <Network/WorkshopGameContent.h>
 
 #include <GUI/dune/InGameMenu.h>
+#include <GUI/QstBox.h>
 #include <GUI/dune/WaitingForOtherPlayers.h>
 #include <GUI/dune/CityBudgetWindow.h>
 #include <Menu/MentatHelp.h>
@@ -4007,9 +4008,28 @@ bool Game::canSkipMission() const {
 
 void Game::onSkipMission() {
     if(!canSkipMission())return;
-    auto menu=std::make_unique<InGameMenu>(isNetworkGameType(gameType),COLOR_WHITE);
-    menu->onSkipMission();
-    pInGameMenu=std::move(menu); bMenu=true; pauseGame("skip_mission");
+    class Confirmation : public Window {
+    public:
+        Confirmation() : Window(0, 0, getRendererWidth(), getRendererHeight()) {
+            setTransparentBackground(true);
+            openWindow(QstBox::create(_("Skip this mission and continue to the next level?"),
+                                     _("Skip mission"), _("Cancel"), QSTBOX_BUTTON2));
+        }
+        void onChildWindowClose(Window* child) override {
+            const auto* question = dynamic_cast<QstBox*>(child);
+            if(question && question->getPressedButtonID() == QSTBOX_BUTTON1)
+                currentGame->confirmSkipMission();
+            currentGame->resumeGame();
+        }
+        bool handleKeyPress(SDL_KeyboardEvent& key) override {
+            if(key.keysym.sym == SDLK_ESCAPE) {
+                currentGame->resumeGame();
+                return true;
+            }
+            return Window::handleKeyPress(key);
+        }
+    };
+    pInGameMenu=std::make_unique<Confirmation>(); bMenu=true; pauseGame("skip_mission");
 }
 
 void Game::confirmSkipMission() {

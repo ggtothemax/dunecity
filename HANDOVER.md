@@ -1,3 +1,21 @@
+## 2026-09-21 — Sidebar mission skip, local 1.0.743
+
+Restored Skip mission in the right-hand campaign controls, beneath Pollution in
+city mode and Paths in ordinary campaigns. A burgundy background distinguishes
+it from routine controls. The button opens a direct confirmation with Cancel
+focused; Cancel or Escape returns to gameplay. Confirm uses the existing
+authorized deterministic campaign command and victory/next-level path. Options
+retains its existing skip action. Replays/spectators/non-campaign games cannot
+skip, and the sidebar action hides while object controls occupy the sidebar.
+
+Native build/dependency audits and the real command-execution probe pass. The
+expanded probe checks city layout within a 480px interface, rendered color and
+dialog screenshots, cancellation/Escape, exactly one confirmed command, replay
+visibility, selected-object overlap, normal progression and final mission exit.
+Evidence is in ../outputs/mba-test-1.0.743/command-probe/. The prior compression,
+fast campaign startup, lobby policy and complete editor changes are retained.
+This is a local Mac candidate; no push or public release.
+
 ## 2026-09-21 — Compression integrated into the MBA candidate, local 1.0.742
 
 Imported 7979748be11131e8813925e09325308606b1c5ab from the separate local

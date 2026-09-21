@@ -38,6 +38,12 @@
 
 class ObjectInterface;
 
+/// Deliberately distinct from the routine sidebar controls.
+class SkipMissionButton : public TextButton {
+protected:
+    void updateTextures() override;
+};
+
 /// This class represents the in-game interface.
 class GameInterface : public Window {
 public:
@@ -142,6 +148,7 @@ private:
     TextButton          landValueOverlayButton;
     TextButton          crimeOverlayButton;
     TextButton          pollutionOverlayButton;
+    SkipMissionButton   skipMissionButton;
     TextButton          ornithopterSelectButton;///< Button that selects all owned ornithopters
     TextButton          chemicalCarryallSelectButton;///< Button that selects all owned chemical carryalls
 

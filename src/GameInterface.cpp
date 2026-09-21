@@ -48,6 +48,29 @@
 #include <cstdlib>
 #include <string>
 
+void SkipMissionButton::updateTextures() {
+    Button::updateTextures();
+    if(pUnpressedTexture) return;
+    auto surface = [&](bool pressed, bool active) {
+        auto& style = GUIStyle::getInstance();
+        auto result = sdl2::surface_ptr(SDL_CreateRGBSurfaceWithFormat(
+            0, getSize().x, getSize().y, 32, SCREEN_FORMAT));
+        if(!result) return result;
+        SDL_FillRect(result.get(), nullptr, pressed ? COLOR_RGB(92, 34, 42) : COLOR_RGB(132, 46, 56));
+        drawRect(result.get(), 0, 0, getSize().x - 1, getSize().y - 1,
+                 active ? COLOR_RGB(255, 211, 116) : COLOR_RGB(205, 119, 116));
+        int fontSize = 18;
+        while(fontSize > 8 && (static_cast<int>(style.getTextWidth(getText(), fontSize)) + 12 > getSize().x
+              || static_cast<int>(style.getTextHeight(fontSize)) + 4 > getSize().y)) --fontSize;
+        auto label = pFontManager->createSurfaceWithText(getText(), COLOR_RGB(255, 244, 232), fontSize);
+        auto rect = calcDrawingRect(label.get(), getSize().x / 2 + (pressed ? 1 : 0),
+                                   getSize().y / 2 + (pressed ? 1 : 0), HAlign::Center, VAlign::Center);
+        SDL_BlitSurface(label.get(), nullptr, result.get(), &rect);
+        return result;
+    };
+    setSurfaces(surface(false, false), surface(true, true), surface(false, true));
+}
+
 GameInterface::GameInterface() : Window(0,0,0,0) {
     pObjectContainer = nullptr;
     objectID = NONE_ID;
@@ -224,6 +247,15 @@ GameInterface::GameInterface() : Window(0,0,0,0) {
     addOverlayButton(pollutionOverlayButton, "Pollution",
         "Show pollution: green is clean, purple is polluted. Click again to hide (Shift+4; Shift+1 off).",
         DuneCity::CityOverlayMode::Pollution, autoRepairY + 160);
+
+    skipMissionButton.setText(_("Skip mission"));
+    skipMissionButton.setTooltipText(_("Skip this mission and continue to the next level (confirmation required)."));
+    skipMissionButton.setOnClick(std::bind(&Game::onSkipMission, currentGame));
+    skipMissionButton.setVisible(currentGame->canSkipMission());
+    windowWidget.addWidget(&skipMissionButton,
+        Point(getRendererWidth() - sideBar.getSize().x + 24,
+              autoRepairY + (currentGame->isCitySimEnabled() ? 204 : 84)),
+        Point(ornithopterButtonWidth, 36));
 
     // add chat manager
     windowWidget.addWidget(&chatManager, Point(20, 60), Point(getRendererWidth() - sideBar.getSize().x, 360));
@@ -515,6 +547,7 @@ void GameInterface::updateObjectInterface() {
     landValueOverlayButton.setVisible(showOverlayButtons);
     crimeOverlayButton.setVisible(showOverlayButtons);
     pollutionOverlayButton.setVisible(showOverlayButtons);
+    skipMissionButton.setVisible(selection.empty() && currentGame->canSkipMission());
     // Keep pressed states in sync with keyboard shortcuts and other overlays.
     landValueOverlayButton.setToggleState(currentGame->getCityOverlayMode() == DuneCity::CityOverlayMode::LandValue);
     crimeOverlayButton.setToggleState(currentGame->getCityOverlayMode() == DuneCity::CityOverlayMode::CrimeRate);
