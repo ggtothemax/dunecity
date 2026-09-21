@@ -34,6 +34,15 @@ and retaining the existing Desktop shortcut. Nothing pushed or publicly
 released. Restart into749/new match for the new behavior; loading a pre-fix save
 does not automatically recall units that were already attacking.
 
+Delivery749 verified: source5cd86309. Signed, Apple-accepted app installed at
+/Applications/dunecity.app on Stefans-MacBook-Air.local. Existing Desktop shortcut
+retained;748 backed up under DuneCity Local Test/backups. Installed executable
+SHA256e585804857eec49040cb52e4da0a2bd5d34a2b162f047603a25dbd2095b5c8b5
+matches the notarized archive. No app launch/profile modification. Verification
+receipt: ../outputs/mba-test-1.0.749/verification.json. Final signed artifacts are
+under verified-signed/; earlier final-signed/ artifacts were superseded before
+installation by the campaign-helper-scope refinement.
+
 ## 2026-09-21 — Four Quadrants crash, menu resume and mod choices, local 1.0.748
 
 Reproduced Stefan's actual MBA replay from 1.0.747: Four Quadrants, seed545318708,
