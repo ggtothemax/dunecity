@@ -1,3 +1,33 @@
+## 2026-09-21 — Classic campaign results and actual tax receipts, local 1.0.744
+
+Restored the original FAME.CPS framed results artwork replaced by the 716 menu
+restyle. Dune City content alone gets a fourth animated Tax collected by group;
+its four row backgrounds reuse the classic artwork, with compact label spacing.
+Vanilla/Tornie/Dune2R retain three groups. Team classification and score are unchanged.
+
+House tracks gross fixed-point receipts at the actual city payout, separately
+from spice, spendable city funds, service costs and projected annual revenue.
+The counter saturates safely at one billion credits. Save format 9841 persists
+it; older saves remain readable with zero historical tax receipts. UI totals
+use display-only doubles to sum houses without fixed-point overflow. Older
+apps cannot read the new save format; existing version rejection remains.
+
+Claude investigated the original art and produced the restoration and partial
+tax implementation via the subscription CLI. Codex reviewed/integrated it,
+fixed overflow/gating/layout, added tax save compatibility and display probes,
+and verified actual renders at 1024x768 and 640x480. All eight CTest groups pass;
+real House roundtrip/9840 alignment, spending/refunds/spice independence,
+mod gating, team attribution, saturation and finished animation probes pass.
+Two native peers hot join/promote with matching cycle-1800 state:
+76292739 / 215 objects / 15a4cab16d7019d4 / 454ef57cf3e1da2b.
+Evidence: ../outputs/mba-test-1.0.744/{stats-city-final,stats-compact,stats-vanilla-9,hot-join}.
+
+The campaign AI economy/base-size issue is a separate requested investigation
+and proposal; no QuantBot balance changes are included in this build. User wants
+combined RCI caps (level2 Easy example6), modest total-income uplift over vanilla,
+and greater tax substitution for harvesters on higher difficulty. MBA game logs
+were not available on this host; do not claim its actual last game was inspected.
+
 ## 2026-09-21 — Sidebar mission skip, local 1.0.743
 
 Restored Skip mission in the right-hand campaign controls, beneath Pollution in

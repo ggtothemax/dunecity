@@ -62,6 +62,7 @@ House::House(int newHouse, int newCredits, int maxUnits, int maxHarvesters, Uint
     storedCredits = 0;
     startingCredits = newCredits;
     cityCredits = 0;
+    cityTaxReceipts = 0;
     oldCredits = lround(storedCredits+startingCredits+cityCredits);
 
     this->maxUnits = maxUnits;
@@ -105,6 +106,14 @@ House::House(InputStream& stream) : choam(this) {
         cityCredits = stream.readFixPoint();
     } else {
         cityCredits = 0;
+    }
+    // SAVEGAMEVERSION 9841+ persists the cumulative tax statistic. Older saves
+    // never recorded it, so they continue the mission from zero rather than
+    // inventing a past total.
+    if (currentGame && currentGame->getLoadedSavegameVersion() >= 9841) {
+        cityTaxReceipts = std::clamp(stream.readFixPoint(), FixPoint(0), FixPoint(MAX_CITY_TAX_RECEIPTS));
+    } else {
+        cityTaxReceipts = 0;
     }
     oldCredits = lround(storedCredits+startingCredits+cityCredits);
     maxUnits = stream.readSint32();
@@ -204,6 +213,7 @@ void House::save(OutputStream& stream) const {
     stream.writeFixPoint(storedCredits);
     stream.writeFixPoint(startingCredits);
     stream.writeFixPoint(cityCredits);
+    stream.writeFixPoint(cityTaxReceipts);
     stream.writeSint32(maxUnits);
     stream.writeSint32(maxHarvesters);
     stream.writeSint32(quota);
@@ -372,6 +382,17 @@ void House::addCityCredits(FixPoint amount) {
         }
     }
     AITelemetry::log().account(houseID, "city_net_applied", (cityCredits - previous).getRawValue());
+}
+
+void House::addCityTaxReceipts(FixPoint grossAmount) {
+    // Statistic only: this is what the city actually collected this mission,
+    // before police funding, credit caps or any later spending.
+    if(grossAmount <= 0) {
+        return;
+    }
+
+    const FixPoint remaining = FixPoint(MAX_CITY_TAX_RECEIPTS) - cityTaxReceipts;
+    cityTaxReceipts += std::min(grossAmount, remaining);
 }
 
 

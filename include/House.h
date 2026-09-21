@@ -197,10 +197,15 @@ public:
     inline FixPoint getStartingCredits() const { return startingCredits; }
     inline FixPoint getStoredCredits() const { return storedCredits; }
     inline FixPoint getCityCredits() const { return cityCredits; }
+    inline FixPoint getCityTaxReceipts() const { return cityTaxReceipts; }
     static constexpr int MAX_GAME_CREDITS = 999999;
+    /// Cap for the cumulative tax statistic. Far above any reachable mission
+    /// total, but small enough that the 32.32 fixed-point total cannot overflow.
+    static constexpr int MAX_CITY_TAX_RECEIPTS = 1000000000;
     inline int getCredits() const { return lround(storedCredits+startingCredits+cityCredits); }
     void addCredits(FixPoint newCredits, bool wasRefined = false);
     void addCityCredits(FixPoint amount);
+    void addCityTaxReceipts(FixPoint grossAmount);
     void returnCredits(FixPoint newCredits);
     FixPoint takeCredits(FixPoint amount);
 
@@ -276,6 +281,7 @@ protected:
     FixPoint storedCredits;   ///< current number of credits that are stored in refineries/silos
     FixPoint startingCredits; ///< number of starting credits this player still has
     FixPoint cityCredits;     ///< spendable city tax income, excluded from the harvested-spice quota
+    FixPoint cityTaxReceipts; ///< cumulative gross city tax collected this mission (statistic only: never spent, never reduced by police costs or credit caps)
     int oldCredits;           ///< amount of credits in the last game cycle (used for playing the credits tick sound)
 
     int maxUnits;             ///< maximum number of units this house is allowed to build

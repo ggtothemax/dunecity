@@ -1494,6 +1494,9 @@ void CitySimulation::runDailyBudget() {
         const FixPoint tickPaid    = FixPoint(annualPaid)    / kBudgetTicksPerYear;
         const FixPoint net = tickRevenue - tickPaid;
 
+        // Gross receipts are the debriefing statistic: record them before the
+        // police charge, the credit cap or any later spending touch the balance.
+        house->addCityTaxReceipts(tickRevenue);
         house->addCityCredits(tickRevenue - tickPaid);
         AITelemetry::log().account(hID, "city_gross", tickRevenue.getRawValue());
         AITelemetry::log().account(hID, "police_charged", tickPaid.getRawValue());

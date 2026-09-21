@@ -54,6 +54,10 @@ private:
         State_HumanBuildings,
         State_Between_HumanBuildings_and_AIBuildings,
         State_AIBuildings,
+        State_Between_AIBuildings_and_HumanTax,
+        State_HumanTax,
+        State_Between_HumanTax_and_AITax,
+        State_AITax,
         State_Finished
     } CampaignStatsState;
 
@@ -98,6 +102,19 @@ private:
     ProgressBar buildingsEnemyProgressBar;
     Label       buildingsEnemyLabel;
 
+    // city tax statistics (Dune City only)
+    Label       taxCollectedByLabel;
+    Label       you4Label;
+    ProgressBar taxYouShadowProgressBar;
+    ProgressBar taxYouProgressBar;
+    Label       taxYouLabel;
+    Label       enemy4Label;
+    ProgressBar taxEnemyShadowProgressBar;
+    ProgressBar taxEnemyProgressBar;
+    Label       taxEnemyLabel;
+
+    bool showTaxStatistics = false;   ///< true only for Dune City content with a running city simulation
+
     int currentStateStartTime = 0;
     CampaignStatsState currentState = State_HumanSpice;
 
@@ -109,6 +126,10 @@ private:
 
     float spiceHarvestedByHuman = 0;
     float spiceHarvestedByAI = 0;
+
+    // Display-only sums; doubles accommodate several houses without overflowing FixPoint.
+    double taxCollectedByHuman = 0;
+    double taxCollectedByAI = 0;
 
     int totalTime = 0;
     int totalScore = 0;

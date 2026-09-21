@@ -23,6 +23,8 @@
 #include <FileClasses/TextManager.h>
 #include <FileClasses/music/MusicPlayer.h>
 #include <misc/format.h>
+#include <misc/draw_util.h>
+#include <mod/ModManager.h>
 #include <House.h>
 #include <SoundPlayer.h>
 #include <Game.h>
@@ -31,6 +33,7 @@
 #include <units/Harvester.h>
 
 #include <climits>
+#include <cmath>
 #include <algorithm>
 
 #define max3(a,b,c) (std::max((a),std::max((b),(c))))
@@ -38,9 +41,26 @@
 #define PROGRESSBARTIME 4000.0f
 #define WAITTIME 1000
 
+namespace {
+
+/// The tax row belongs to Dune City alone. Other mods with a city simulation
+/// (Tornie) and the plain Dune II rule sets keep the original three groups, so
+/// the city-sim flag has to be paired with the mod's content identity.
+bool isDuneCityTaxStatisticEnabled() {
+    const auto& modManager = ModManager::instance();
+    if(!modManager.isInitialized() || currentGame == nullptr || !currentGame->isCitySimEnabled()) {
+        return false;
+    }
+    return modManager.getContentBase(currentGame->getGameInitSettings().getModName()) == "dunecity";
+}
+
+} // anonymous namespace
+
 CampaignStatsMenu::CampaignStatsMenu(int level) : MenuBase()
 {
     calculateScore(level);
+
+    showTaxStatistics = isDuneCityTaxStatisticEnabled();
 
     const int localHouseID = pLocalHouse->getHouseID();
     Uint32 colorYou = getHouseColorRGB(getHouseVisualHouse(localHouseID), 1);
@@ -52,6 +72,18 @@ CampaignStatsMenu::CampaignStatsMenu(int level) : MenuBase()
     SDL_Texture *pBackground = pGFXManager->getUIGraphic(UI_GameStatsBackground);
     setBackground(pBackground);
     resize(getTextureSize(pBackground));
+    if(showTaxStatistics) {
+        // Reuse the original framed row artwork for all four groups instead
+        // of drawing a fourth set of labels over the three-row background.
+        auto source = pGFXManager->getUIGraphicSurface(UI_GameStatsBackground);
+        sdl2::surface_ptr background(SDL_ConvertSurfaceFormat(source, SCREEN_FORMAT, 0));
+        auto row = getSubPicture(background.get(), getSize().x / 2 - 304, getSize().y / 2 - 40, 610, 74);
+        for(int group = 0; group < 4; ++group) {
+            SDL_Rect dest{getSize().x / 2 - 304, getSize().y / 2 - 40 + group * 56, 610, 56};
+            SDL_BlitScaled(row.get(), nullptr, background.get(), &dest);
+        }
+        setBackground(std::move(background));
+    }
 
     setWindowWidget(&windowWidget);
 
@@ -72,135 +104,86 @@ CampaignStatsMenu::CampaignStatsMenu(int level) : MenuBase()
     rankLabel.setText(rank);
     windowWidget.addWidget(&rankLabel, (getSize()/2) + Point(-rankLabel.getSize().x/2, -104), rankLabel.getSize());
 
-    spiceHarvestedByLabel.setTextColor(COLOR_WHITE, COLOR_TRANSPARENT);
-    spiceHarvestedByLabel.setAlignment(Alignment_HCenter);
-    spiceHarvestedByLabel.setText(_("@DUNE.ENG|26#Spice harvested by"));
-    windowWidget.addWidget(&spiceHarvestedByLabel, (getSize()/2) + Point(-spiceHarvestedByLabel.getSize().x/2, -40), spiceHarvestedByLabel.getSize());
+    // The classic panel has three 74 pixel statistic rows. Dune City adds a
+    // fourth (tax) row, so only that mod compresses the block enough to keep
+    // all four rows inside the same frame; every other mod keeps the original
+    // row positions exactly.
+    const int groupPitch = showTaxStatistics ? 56 : 74;
+    const int firstGroupY = -40;
 
-    unitsDestroyedByLabel.setTextColor(COLOR_WHITE, COLOR_TRANSPARENT);
-    unitsDestroyedByLabel.setAlignment(Alignment_HCenter);
-    unitsDestroyedByLabel.setText(_("@DUNE.ENG|24#Units destroyed by"));
-    windowWidget.addWidget(&unitsDestroyedByLabel, (getSize()/2) + Point(-unitsDestroyedByLabel.getSize().x/2, 34), unitsDestroyedByLabel.getSize());
+    auto addStatGroup = [&](int index, Label& headingLabel, const std::string& heading,
+                            Label& youLabel, ProgressBar& youShadowBar, ProgressBar& youBar, Label& youValueLabel,
+                            Label& enemyLabel, ProgressBar& enemyShadowBar, ProgressBar& enemyBar, Label& enemyValueLabel) {
+        const int y = firstGroupY + index * groupPitch;
+        const auto offset = [&](int value) { return showTaxStatistics ? value * 56 / 74 : value; };
+        if(showTaxStatistics) {
+            youLabel.setTextFontSize(10); enemyLabel.setTextFontSize(10);
+            youValueLabel.setTextFontSize(10); enemyValueLabel.setTextFontSize(10);
+        }
 
-    buildingsDestroyedByLabel.setTextColor(COLOR_WHITE, COLOR_TRANSPARENT);
-    buildingsDestroyedByLabel.setAlignment(Alignment_HCenter);
-    buildingsDestroyedByLabel.setText(_("@DUNE.ENG|25#Buildings destroyed by"));
-    windowWidget.addWidget(&buildingsDestroyedByLabel, (getSize()/2) + Point(-buildingsDestroyedByLabel.getSize().x/2, 108), buildingsDestroyedByLabel.getSize());
+        headingLabel.setTextColor(COLOR_WHITE, COLOR_BLACK, COLOR_THICKSPICE);
+        headingLabel.setAlignment(Alignment_HCenter);
+        headingLabel.setText(heading);
+        windowWidget.addWidget(&headingLabel, (getSize()/2) + Point(-headingLabel.getSize().x/2, y), headingLabel.getSize());
+
+        youLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
+        youLabel.setAlignment(Alignment_Right);
+        youLabel.setText(_("@DUNE.ENG|329#You:"));
+        windowWidget.addWidget(&youLabel, (getSize()/2) + Point(-229 - youLabel.getSize().x, y + offset(19)), youLabel.getSize());
+
+        youShadowBar.setColor(COLOR_BLACK);
+        youShadowBar.setProgress(0.0);
+        windowWidget.addWidget(&youShadowBar, (getSize()/2) + Point(-228 + 2, y + offset(25) + 2), Point(440, offset(12)));
+
+        youBar.setColor(colorYou);
+        youBar.setProgress(0.0);
+        windowWidget.addWidget(&youBar, (getSize()/2) + Point(-228, y + offset(25)), Point(440, offset(12)));
+
+        youValueLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
+        youValueLabel.setAlignment(Alignment_HCenter);
+        youValueLabel.setVisible(false);
+        windowWidget.addWidget(&youValueLabel, (getSize()/2) + Point(222, y + offset(20)), Point(66, offset(21)));
+
+        enemyLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
+        enemyLabel.setAlignment(Alignment_Right);
+        enemyLabel.setText(_("@DUNE.ENG|330#Enemy:"));
+        windowWidget.addWidget(&enemyLabel, (getSize()/2) + Point(-229 - enemyLabel.getSize().x, y + offset(37)), enemyLabel.getSize());
+
+        enemyShadowBar.setColor(COLOR_BLACK);
+        enemyShadowBar.setProgress(0.0);
+        windowWidget.addWidget(&enemyShadowBar, (getSize()/2) + Point(-228 + 2, y + offset(43) + 2), Point(440, offset(12)));
+
+        enemyBar.setColor(colorEnemy);
+        enemyBar.setProgress(0.0);
+        windowWidget.addWidget(&enemyBar, (getSize()/2) + Point(-228, y + offset(43)), Point(440, offset(12)));
+
+        enemyValueLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
+        enemyValueLabel.setAlignment(Alignment_HCenter);
+        enemyValueLabel.setVisible(false);
+        windowWidget.addWidget(&enemyValueLabel, (getSize()/2) + Point(222, y + offset(38)), Point(66, offset(21)));
+    };
 
     // spice statistics
-
-    you1Label.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    you1Label.setAlignment(Alignment_Right);
-    you1Label.setText(_("@DUNE.ENG|329#You:"));
-    windowWidget.addWidget(&you1Label, (getSize()/2) + Point(-229 - you1Label.getSize().x, -21), you1Label.getSize());
-
-    spiceYouShadowProgressBar.setColor(COLOR_BLACK);
-    spiceYouShadowProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&spiceYouShadowProgressBar, (getSize()/2) + Point(-228 + 2, -15 + 2), Point(440,12));
-
-    spiceYouProgressBar.setColor(colorYou);
-    spiceYouProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&spiceYouProgressBar, (getSize()/2) + Point(-228, -15), Point(440,12));
-
-    spiceYouLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    spiceYouLabel.setAlignment(Alignment_HCenter);
-    spiceYouLabel.setVisible(false);
-    windowWidget.addWidget(&spiceYouLabel, (getSize()/2) + Point(222, -20), Point(66,21));
-
-    enemy1Label.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    enemy1Label.setAlignment(Alignment_Right);
-    enemy1Label.setText(_("@DUNE.ENG|330#Enemy:"));
-    windowWidget.addWidget(&enemy1Label, (getSize()/2) + Point(-229 - enemy1Label.getSize().x, -3), enemy1Label.getSize());
-
-    spiceEnemyShadowProgressBar.setColor(COLOR_BLACK);
-    spiceEnemyShadowProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&spiceEnemyShadowProgressBar, (getSize()/2) + Point(-228 + 2, 3 + 2), Point(440,12));
-
-    spiceEnemyProgressBar.setColor(colorEnemy);
-    spiceEnemyProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&spiceEnemyProgressBar, (getSize()/2) + Point(-228, 3), Point(440,12));
-
-    spiceEnemyLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    spiceEnemyLabel.setAlignment(Alignment_HCenter);
-    spiceEnemyLabel.setVisible(false);
-    windowWidget.addWidget(&spiceEnemyLabel, (getSize()/2) + Point(222, -2), Point(66,21));
+    addStatGroup(0, spiceHarvestedByLabel, _("@DUNE.ENG|26#Spice harvested by"),
+                 you1Label, spiceYouShadowProgressBar, spiceYouProgressBar, spiceYouLabel,
+                 enemy1Label, spiceEnemyShadowProgressBar, spiceEnemyProgressBar, spiceEnemyLabel);
 
     // unit kill statistics
-
-    you2Label.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    you2Label.setAlignment(Alignment_Right);
-    you2Label.setText(_("@DUNE.ENG|329#You:"));
-    windowWidget.addWidget(&you2Label, (getSize()/2) + Point(-229 - you2Label.getSize().x, 53), you2Label.getSize());
-
-    unitsYouShadowProgressBar.setColor(COLOR_BLACK);
-    unitsYouShadowProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&unitsYouShadowProgressBar, (getSize()/2) + Point(-228 + 2, 59 + 2), Point(440,12));
-
-    unitsYouProgressBar.setColor(colorYou);
-    unitsYouProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&unitsYouProgressBar, (getSize()/2) + Point(-228, 59), Point(440,12));
-
-    unitsYouLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    unitsYouLabel.setAlignment(Alignment_HCenter);
-    unitsYouLabel.setVisible(false);
-    windowWidget.addWidget(&unitsYouLabel, (getSize()/2) + Point(222, 54), Point(66,21));
-
-    enemy2Label.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    enemy2Label.setAlignment(Alignment_Right);
-    enemy2Label.setText(_("@DUNE.ENG|330#Enemy:"));
-    windowWidget.addWidget(&enemy2Label, (getSize()/2) + Point(-229 - enemy2Label.getSize().x, 71), enemy2Label.getSize());
-
-    unitsEnemyShadowProgressBar.setColor(COLOR_BLACK);
-    unitsEnemyShadowProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&unitsEnemyShadowProgressBar, (getSize()/2) + Point(-228 + 2, 77 + 2), Point(440,12));
-
-    unitsEnemyProgressBar.setColor(colorEnemy);
-    unitsEnemyProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&unitsEnemyProgressBar, (getSize()/2) + Point(-228, 77), Point(440,12));
-
-    unitsEnemyLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    unitsEnemyLabel.setAlignment(Alignment_HCenter);
-    unitsEnemyLabel.setVisible(false);
-    windowWidget.addWidget(&unitsEnemyLabel, (getSize()/2) + Point(222, 72), Point(66,21));
+    addStatGroup(1, unitsDestroyedByLabel, _("@DUNE.ENG|24#Units destroyed by"),
+                 you2Label, unitsYouShadowProgressBar, unitsYouProgressBar, unitsYouLabel,
+                 enemy2Label, unitsEnemyShadowProgressBar, unitsEnemyProgressBar, unitsEnemyLabel);
 
     // buildings kill statistics
+    addStatGroup(2, buildingsDestroyedByLabel, _("@DUNE.ENG|25#Buildings destroyed by"),
+                 you3Label, buildingsYouShadowProgressBar, buildingsYouProgressBar, buildingsYouLabel,
+                 enemy3Label, buildingsEnemyShadowProgressBar, buildingsEnemyProgressBar, buildingsEnemyLabel);
 
-    you3Label.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    you3Label.setAlignment(Alignment_Right);
-    you3Label.setText(_("@DUNE.ENG|329#You:"));
-    windowWidget.addWidget(&you3Label, (getSize()/2) + Point(-229 - you3Label.getSize().x, 127), you3Label.getSize());
-
-    buildingsYouShadowProgressBar.setColor(COLOR_BLACK);
-    buildingsYouShadowProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&buildingsYouShadowProgressBar, (getSize()/2) + Point(-228 + 2, 133 + 2), Point(440,12));
-
-    buildingsYouProgressBar.setColor(colorYou);
-    buildingsYouProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&buildingsYouProgressBar, (getSize()/2) + Point(-228, 133), Point(440,12));
-
-    buildingsYouLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    buildingsYouLabel.setAlignment(Alignment_HCenter);
-    buildingsYouLabel.setVisible(false);
-    windowWidget.addWidget(&buildingsYouLabel, (getSize()/2) + Point(222, 128), Point(66,21));
-
-    enemy3Label.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    enemy3Label.setAlignment(Alignment_Right);
-    enemy3Label.setText(_("@DUNE.ENG|330#Enemy:"));
-    windowWidget.addWidget(&enemy3Label, (getSize()/2) + Point(-229 - enemy2Label.getSize().x, 145), enemy3Label.getSize());
-
-    buildingsEnemyShadowProgressBar.setColor(COLOR_BLACK);
-    buildingsEnemyShadowProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&buildingsEnemyShadowProgressBar, (getSize()/2) + Point(-228 + 2, 151 + 2), Point(440,12));
-
-    buildingsEnemyProgressBar.setColor(colorEnemy);
-    buildingsEnemyProgressBar.setProgress(0.0);
-    windowWidget.addWidget(&buildingsEnemyProgressBar, (getSize()/2) + Point(-228, 151), Point(440,12));
-
-    buildingsEnemyLabel.setTextColor(COLOR_WHITE, COLOR_BLACK);
-    buildingsEnemyLabel.setAlignment(Alignment_HCenter);
-    buildingsEnemyLabel.setVisible(false);
-    windowWidget.addWidget(&buildingsEnemyLabel, (getSize()/2) + Point(222, 146), Point(66,21));
-
+    // city tax statistics (Dune City only)
+    if(showTaxStatistics) {
+        addStatGroup(3, taxCollectedByLabel, _("Tax collected by"),
+                     you4Label, taxYouShadowProgressBar, taxYouProgressBar, taxYouLabel,
+                     enemy4Label, taxEnemyShadowProgressBar, taxEnemyProgressBar, taxEnemyLabel);
+    }
 }
 
 CampaignStatsMenu::~CampaignStatsMenu() = default;
@@ -403,13 +386,76 @@ void CampaignStatsMenu::doState(int elapsedTime)
                 AI_PercentBuildingsComplete = structuresDestroyedByAI * 100.0f / MaxBuildingsDestroyed;
                 buildingsEnemyLabel.setText( std::to_string(structuresDestroyedByAI));
                 soundPlayer->playSound(Sound_Tick);
-                currentState = State_Finished;
+                currentState = showTaxStatistics ? State_Between_AIBuildings_and_HumanTax : State_Finished;
                 currentStateStartTime = SDL_GetTicks();
             }
 
             buildingsEnemyLabel.setVisible(true);
             buildingsEnemyProgressBar.setProgress( AI_PercentBuildingsComplete );
             buildingsEnemyShadowProgressBar.setProgress( AI_PercentBuildingsComplete );
+        } break;
+
+        case State_Between_AIBuildings_and_HumanTax:
+            if(elapsedTime > WAITTIME) {
+                currentState = State_HumanTax;
+                currentStateStartTime = SDL_GetTicks();
+            }
+        break;
+
+        case State_HumanTax:
+        {
+            // Fixed-point house totals are converted only for this display.
+            const double taxHuman = taxCollectedByHuman;
+            const double MaxTaxCollected = max3(taxHuman, taxCollectedByAI, 1000.0);
+            const float TaxComplete = std::min(elapsedTime / PROGRESSBARTIME, 1.0f);
+
+            float Human_PercentTaxComplete;
+            if(TaxComplete < taxHuman / MaxTaxCollected) {
+                Human_PercentTaxComplete = TaxComplete * 100.0f;
+                taxYouLabel.setText( std::to_string( (long long) (TaxComplete*MaxTaxCollected)));
+                soundPlayer->playSound(Sound_CreditsTick);
+            } else {
+                Human_PercentTaxComplete = taxHuman * 100.0f / MaxTaxCollected;
+                taxYouLabel.setText( std::to_string( std::llround(taxCollectedByHuman)));
+                soundPlayer->playSound(Sound_Tick);
+                currentState = State_Between_HumanTax_and_AITax;
+                currentStateStartTime = SDL_GetTicks();
+            }
+
+            taxYouLabel.setVisible(true);
+            taxYouProgressBar.setProgress( Human_PercentTaxComplete );
+            taxYouShadowProgressBar.setProgress( Human_PercentTaxComplete );
+        } break;
+
+        case State_Between_HumanTax_and_AITax:
+            if(elapsedTime > WAITTIME) {
+                currentState = State_AITax;
+                currentStateStartTime = SDL_GetTicks();
+            }
+        break;
+
+        case State_AITax:
+        {
+            const double taxAI = taxCollectedByAI;
+            const double MaxTaxCollected = max3(taxCollectedByHuman, taxAI, 1000.0);
+            const float TaxComplete = std::min(elapsedTime / PROGRESSBARTIME, 1.0f);
+
+            float AI_PercentTaxComplete;
+            if(TaxComplete < taxAI / MaxTaxCollected) {
+                AI_PercentTaxComplete = TaxComplete * 100.0f;
+                taxEnemyLabel.setText( std::to_string( (long long) (TaxComplete*MaxTaxCollected)));
+                soundPlayer->playSound(Sound_CreditsTick);
+            } else {
+                AI_PercentTaxComplete = taxAI * 100.0f / MaxTaxCollected;
+                taxEnemyLabel.setText( std::to_string( std::llround(taxCollectedByAI)));
+                soundPlayer->playSound(Sound_Tick);
+                currentState = State_Finished;
+                currentStateStartTime = SDL_GetTicks();
+            }
+
+            taxEnemyLabel.setVisible(true);
+            taxEnemyProgressBar.setProgress( AI_PercentTaxComplete );
+            taxEnemyShadowProgressBar.setProgress( AI_PercentTaxComplete );
         } break;
 
         case State_Finished:
@@ -431,6 +477,9 @@ void CampaignStatsMenu::calculateScore(int level)
     spiceHarvestedByHuman = 0.0f;
     spiceHarvestedByAI = 0.0f;
 
+    taxCollectedByHuman = 0;
+    taxCollectedByAI = 0;
+
     totalTime = currentGame->getGameTime()/1000;
 
     totalScore = level*45;
@@ -446,12 +495,15 @@ void CampaignStatsMenu::calculateScore(int level)
                 unitsDestroyedByAI += pHouse->getNumDestroyedUnits();
                 structuresDestroyedByAI += pHouse->getNumDestroyedStructures();
                 spiceHarvestedByAI += pHouse->getHarvestedSpice().toFloat();
+                // Tax is a separate statistic: it is neither spice nor score.
+                taxCollectedByAI += pHouse->getCityTaxReceipts().toDouble();
 
                 totalScore -= pHouse->getDestroyedValue();
             } else {
                 unitsDestroyedByHuman += pHouse->getNumDestroyedUnits();
                 structuresDestroyedByHuman += pHouse->getNumDestroyedStructures();
                 spiceHarvestedByHuman += pHouse->getHarvestedSpice().toFloat();
+                taxCollectedByHuman += pHouse->getCityTaxReceipts().toDouble();
 
                 totalHumanCredits += pHouse->getCredits();
 
