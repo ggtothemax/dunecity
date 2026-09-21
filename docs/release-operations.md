@@ -205,3 +205,22 @@ Hold stable publication until full public browser/browser and browser/native mat
 pass, including gameplay after signaling outage and SQLite runtime attribution.
 Transport fixtures alone are insufficient. Networks unable to establish direct ICE
 connectivity fail visibly; there is no hidden relay fallback.
+
+## Windows compile caching
+
+Windows CI uses Ninja with four concurrent MSVC compiler processes and sccache
+for game object files. Precompiled headers are disabled in this CI configuration
+so compilation is cacheable. Local Visual Studio builds retain their defaults.
+Installer DLL collection uses the target output directory for either generator.
+The vcpkg cache key hashes dependency fields rather than the app version;
+existing cache entries remain available through restore prefixes. Object caches
+use runner-image prefixes and a fresh entry per successful run. Main-branch
+caches can be restored by later PR/tag builds; PR caches do not seed main.
+
+For explicit validation, dispatch Build Dune Legacy with
+`windows_cache_probe=true`. It runs Windows alone, deletes the build tree after
+the first build, and requires at least 100 compiler-cache hits and a 90% hit rate
+on the clean rebuild. It still validates the relay and packages the installers,
+but does not publish a release. Check the first build's sccache statistics on a
+second run to verify persisted cache reuse across fresh runners. Normal builds
+perform only one compile and print cache statistics.

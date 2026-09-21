@@ -7,6 +7,13 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      windows_cache_probe:
+        description: >-
+          Validation only: run the Windows build alone, rebuild it once from
+          scratch and require compiler-cache hits. Publishes nothing.
+        type: boolean
+        default: false
 
 concurrency:
   group: build-${{ github.ref }}
@@ -14,6 +21,8 @@ concurrency:
 
 jobs:
   relay-tests:
+    # A Windows cache probe validates the Windows job in isolation.
+    if: inputs.windows_cache_probe != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -31,6 +40,7 @@ jobs:
           python3 tools/room-relay/deploy/test-release-pinning.py
   # Exercise the real PHP introduction service; this job never deploys it.
   signaling-tests:
+    if: inputs.windows_cache_probe != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -45,7 +55,7 @@ jobs:
   # (CMakeLists.txt, include/config.h, vcpkg.json) already matches the tag.
   # This catches missing bump commits BEFORE any build/release/upload runs.
   verify-version:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && inputs.windows_cache_probe != true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -69,7 +79,9 @@ jobs:
   test-linux:
     runs-on: ubuntu-latest
     needs: [verify-version]
-    if: always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
+    if: |
+      always() && inputs.windows_cache_probe != true &&
+      (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
 
@@ -126,7 +138,9 @@ jobs:
     permissions:
       contents: read
     needs: [verify-version]
-    if: always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
+    if: |
+      always() && inputs.windows_cache_probe != true &&
+      (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
         with:
@@ -207,6 +221,7 @@ jobs:
             build/emscripten/bin/p2p-direct.js
 
   build-windows:
+    timeout-minutes: 40
     runs-on: windows-latest
     # Wait for version check on tag builds; run unconditionally otherwise
     needs: [verify-version]
@@ -234,15 +249,58 @@ jobs:
           New-Item -ItemType Directory -Force -Path $cache | Out-Null
           "path=$cache" >> $env:GITHUB_OUTPUT
           "image=$env:ImageVersion" >> $env:GITHUB_OUTPUT
+          # vcpkg.json also carries the application version, so hashing the
+          # whole manifest changed the primary key on every release bump.
+          # Hash only the fields that change what vcpkg builds.
+          $dependencies = python scripts/vcpkg-dependency-key.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "dependencies=$dependencies" >> $env:GITHUB_OUTPUT
 
       - name: Cache Windows dependency binaries
         uses: actions/cache@v6
         with:
           path: ${{ steps.windows-vcpkg-cache.outputs.path }}
-          key: vcpkg-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-${{ steps.windows-vcpkg-cache.outputs.dependencies }}
           restore-keys: |
             vcpkg-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-
             vcpkg-windows-x64-v1-
+
+      # Ninja needs cl.exe on PATH; the Visual Studio generator would find it
+      # on its own, but Ninja plus a compiler launcher is what makes the
+      # compile cache usable at all.
+      - name: Initialise the MSVC x64 toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          version: v0.18.0
+
+      - name: Set Windows compiler cache location
+        id: windows-sccache
+        run: |
+          $cache = Join-Path $env:LOCALAPPDATA 'sccache'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "path=$cache" >> $env:GITHUB_OUTPUT
+          # Persist the cache ourselves through actions/cache below instead of
+          # sccache's GitHub Actions backend.
+          "SCCACHE_GHA_ENABLED=false" >> $env:GITHUB_ENV
+          "SCCACHE_DIR=$cache" >> $env:GITHUB_ENV
+          "SCCACHE_CACHE_SIZE=2G" >> $env:GITHUB_ENV
+
+      # A unique key per run means actions/cache always writes a fresh entry
+      # on success; the prefixes restore the newest cache built on the same
+      # runner image (object hits depend on the exact compiler binary).
+      - name: Cache Windows compiled objects
+        uses: actions/cache@v6
+        with:
+          path: ${{ steps.windows-sccache.outputs.path }}
+          key: sccache-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sccache-windows-x64-v1-${{ steps.windows-vcpkg-cache.outputs.image }}-
+            sccache-windows-x64-v1-
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
@@ -276,10 +334,66 @@ jobs:
         # of treating the colon-slash as a literal string. Without the
         # quotes CMake gets the unexpanded path and fails to find the
         # toolchain file.
-        run: cmake -B build "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+        #
+        # Precompiled headers are off here on purpose: sccache cannot cache
+        # an /Yc or /Yu compile, so PCH would make every translation unit a
+        # miss. Local Visual Studio builds keep the default (PCH on).
+        run: |
+          cmake -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DDUNECITY_ENABLE_PCH=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build
-        run: cmake --build build --config Release --parallel
+        # Ninja schedules source files concurrently, unlike MSBuild /m which
+        # primarily schedules projects. Bound memory use to four compilers.
+        timeout-minutes: 30
+        run: |
+          sccache --zero-stats
+          cmake --build build --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          sccache --show-stats
+
+      # Validation only (workflow_dispatch with windows_cache_probe). The
+      # build above filled the cache; throw the build tree away and prove the
+      # rebuild is served from it. Nothing here publishes.
+      - name: Probe the compiler cache with a clean rebuild
+        if: ${{ inputs.windows_cache_probe }}
+        timeout-minutes: 30
+        run: |
+          Remove-Item -Recurse -Force build
+          sccache --zero-stats
+          cmake -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DDUNECITY_ENABLE_PCH=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build --parallel 4
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # `Cache hits` / `Cache misses` are stable across sccache releases;
+          # the JSON schema is not, so read the summary table.
+          $stats = (sccache --show-stats | Out-String)
+          Write-Host $stats
+          $hit = [regex]::Match($stats, '(?m)^Cache hits\s+(\d+)\s*$')
+          $miss = [regex]::Match($stats, '(?m)^Cache misses\s+(\d+)\s*$')
+          if (-not ($hit.Success -and $miss.Success)) {
+            throw "Could not read sccache statistics"
+          }
+          $hits = [int]$hit.Groups[1].Value
+          $misses = [int]$miss.Groups[1].Value
+          $total = $hits + $misses
+          if ($total -eq 0) { throw "The rebuild compiled nothing; the cache was not exercised" }
+          $rate = [math]::Round(100.0 * $hits / $total, 1)
+          Write-Host "Compiler cache hit rate: $rate% ($hits hits, $misses misses)"
+          if ($hits -lt 100 -or $hits * 10 -lt $total * 9) {
+            throw "Compiler cache hit rate $rate% is below 90% or fewer than 100 hits; caching is not working"
+          }
 
       - name: Verify secure relay support
         run: |
@@ -318,6 +432,7 @@ jobs:
             build/*.zip
 
       - name: Upload Installer
+        if: ${{ inputs.windows_cache_probe != true }}
         uses: actions/upload-artifact@v7
         with:
           name: DuneCity-Windows-Installer
@@ -339,6 +454,7 @@ jobs:
     needs: [verify-version]
     if: |
       always() &&
+      inputs.windows_cache_probe != true &&
       github.event_name != 'pull_request' &&
       vars.ENABLE_MACOS_BUILD == 'true' &&
       (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
@@ -505,7 +621,9 @@ jobs:
     # ubuntu-latest runner produced binaries requiring GLIBC_2.38.
     runs-on: ubuntu-22.04
     needs: [verify-version]
-    if: always() && (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
+    if: |
+      always() && inputs.windows_cache_probe != true &&
+      (needs.verify-version.result == 'success' || needs.verify-version.result == 'skipped')
     steps:
       - uses: actions/checkout@v7
 
@@ -694,6 +812,7 @@ jobs:
     needs: [test-linux, relay-tests, signaling-tests, build-emscripten, build-windows, build-linux, build-macos]
     if: |
       always() &&
+      inputs.windows_cache_probe != true &&
       github.ref == 'refs/heads/main' &&
       needs.test-linux.result == 'success' &&
       needs.relay-tests.result == 'success' &&
@@ -752,7 +871,7 @@ jobs:
   # Only trusted stable tags reach the local update-signing key.
   sign-desktop-updates:
     needs: [build-windows, build-linux, build-macos]
-    if: success() && startsWith(github.ref, 'refs/tags/v')
+    if: success() && startsWith(github.ref, 'refs/tags/v') && inputs.windows_cache_probe != true
     runs-on: [self-hosted, macOS, ARM64, dunecity-builder]
     timeout-minutes: 15
     permissions:
@@ -802,7 +921,7 @@ jobs:
     needs: [verify-version, test-linux, relay-tests, signaling-tests, build-emscripten, build-windows, build-linux, build-macos, sign-desktop-updates]
     # The website advertises all desktop platforms at this version. Publish only
     # after tests and every desktop package have actually succeeded.
-    if: success() && startsWith(github.ref, 'refs/tags/v')
+    if: success() && startsWith(github.ref, 'refs/tags/v') && inputs.windows_cache_probe != true
     runs-on: ubuntu-latest
     permissions:
       contents: write

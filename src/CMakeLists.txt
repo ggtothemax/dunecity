@@ -925,7 +925,7 @@ if(WIN32)
     endif()
     # Install vcpkg DLLs for Windows
     if(CMAKE_BUILD_TYPE STREQUAL "Release" OR NOT CMAKE_BUILD_TYPE)
-        install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/Release/
+        install(DIRECTORY "$<TARGET_FILE_DIR:dunecity>/"
             DESTINATION .
             FILES_MATCHING PATTERN "*.dll"
         )
