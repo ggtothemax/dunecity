@@ -56,11 +56,11 @@ inline bool preferFactoryHarvester(int workers, int target, int armyValue,
 // worker beats zoning on return per credit. This is not a permanent bay target:
 // after the opening, additional bays require actual fleet throughput pressure.
 // Each opening bay arrives with its own worker, so a rich field earns the
-// parallel bay at any difficulty; openingSpiceRefineries still bounds it by
-// the field, leaving a depleted map with its single opening bay.
+// parallel bay at any difficulty. Four early bays are bounded by the field,
+// leaving a depleted map with its smaller opening.
 inline bool openingRefineryInvestment(bool brutal, int workers, int target, int refineries) {
     return openingWorkersNeeded(workers,target,brutal)
-        && refineries < QuantBotBuildPolicy::openingSpiceRefineries(target);
+        && refineries < std::clamp(target,1,4);
 }
 inline int demandedCivic(uint8_t blocked, int stadiumCommitted, bool stadiumAvailable,
                          int airportCommitted, bool airportAvailable) {

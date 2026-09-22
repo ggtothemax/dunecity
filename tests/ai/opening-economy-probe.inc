@@ -25,7 +25,10 @@ void runOpeningEconomyProbe(Game& game) {
     for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x)
         if(!currentGameMap->getTile(x,y)->hasAStructure())currentGameMap->getTile(x,y)->setType(Terrain_Slab);
     auto clearOrders=[&] {
-        while(yard->getProductionQueueSize())yard->doCancelItem(yard->getCurrentProducedItem());
+        for(auto* structure:structureList)if(structure->getOwner()==house && structure->isABuilder()) {
+            auto* builder=static_cast<BuilderBase*>(structure);
+            while(builder->getProductionQueueSize())builder->doCancelItem(builder->getCurrentProducedItem());
+        }
         yard->upgrading=false;yard->setHealth(yard->getMaxHealth());
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
     };

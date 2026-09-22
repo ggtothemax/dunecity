@@ -1,3 +1,51 @@
+## 2026-09-23 — Proactive city defence and opening economy (local 1.0.762)
+
+Branch `fix/ai-crime-air-economy`, worktree `dunecity-ai-defense`, based on
+1.0.760 plus emergency Starport MCV recovery (original commit 66624b15).
+Version 1.0.762, protocol 20; save format unchanged. No push, PR, release or
+installation on the MacBook Air; its running game was inspected read-only.
+
+The live Alkozeltser 4 telemetry confirmed late rocket construction, crime
+outbreaks destroying the Rebels construction yard, and aircraft raids
+outnumbering defensive sorties. Police and turret placement now compare all
+owned neighbourhoods within one cached planning pass instead of a rotating
+map stripe. Police sites maximize marginal crime relief at occupied buildings,
+including existing/pending coverage. Pre-outbreak relief qualifies for urgent
+investment; service savings survive cheap fallback zoning.
+
+Medium and Hard aim for two overlapping rocket covers of construction yards,
+refineries and other core production assets; Brutal aims for three. Ordinary
+buildings still demand coverage, and pending turrets prevent duplicate plans.
+The opening unlocks rocket prerequisites after three refineries; after two
+emplacements it funds the fourth refinery and a worker supplier before finishing
+peaceful overlap. Observed air threats and urgent crime retain priority.
+Rich-field opening worker priority rises to eight (twelve Brutal), bounded by
+remaining spice, unit limits, processing throughput and useful returns. Supplier
+upgrades/savings no longer wait for a factory to exist to recognize missing
+workers. Higher-priority transport investment keeps its funding.
+
+Ornithopters intercept attackers threatening their own base or harvesters before
+raiding exposed enemy buildings. Anti-air avoidance, campaign wave restrictions,
+repair and human orders remain respected. Custom results restore the classic
+yellow wallpaper and show gross Tax Collected separately from Harvested Spice;
+the tax column is city-content-only and fits the 640px minimum window.
+
+Native Release build, Ninja dependency audit and all 27 CTest targets passed
+(222.57 seconds). Version metadata agrees on 1.0.762; gameplay protocol is 20.
+Validation evidence is in `../outputs/ai-defense/`. Real-engine regressions cover
+police placement across scan phases, overlapping/reserved rocket coverage on all
+difficulties, defensive aircraft targeting, spending, opening economy, MCV
+recovery and both results modes. Results were rendered at 640, 854 and 1280px.
+
+Same-map/seed 16-minute six-house simulations (Alkozeltser 4, seed 704066612):
+1.0.760 Hard had 8 outbreaks/95 rebels, 2 rockets built, 1 yard lost, 70 surviving
+harvesters and 98,675 spice refined. Final Hard had 0 outbreaks, 44 rockets,
+0 yards lost, 75 harvesters and 103,548 spice refined. Final Medium had 0
+outbreaks, 43 rockets, 0 yards lost and 72 harvesters. All final houses built
+four refineries. First final rockets completed around 3.4–3.9 game minutes;
+baseline only two houses had rockets by 15.4–15.9 minutes. These are bounded
+single-seed regressions, not a claim that outbreaks or losses are impossible.
+
 ## 2026-09-23 — Emergency Starport MCV recovery (local 1.0.761)
 
 QuantBot now recovers a missing construction yard through an available Starport

@@ -74,7 +74,8 @@
 // Version 17: Dynasty projectile motion, detonation and splash rules.
 // Version 18: Combined shared-helper population admission and projectile build.
 // Version 19: All-difficulty emergency Starport MCV recovery changes AI orders.
-#define NETWORK_PROTOCOL_VERSION            19
+// Version 20: Proactive crime/rocket coverage, opening economy and air defence AI.
+#define NETWORK_PROTOCOL_VERSION            20
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

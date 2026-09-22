@@ -1452,7 +1452,8 @@ TEST_CASE("Brutal can choose a profitable third refinery with a worker-capable f
     CHECK(openingRefineryInvestment(false,4,120,2));
     CHECK(openingRefineryInvestment(true,8,120,2));
     CHECK_FALSE(openingRefineryInvestment(true,12,120,2));
-    CHECK_FALSE(openingRefineryInvestment(true,4,120,3)); // No unlimited spare bays.
+    CHECK(openingRefineryInvestment(false,3,120,3)); // Fourth rich-field bay on Medium too.
+    CHECK_FALSE(openingRefineryInvestment(true,4,120,4)); // No unlimited spare bays.
     CHECK_FALSE(openingRefineryInvestment(true,2,2,2));
     refinery.projectedProceeds=300;
     CHECK_FALSE(preferRefinery(refinery,zone,true,false)); // Bad/risky trips still lose.

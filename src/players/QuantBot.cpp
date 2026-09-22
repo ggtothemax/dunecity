@@ -3619,10 +3619,13 @@ void QuantBot::build(int militaryValue) {
         && !getHouse()->isAirUnitLimitReached();
     const bool brutalCityEconomy = citySimEnabled && gameMode == GameMode::Custom
         && difficulty == Difficulty::Brutal;
-    auto openingWorkersNeeded = [&]() {
+    auto openingFleetIncomplete = [&]() {
         return citySimEnabled && gameMode == GameMode::Custom
-            && !getHouse()->isGroundUnitLimitReached() && !harvesterFactories.empty()
+            && !getHouse()->isGroundUnitLimitReached()
             && CityEconomyInvestmentPolicy::openingWorkersNeeded(itemCount[Unit_Harvester],fundedHarvesterTarget,brutalCityEconomy);
+    };
+    auto openingWorkersNeeded = [&]() {
+        return openingFleetIncomplete() && !harvesterFactories.empty();
     };
     // Keep money for the missing workers when market stock or a delivery is
     // temporarily unavailable. Count queued workers, so the reserve releases
@@ -4692,6 +4695,9 @@ void QuantBot::build(int militaryValue) {
             account(entry.second.item,entry.second.location,getStructureSize(entry.second.item));
         return shortfall;
     };
+    const bool openingSupplierDue = openingFleetIncomplete()
+        && itemCount[Structure_Refinery]>=3 && itemCount[Structure_RocketTurret]>=2
+        && itemCount[Structure_StarPort]==0 && itemCount[Structure_HeavyFactory]==0;
     int moderateCrimeProperties=0, dangerousCrimeProperties=0;
     if (citySimEnabled) for (const auto* structure:getStructureList()) {
         if (structure->getOwner()!=getHouse() || structure->getHealth()<=0
@@ -4758,6 +4764,7 @@ void QuantBot::build(int militaryValue) {
                         || (!openingWorkersNeeded() && itemCount[Structure_Refinery]>0))
                     && (enemyAircraft>0 || coreShortfall>0
                         || nonServiceConstructionOrders>=3 || itemCount[Structure_RocketTurret]==0)
+                    && (!openingSupplierDue || enemyAircraft>0)
                     && campaignAvailableToBuild(builder,Structure_RocketTurret)
                     && (!turretPowerRequired || getHouse()->getProducedPower()-getHouse()->getPowerRequirement()>=225)) {
                     int uncovered=0;
@@ -4863,7 +4870,8 @@ void QuantBot::build(int militaryValue) {
             else if (!port && harvesterInvestmentReserve()==0 && !factoryPrefersHarvester(builder)) worker.reason="army_balance";
             else {
                 worker.score=QuantBotSpendingPolicy::economyScore(worker.proceeds,worker.cost);
-                if (harvesterInvestmentReserve()>0 && !defendingEconomy) worker.score=5000;
+                if ((harvesterInvestmentReserve()>0 || openingFleetIncomplete()) && !defendingEconomy)
+                    worker.score=std::max(worker.score,5000);
                 worker.reason="marginal_income";
             }
             capitalCandidates.push_back(worker);
@@ -6294,12 +6302,14 @@ void QuantBot::build(int militaryValue) {
                 // Protect the income/rebuild core before optional tech. Walk the
                 // actual mod prerequisites and save their cost, rather than
                 // waiting for enemy aircraft to reveal that the yard is unready.
-                const bool openingWorkerSupplier = citySimEnabled && openingWorkersNeeded()
-                    && itemCount[Structure_Refinery] >= 3
-                    && itemCount[Structure_StarPort] == 0 && itemCount[Structure_HeavyFactory] == 0;
+                const bool higherPriorityCapital = capitalPending()
+                    && capitalCandidates[capitalChoice].builder == pBuilder->getObjectID()
+                    && capitalCandidates[capitalChoice].score > 2600;
+                const bool openingWorkerSupplier = openingSupplierDue;
                 if (itemID == NONE_ID && !skipRemainingStructureLogic && citySimEnabled
+                    && !higherPriorityCapital
                     && ((openingWorkerSupplier && itemCount[Structure_RocketTurret] >= 2)
-                        || ((itemCount[Structure_Refinery] >= 2 || enemyAircraft > 0)
+                        || ((itemCount[Structure_Refinery] >= 3 || enemyAircraft > 0)
                             && coreCoverageShortfall() > 0
                             && data[Structure_RocketTurret][houseID].enabled
                             && data[Structure_RocketTurret][houseID].techLevel <= currentGame->techLevel))) {
@@ -6308,7 +6318,8 @@ void QuantBot::build(int militaryValue) {
                     // behind cheap lots even on a rich spice field.
                     const bool supplyingWorkers = openingWorkerSupplier && itemCount[Structure_RocketTurret] >= 2;
                     Uint32 step = supplyingWorkers
-                        ? (starportMarketAvailable ? Structure_StarPort : Structure_HeavyFactory)
+                        ? (itemCount[Structure_Refinery]<4 ? Structure_Refinery
+                            : starportMarketAvailable ? Structure_StarPort : Structure_HeavyFactory)
                         : Structure_RocketTurret;
                     if (!supplyingWorkers && !hasPowerBufferForTurret()) step = Structure_WindTrap;
                     for (int depth=0; depth<Structure_LastID && step!=NONE_ID; ++depth) {
@@ -6481,7 +6492,7 @@ void QuantBot::build(int militaryValue) {
                                 // Keep the next worker supplier's savings intact.
                                 // Cheap fallback zoning otherwise spends them
                                 // every pass and postpones the opening fleet.
-                                serviceSavingHold = itemID == NONE_ID && openingWorkersNeeded()
+                                serviceSavingHold = itemID == NONE_ID && openingFleetIncomplete()
                                     && getHouse()->getNumItems(Structure_StarPort) == 0;
                             }
                             break;
@@ -6605,6 +6616,7 @@ void QuantBot::build(int militaryValue) {
                 const int coreShortfall = isCitySim ? coreCoverageShortfall() : 0;
                 const bool coreDefenceDue = airThreatSeen || coreShortfall > 0;
                 if (itemID == NONE_ID && !skipRemainingStructureLogic && isCitySim
+                    && !higherPriorityCapital
                     && (coreDefenceDue
                         || (!openingWorkersNeeded() && itemCount[Structure_HeavyFactory] > 0
                             && nonServiceConstructionOrders >= 3))
@@ -6815,6 +6827,7 @@ void QuantBot::build(int militaryValue) {
                 // bills rather than after the whole opening worker fleet.
                 const int rocketUpgrade=data[Structure_RocketTurret][houseID].upgradeLevel;
                 if (itemID==NONE_ID && !skipRemainingStructureLogic && citySimEnabled
+                    && !higherPriorityCapital
                     && (coreShortfall>0
                         || (!openingWorkersNeeded() && itemCount[Structure_HeavyFactory]>0
                             && itemCount[Structure_RocketTurret]<2))
