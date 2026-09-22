@@ -1,3 +1,22 @@
+## 2026-09-22 — Combined local test build 1.0.760 installed on MBA
+
+Merged helper population-cap commits b8d78daf and b9266479 with the local
+carryall/unit timing, projectile alignment/physical AA interception and
+crime-service spending fixes on branch test/all-local-760 (merge bb184a62).
+All recent local gameplay commits are included. Version 1.0.760, protocol 18,
+save format 9845. No public release, push or PR.
+
+Build and dependency audit passed, all 16 CTest targets passed (158.34 seconds),
+and the real-engine shared-spending crime-priority probe passed. Packaged SDL
+runtime initialization and hidden-window rendering passed locally and on MBA.
+Installed /Applications/dunecity.app on Stefans-MacBook-Air.local; binary hash
+matches local package: 57b45b7814cd6cd5691d2ea8726724de97335c7c1eab42e6b23a62de9c2a7a16.
+Previous app retained at /Applications/.dunecity-760-CNQ4FW/dunecity-previous.app.
+All 511 checked profile INIs preserved unchanged; saves/preferences not modified.
+No gameplay window launched. Receipts and test logs: ../outputs/combined-760/.
+Claude Max bounded integration review found no blocker; helper cap and crime
+priority exercised by their respective regression fixtures.
+
 ## 2026-09-22 — Projectile alignment and physical turret intercept (local 759)
 
 Implemented Dynasty 4469449c missile speed/steering, exact 20Hz movement/15Hz
