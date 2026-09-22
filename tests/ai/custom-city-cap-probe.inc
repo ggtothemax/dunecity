@@ -33,6 +33,7 @@ void runCustomCityCapProbe(Game& game) {
     require(bot->getCityPopulationLimit(area)==mediumCap,"Support helper is missing its city ceiling");
     bot->supportMode=false;
     bot->difficulty=QuantBot::Difficulty::Hard;
+    require(bot->getCityPopulationLimit(256*256)==120000,"Hard256 map ceiling must be120000");
     const int hardCap=QuantBotCityPolicy::populationLimit(QuantBotCityPolicy::Hard,area);
     require(bot->getCityPopulationLimit(area)==hardCap,"Shared Hard helper is missing its city ceiling");
     bot->difficulty=QuantBot::Difficulty::Easy;
@@ -115,7 +116,8 @@ void runCustomCityCapProbe(Game& game) {
     auto hasPopulationOrder=[&]() {
         for(auto* builder:yards)for(const auto& order:builder->currentProductionQueue)
             if(DuneCity::isCityZoneStructure(order.itemID)
-                || DuneCity::getZonePopulation(order.itemID,1)>0)return true;
+                || DuneCity::getZonePopulation(order.itemID,1)>0
+                || (order.itemID==Structure_Palace && DuneCity::getPalaceCommercialPopulation(1)>0))return true;
         return false;
     };
     auto clearQueues=[&]() {
