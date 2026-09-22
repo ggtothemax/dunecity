@@ -1,3 +1,31 @@
+## 2026-09-22 — Protect crime-service construction from growth starvation
+
+Diagnosed live MBA 1.0.758 session1790068138510777-0 (Alkozeltser4).
+Ordos completed zero police/rocket turrets before elimination. Its planner
+identified useful police sites, but opening infrastructure, extra power and
+idle-yard zoning preempted the winning service. At cycle28748,515 credits
+became a300-credit windtrap despite a500-credit police candidate (foundations
+also cost money). Crime250 later spawned45 hostile units at cycle36114.
+Neutral's first40-unit unrest preceded its first rocket turret (37596 vs55944).
+
+QuantBot now preserves a winning crime-prevention investment against dedicated
+city growth and the idle-zone fallback, and executes/reserves it before optional
+power headroom, nuclear growth, opening tech and civic expansion. Actual blackout
+recovery remains first. This handles police and eligible rocket turrets through
+the existing service scorer; it does not remove turret tech requirements.
+
+Real-engine shared-spending probe passes at DuneCity level9: single/multiple-yard
+savings, later funded police orders with rocket tech unavailable, explicit rocket
+orders, peaceful growth, parallel production, blackout and placement controls.
+Unit CTest and dependency audit pass. Receipts: /tmp/dunecity-ai-defense/verified.log,
+verified/run.log and ctest-final.log. Claude subscription diagnosis exhausted its
+bounded run and focused retry without a final report; Codex completed diagnosis,
+implementation and verification from source and live telemetry.
+
+Local source fix only, no push, install or release. Running MBA758 is unchanged.
+Before distributing, bump app version and network compatibility for changed
+lockstep AI decisions; no save-layout changes were introduced.
+
 ## 2026-09-22 — Projectile comparison (audit only, app remains758)
 
 Compared standard rocket/missile types against Dynasty4469449c. Current launcher/
