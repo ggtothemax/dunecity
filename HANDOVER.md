@@ -1,3 +1,61 @@
+## 2026-09-23 — Restore early city growth and sustain rocket coverage (local 1.0.763)
+
+Follow-up to the user's 762 regression report. Version 1.0.763, protocol 21;
+save format unchanged. Branch/worktree remain fix/ai-crime-air-economy /
+dunecity-ai-defense. No push, PR or public release.
+
+Live Medium telemetry on Alkozeltser 4 (seed 324192283, powered rockets enabled)
+showed repeated core-defence/supplier savings monopolizing the single yard.
+The 762 reproduction had no R/C/I at six minutes; first zoning was delayed
+9.6–14.1 minutes for five houses and beyond sixteen for Harkonnen. Earlier
+762 validation measured late aggregate income/defence and missed this opening
+regression, as well as the user's powered-rocket option.
+
+Peaceful core coverage no longer takes an unconditional emergency reserve.
+Proactive savings permit a small city opening, then pace further plots against
+services so cheap lots cannot starve rocket upgrades or the worker supplier.
+After two refineries, a single yard seeds missing positive-demand R/C/I and
+its power before optional upgrades. Urgent protection, transport capacity,
+blackouts, population limits, campaign rules and legal placement still apply;
+multiple yards retain their existing dedicated-growth allocation. Powered
+rockets reserve their actual draw plus a small plot instead of two extra
+windtraps. The peaceful coverage claim is bounded by actual base demand.
+
+Police investment requires meaningful dangerous-crime relief at occupied
+properties; routine relief prefers multipurpose rocket turrets. Medium and
+above now also seek two overlapping covers for ordinary districts as they
+grow. Core overlap remains two on Medium/Hard and three on Brutal. Placement
+still values construction yards, refineries and factories most, and counts
+pending emplacements. Fixed the service-order counter's unreachable six-order
+interval. Existing aircraft defence, MCV recovery and yellow/tax results remain.
+
+Final powered-rocket runs use the same map/seed/roster as the regression:
+- Medium, 16 minutes: 75 R/C/I built versus 20 in 762; 44 rockets versus 36.
+  All houses start residential at 1.15–1.20 minutes and industry at 1.33–1.39;
+  commercial follows positive demand at 5.56–11.20. Rockets start 4.32–4.93.
+- Medium, 32 minutes: 226 zones, 229 rockets built (225 remaining), 14 police,
+  50 refineries and 212 harvesters across six houses; zero crime outbreaks.
+  One construction yard was lost; the run does not establish immunity to losses.
+- Hard, 16 minutes: 74 zones, 48 rockets, 12 police, 24 refineries, 63 harvesters;
+  zero crime outbreaks or construction-yard losses.
+These are bounded single-seed simulations, not a universal balance guarantee.
+
+Claude subscription worker supplied the initial savings/coverage patch and
+city-growth fixture; it reached its turn limit. Codex reviewed and completed
+opening priorities, power, police preference, district coverage and validation.
+Real-engine tests now cover routine turrets vs dangerous-crime police, optimal
+station placement, all-tier core/district overlap and reserved coverage, and
+single-yard growth vs funded defence and emergency reserves. The harness can
+explicitly enable powered rockets. Evidence: ../outputs/ai-opening-regression/.
+
+Release build, Ninja dependency audits and all 28 CTest targets passed
+(227.39 seconds).
+Packaged runtime initialization, hidden rendering and signature checks passed.
+Archive: ../outputs/ai-opening-regression/install-763/dunecity-1.0.763.zip
+SHA256: 3dd48147b5d2a8149e1223dd71e7b1046d97dd7bdc5a59c8e574ae24c061ca09
+Binary SHA256: a5fd5650f0959b2a54aac7d20f66b93e670809a3c593956b13df871e19688e42
+Installation pending: the Air became unreachable during final verification.
+
 ## 2026-09-23 — Proactive city defence and opening economy (local 1.0.762)
 
 Branch `fix/ai-crime-air-economy`, worktree `dunecity-ai-defense`, based on

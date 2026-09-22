@@ -30,7 +30,8 @@ void runPolicePlacementProbe(Game& game) {
         static_cast<ZoneStructure*>(zone)->setResidentialPopulation(40);
         properties.push_back(zone);
     }
-    const auto prerequisites=game.objectData.data[Structure_PoliceStation][HOUSE_HARKONNEN].prerequisiteStructuresSet;
+    const auto prerequisites=game.objectData.data[Structure_PoliceStation][HOUSE_HARKONNEN].prerequisiteStructuresSet
+        | game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].prerequisiteStructuresSet;
     for(unsigned item=0;item<prerequisites.size();++item)if(prerequisites.test(item) && !house->getNumItems(item)) {
         bool placed=false;
         const auto footprint=getStructureSize(item);
@@ -90,6 +91,18 @@ void runPolicePlacementProbe(Game& game) {
             require(item==Structure_PoliceStation && relief(selected)>=maximum,
                 "Police selected a fringe site that removes less crime than a legal central site");
         }
+        // Routine crime should prefer the turret's combined civic and defence
+        // benefits; the strong police station is reserved for dangerous crime.
+        for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x) {
+            sim->crimeRateMap_.set(x/sim->crimeRateMap_.getBlockSize(),y/sim->crimeRateMap_.getBlockSize(),170);
+            sim->crimeBeforePoliceMap_.set(x/sim->crimeBeforePoliceMap_.getBlockSize(),y/sim->crimeBeforePoliceMap_.getBlockSize(),170);
+        }
+        bot->cityServiceSearch.reset();bot->clearPlacementCache();
+        Uint32 routine=NONE_ID;Coord routineSite=Coord::Invalid();
+        require(!bot->selectCityServiceInvestment(yard,10000,true,routine,routineSite,false,Structure_PoliceStation),
+            "Routine crime spent on a police station instead of reserving it for dangerous hotspots");
+        require(bot->selectCityServiceInvestment(yard,10000,true,routine,routineSite)
+            && routine==Structure_RocketTurret,"Routine crime did not prefer useful rocket coverage");
         // With one isolated high-value target, Medium/Hard need two covers,
         // Brutal three. Reserved emplacements count before construction ends.
         structureList.clear();structureList.push_back(yard);
@@ -105,6 +118,22 @@ void runPolicePlacementProbe(Game& game) {
                 require(planned==covers ? defense==0 : site.isValid() && defense>0,
                     "Rocket coverage stopped early or ignored reserved overlapping defence");
                 if(planned<covers)bot->reservedStructures[yard->getObjectID()+100+planned]={Structure_RocketTurret,site};
+            }
+        }
+        // Growing city districts also need overlapping general-purpose cover
+        // on Medium and above, without escalating the first core upgrade path.
+        structureList.clear();structureList.push_back(properties.at(1));
+        for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                              QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            bot->difficulty=difficulty;bot->reservedStructures.clear();
+            const int covers=difficulty==QuantBot::Difficulty::Easy ? 1 : 2;
+            for(int planned=0;planned<=covers;++planned) {
+                bot->cityTurretSearch.reset();bot->clearPlacementCache();
+                int defense=0;
+                const auto site=bot->findCityTurretPlaceLocation(Structure_RocketTurret,&defense);
+                require(planned==covers ? defense==0 : site.isValid() && defense>0,
+                    "Residential rocket overlap stopped early or ignored planned coverage");
+                if(planned<covers)bot->reservedStructures[yard->getObjectID()+200+planned]={Structure_RocketTurret,site};
             }
         }
         bot->reservedStructures.clear();

@@ -446,6 +446,12 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --mod dunecity --build-dir ${CMAKE_BINARY_DIR}
             --output-dir ${CMAKE_BINARY_DIR}/police-placement-probe)
         set_tests_properties(quantbot_police_placement PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        add_test(NAME quantbot_city_growth COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --city-growth-probe --repeatable
+            --custom-map "${CMAKE_SOURCE_DIR}/data/maps/multiplayer/6P - 256x256 - Alkozeltser 4.ini"
+            --mod dunecity --build-dir ${CMAKE_BINARY_DIR}
+            --output-dir ${CMAKE_BINARY_DIR}/city-growth-probe)
+        set_tests_properties(quantbot_city_growth PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
         foreach(starport_mod IN ITEMS vanilla dunecity)
             add_test(NAME quantbot_starport_${starport_mod} COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --starport-probe --level 9 --repeatable

@@ -75,7 +75,8 @@
 // Version 18: Combined shared-helper population admission and projectile build.
 // Version 19: All-difficulty emergency Starport MCV recovery changes AI orders.
 // Version 20: Proactive crime/rocket coverage, opening economy and air defence AI.
-#define NETWORK_PROTOCOL_VERSION            20
+// Version 21: Keep opening city growth alongside routine defence and supplier investment.
+#define NETWORK_PROTOCOL_VERSION            21
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

@@ -29,7 +29,7 @@ static constexpr int kWireSendGameInfo  = 4;
 static constexpr int kWireClientStats   = 13;
 static constexpr int kWireKeepAlive     = 19;
 static constexpr int kWireCoopMission   = 20;
-static constexpr int kWireProtocolVersion = 20;
+static constexpr int kWireProtocolVersion = 21;
 
 TEST_CASE("NetworkManager: wire constants match the shipped protocol", "[network][protocol]") {
     REQUIRE(NETWORKPACKET_SENDGAMEINFO == kWireSendGameInfo);
@@ -38,7 +38,7 @@ TEST_CASE("NetworkManager: wire constants match the shipped protocol", "[network
     REQUIRE(NETWORKPACKET_COOP_MISSION == kWireCoopMission);
 }
 
-TEST_CASE("NetworkManager: City defence and economy AI require protocol 20", "[network][protocol]") {
+TEST_CASE("NetworkManager: Opening city growth and service AI require protocol 21", "[network][protocol]") {
     REQUIRE(NETWORK_PROTOCOL_VERSION == kWireProtocolVersion);
     REQUIRE(NETWORKDISCONNECT_PROTOCOL_MISMATCH == 5);
 }

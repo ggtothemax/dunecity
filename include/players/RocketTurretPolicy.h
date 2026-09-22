@@ -33,12 +33,13 @@ inline bool coreAsset(int item) {
 // How many turrets should have a core asset in range. Tier is 0 Easy,
 // 1 Medium, 2 Hard, 3 Brutal: a single emplacement dies to the first raid that
 // focuses it, so from Medium up the core keeps a second one, and Brutal a
-// third. Ordinary buildings stay at one; the reactor keeps its own two-turret
+// third. From Medium up, city districts also get overlapping coverage as they
+// grow, so routine defence does not end at the core. The reactor keeps a two-turret
 // minimum at every difficulty because its loss damages the whole district.
 inline int desiredCoverage(int item, int tier) {
     if (defenseWeight(item) <= 0) return 0;
     const int core = tier <= 0 ? 1 : tier >= 3 ? 3 : 2;
-    int coverage = coreAsset(item) ? core : 1;
+    int coverage = coreAsset(item) ? core : (tier <= 0 ? 1 : 2);
     if (item == Structure_NuclearPlant) coverage = std::max(coverage, 2);
     return coverage;
 }
