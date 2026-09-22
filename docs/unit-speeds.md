@@ -117,3 +117,11 @@ checks792 movement/rotation cases per mode (2,376 across three modes), plus
 42 full-game ground routes and repeated aircraft attacks. The757 app was
 installed on the MacBook Air with its prior756 app backed up; runtime and
 hidden rendering checks passed on the Air at the installed path.
+
+## Follow-up: full-route comparison
+
+The subsequent [route comparison](unit-route-comparison.md) executes Dynasty's
+original unit loop and UNIT.EMC. Most straight sand routes are within1–4%, but
+raider/launcher-family travel takes11–12% longer in DuneCity, while infantry can
+arrive7–11% sooner. Ground units also start moving earlier during an initial
+turn. Nominal alignment therefore does not establish identical route timing.

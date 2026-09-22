@@ -1,3 +1,25 @@
+## 2026-09-22 — Full-route timing comparison (no app change)
+
+Compared757 ground travel with Dynasty4469449c using unmodified production
+movement/map/pathfinder/script VM plus real UNIT.EMC from installed DUNE.PAK.
+Headless UI/audio/network stubs; source-built ASan/UBSan reference passes and
+reproduces initial CSV. All3360 Dynasty routes repeated with scenario=false
+(produced units) identically. DuneCity's full updateGameState runs280 routes per
+mode (Vanilla/Dune City/Dune2R), identical acrossmodes. Eight/sixteen flat-sand
+tiles, aligned/90degree start, phase sweeps. Most straight routes differ1–4%;
+Raider Trike and launcher-family take11–12% longer; Soldier/Saboteur arrive7–11%
+sooner. Initial90degree tank penalty0.80s vs1.25s Dynasty because Legacy starts
+movement on rounded heading plus different scheduling. Nominal speeds match,
+complete travel times do not. No gameplay/config/preference changes in this turn.
+
+Repro: tests/units/compare-dynasty-routes.py --dynasty-dir ../dunedynasty
+--output-dir ../outputs/route-speed-comparison/repro. Data not committed.
+Results: docs/unit-route-comparison.md, ../outputs/route-speed-comparison/.
+Claude compiled initial reference objects but both bounded runs exhausted turns;
+Codex finished harness/stubs and independently verified/reproduced timings.
+Air saved speed preferences: Vanilla4ms, Dune City18ms, Dune2R defaults16ms;
+normal-speed comparison uses16ms. User preferences left unchanged.
+
 ## 2026-09-22 — All standard unit movement aligned (local757)
 
 Follow-up to carryall issue67 audits17 other standard mobile types against
