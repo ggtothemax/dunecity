@@ -291,6 +291,7 @@ protected:
     virtual void idleAction();
 
     virtual void setSpeeds();
+    FixPoint getTerrainAdjustedSpeed(int cargoPercent = 0) const;
 
     virtual void targeting();
     void enqueueTargetRequest(TargetRequestKind kind);

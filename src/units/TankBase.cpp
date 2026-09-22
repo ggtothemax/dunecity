@@ -210,7 +210,8 @@ void TankBase::turn() {
 }
 
 void TankBase::turnTurretLeft() {
-    turretAngle += turretTurnSpeed;
+    turretAngle += (itemID==Unit_Tank || itemID==Unit_SiegeTank)
+        ? currentGame->objectData.data[itemID][originalHouseID].turnspeed : turretTurnSpeed;
     if(turretAngle >= 7.5_fix) {
         drawnTurretAngle = lround(turretAngle) - NUM_ANGLES;
         turretAngle -= NUM_ANGLES;
@@ -220,7 +221,8 @@ void TankBase::turnTurretLeft() {
 }
 
 void TankBase::turnTurretRight() {
-    turretAngle -= turretTurnSpeed;
+    turretAngle -= (itemID==Unit_Tank || itemID==Unit_SiegeTank)
+        ? currentGame->objectData.data[itemID][originalHouseID].turnspeed : turretTurnSpeed;
     if(turretAngle <= -0.5_fix) {
         drawnTurretAngle = lround(turretAngle) + NUM_ANGLES;
         turretAngle += NUM_ANGLES;

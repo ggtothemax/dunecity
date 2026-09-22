@@ -71,7 +71,7 @@
 //             cannot enforce the rule and must not join the same simulation.
 // Version 13: QuantBot population admission and growth ceilings change lockstep decisions.
 // Version 14: Carryall approach, docking and turning change lockstep movement.
-#define NETWORK_PROTOCOL_VERSION            14
+#define NETWORK_PROTOCOL_VERSION            15
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

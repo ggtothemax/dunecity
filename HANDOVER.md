@@ -1,3 +1,35 @@
+## 2026-09-22 — All standard unit movement aligned (local757)
+
+Follow-up to carryall issue67 audits17 other standard mobile types against
+Dynasty4469449c. Shared ObjectData now converts quantized normal-speed cruise/
+concrete caps and nominal rotation correctly. Ground movement applies entered-
+terrain throttle, <half-health reduction and harvester0–100 load before Dynasty
+integer quantization; smooth updates retain the average below16-step cadence.
+Removed the duplicate half-speed damage penalty for these standard units,
+unified infantry slot movement modifiers, and corrected tank/siege turret rates.
+Custom caps scale the rates; city roads retain4x. Mod-only units retain explicit
+legacy behavior. Existing saves keep caps but use new modifiers. No save fields;
+protocol15 prevents mixing changed simulation with756/protocol14.
+
+Source-extracted Unit_SetSpeed with parsed Dynasty unit/terrain tables runs under
+ASan/UBSan and reproduces committed oracle CSV. Real production-object tests
+measure translation/turning across terrain, damage, load, cardinal/diagonal and
+infantry slots in Vanilla/Dune City/Dune2R; all-house stats, roads, entered terrain
+and custom caps checked. Full headless Game::updateGameState completes14 ground
+unit routes and two damaging ornithopter attack passes per mode. Cross-mode CSVs
+are identical. CTest unit suite, command/menu/carryall probes and unit-speed probe
+pass; version/dependency audits pass. Initial failures were stale protocol test
+expectation and diagnostic setup/handwritten expectation errors, since corrected.
+
+Installed757 on Stefans-MacBook-Air.local at /Applications/dunecity.app; archive
+SHA256 verified and bundled runtime/hidden rendering passed at final path.
+Prior756 backed up at /Applications/.dunecity-757-g5jiz5bo/dunecity-previous.app.
+
+Details and reproduction: docs/unit-speeds.md. Receipts ../outputs/unit-speed-audit/.
+This is nominal-rate alignment, not a port of Dynasty's pathfinder/VM/heading
+rounding. Flight combat/Frigate approach remain existing engine behavior; Infantry/
+Troopers squad map entries still expand into individual units. No push/release.
+
 ## 2026-09-22 — Dynasty carryall turning and approach (local 756)
 
 Follow-up to issue67: live production-object baseline confirmed the inherited

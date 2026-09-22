@@ -17,6 +17,7 @@
  */
 
 #include <units/UnitBase.h>
+#include <units/DynastyMovement.h>
 
 #include <globals.h>
 
@@ -757,13 +758,9 @@ void UnitBase::engageTarget() {
 void UnitBase::move() {
 
     if(moving && !justStoppedMoving) {
-        if((isBadlyDamaged() == false) || isAFlyingUnit()) {
-            realX += xSpeed;
-            realY += ySpeed;
-        } else {
-            realX += xSpeed/2;
-            realY += ySpeed/2;
-        }
+        const int legacyDamageDivisor = DynastyMovement::factor(itemID)==0 && !isAFlyingUnit() && isBadlyDamaged() ? 2 : 1;
+        realX += xSpeed/legacyDamageDivisor;
+        realY += ySpeed/legacyDamageDivisor;
 
         // check if vehicle is on the first half of the way
         FixPoint fromDistanceX;
@@ -1436,20 +1433,30 @@ FixPoint UnitBase::getMaxSpeed() const {
     return currentGame->objectData.data[itemID][originalHouseID].maxspeed;
 }
 
-void UnitBase::setSpeeds() {
+FixPoint UnitBase::getTerrainAdjustedSpeed(int cargoPercent) const {
     FixPoint speed = getMaxSpeed();
-
-    if(!isAFlyingUnit()) {
-        const Tile* pTile = currentGameMap->getTile(location);
-        speed += speed*(1 - getTerrainDifficulty((TERRAINTYPE) pTile->getType()));
-        if(pTile->isRoad()) {
-            // Roads boost ground-unit travel speed (city-sim feature).
-            speed *= ROADSPEEDMULTIPLIER;
-        }
-        if(isBadlyDamaged()) {
-            speed *= HEAVILYDAMAGEDSPEEDMULTIPLIER;
-        }
+    if(isAFlyingUnit()) return speed;
+    // Dynasty selects the terrain of the tile being entered.
+    const bool dynastyUnit = DynastyMovement::factor(itemID) != 0;
+    const Coord speedTile = dynastyUnit && nextSpot.isValid() && currentGameMap->tileExists(nextSpot) ? nextSpot : location;
+    const Tile* tile = currentGameMap->getTile(speedTile);
+    if(dynastyUnit) {
+        const int base = DynastyMovement::step(itemID,255,false,0);
+        const int step = DynastyMovement::step(itemID,
+            DynastyMovement::throttle(itemID,static_cast<TERRAINTYPE>(tile->getType())),
+            getHealth() < getMaxHealth()/2,cargoPercent);
+        speed = speed * step / base;
+    } else {
+        speed *= 2-getTerrainDifficulty(static_cast<TERRAINTYPE>(currentGameMap->getTile(location)->getType()));
+        if(isBadlyDamaged()) speed *= HEAVILYDAMAGEDSPEEDMULTIPLIER;
     }
+    // City roads are an intentional extension; Dynasty has no equivalent.
+    if(tile->isRoad()) speed *= ROADSPEEDMULTIPLIER;
+    return speed;
+}
+
+void UnitBase::setSpeeds() {
+    const FixPoint speed = getTerrainAdjustedSpeed();
 
     switch(drawnAngle){
         case LEFT:      xSpeed = -speed;                    ySpeed = 0;         break;
