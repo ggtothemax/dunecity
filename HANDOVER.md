@@ -2,8 +2,14 @@
 
 Branch `fix/ai-crime-air-economy`, worktree `dunecity-ai-defense`, based on
 1.0.760 plus emergency Starport MCV recovery (original commit 66624b15).
-Version 1.0.762, protocol 20; save format unchanged. No push, PR, release or
-installation on the MacBook Air; its running game was inspected read-only.
+Version 1.0.762, protocol 20; save format unchanged. No push, PR or public release.
+Installed on Stefans-MacBook-Air.local at /Applications/dunecity.app after the
+user saved/closed the game. Packaged runtime rendering and signature checks
+passed on the Air; binary SHA256 matches the local package:
+cf6418c14a8f58e4234e6c2f0cefc8cfcb1ae2d16495e1a4e7506007fb304387.
+All 511 checked profile INIs remained unchanged. Previous app retained at
+/Applications/.dunecity-762-KSxU7E/dunecity-previous.app; installation receipt
+in ../outputs/ai-defense/install-762/mba-receipt.json.
 
 The live Alkozeltser 4 telemetry confirmed late rocket construction, crime
 outbreaks destroying the Rebels construction yard, and aircraft raids
