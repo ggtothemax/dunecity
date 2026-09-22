@@ -34,6 +34,7 @@
 #include <units/Harvester.h>
 #include <units/HarvesterHelpers.h>
 #include <units/GroundUnit.h>
+#include <units/CarryallFlight.h>
 
 Carryall::Carryall(House* newOwner, int unitItemID) : AirUnit(newOwner)
 {
@@ -98,31 +99,6 @@ bool Carryall::update() {
         return false;
     }
 
-    const auto& maxSpeed = currentGame->objectData.data[itemID][originalHouseID].maxspeed;
-
-    FixPoint dist = -1;
-    const auto pTarget = target.getObjPointer();
-    if(pTarget != nullptr && pTarget->isAUnit()) {
-        dist = distanceFrom(realX, realY, pTarget->getRealX(), pTarget->getRealY());
-    } else if((pTarget != nullptr) || hasCargo()) {
-        dist = distanceFrom(realX, realY, destination.x*TILESIZE + TILESIZE/2, destination.y*TILESIZE + TILESIZE/2);
-    }
-
-    if(dist >= 0) {
-        static const FixPoint minSpeed = FixPoint32(TILESIZE/32);
-        if(dist < TILESIZE/2) {
-            currentMaxSpeed = std::min(dist, minSpeed);
-        } else if(dist >= 10*TILESIZE) {
-            currentMaxSpeed = maxSpeed;
-        } else {
-            FixPoint m = (maxSpeed-minSpeed) / ((10*TILESIZE)-(TILESIZE/2));
-            FixPoint t = minSpeed-(TILESIZE/2)*m;
-            currentMaxSpeed = dist*m+t;
-        }
-    } else {
-        currentMaxSpeed = std::min(currentMaxSpeed + 0.2_fix, maxSpeed);
-    }
-
     if(AirUnit::update() == false) {
         return false;
     }
@@ -175,7 +151,9 @@ void Carryall::checkPos()
 
     if (active) {
         if (hasCargo()) {
-            if((location == destination) && (currentMaxSpeed <= 0.5_fix) ) {
+            if(destination.isValid() && CarryallFlight::distance(
+                    destination.x*TILESIZE + TILESIZE/2 - realX,
+                    destination.y*TILESIZE + TILESIZE/2 - realY) < TILESIZE/8) {
                 // drop up to 3 infantry units at once or one other unit
                 int droppedUnits = 0;
                 do {
@@ -402,48 +380,13 @@ void Carryall::engageTarget()
         targetLocation = pTarget->getClosestPoint(location);
     }
 
-    Coord realLocation = Coord(lround(realX), lround(realY));
-    Coord realDestination = targetLocation * TILESIZE + Coord(TILESIZE/2,TILESIZE/2);
-
-    targetDistance = distanceFrom(realLocation, realDestination);
-
-    // SNAP: When close to target, directly adjust position toward it
-    // This bypasses orientation-based movement and prevents circling
-    // Similar to Dynasty's Script_Unit_MoveToTarget approach
-    static const FixPoint SNAP_RANGE = 2 * TILESIZE;  // Start snapping within 2 tiles
-    static const FixPoint SNAP_SPEED = 16;            // Max pixels per update
-    
-    if (targetDistance < SNAP_RANGE && targetDistance > TILESIZE/10) {
-        // Direct position adjustment toward target
-        FixPoint dx = realDestination.x - realX;
-        FixPoint dy = realDestination.y - realY;
-        
-        // Clamp movement to max SNAP_SPEED pixels in each direction
-        dx = std::max(-SNAP_SPEED, std::min(SNAP_SPEED, dx));
-        dy = std::max(-SNAP_SPEED, std::min(SNAP_SPEED, dy));
-        
-        realX += dx;
-        realY += dy;
-        
-        // Update location if we crossed a tile boundary
-        Coord newLocation = Coord(lround(realX)/TILESIZE, lround(realY)/TILESIZE);
-        if(newLocation != location) {
-            unassignFromMap(location);
-            assignToMap(newLocation);
-            if(auto* spatialGrid = currentGame->getSpatialGrid()) {
-                spatialGrid->move(*this, getGridHandle(), location, newLocation);
-            }
-            location = newLocation;
-        }
-        
-        // Recalculate distance after snap
-        realLocation = Coord(lround(realX), lround(realY));
-        targetDistance = distanceFrom(realLocation, realDestination);
-    }
-
-    // Increased pickup radius from TILESIZE/32 to TILESIZE/10 to match Dynasty's 1/16th tile (6.4% vs 6.25%)
-    // Original: TILESIZE/32 = 3.125% was too strict, Dynasty uses ~6.25%
-    if (targetDistance <= TILESIZE/10) {
+    // Targeting only selects the destination or transfers cargo. All position
+    // changes happen once in move(), including the slow final docking phase.
+    setDestination(targetLocation);
+    FixPoint targetX, targetY;
+    getFlightDestination(targetX, targetY);
+    targetDistance = CarryallFlight::distance(targetX-realX, targetY-realY);
+    if (targetDistance < TILESIZE/8) {
         if(hasCargo()) {
             if(pTarget->isAStructure()) {
                 while(pickedUpUnitList.begin() != pickedUpUnitList.end()) {
@@ -456,9 +399,62 @@ void Carryall::engageTarget()
         } else {
             pickupTarget();
         }
-    } else {
-        setDestination(targetLocation);
     }
+}
+
+bool Carryall::getFlightDestination(FixPoint& x, FixPoint& y) const {
+    if(const auto* object = target.getObjPointer(); object && object->isAUnit()) {
+        x = object->getRealX(); y = object->getRealY();
+        return true;
+    }
+    if((target || hasCargo()) && destination.isValid()) {
+        x = destination.x*TILESIZE + TILESIZE/2;
+        y = destination.y*TILESIZE + TILESIZE/2;
+        return true;
+    }
+    return false;
+}
+
+FixPoint Carryall::getDestinationAngle() const {
+    FixPoint x, y;
+    if(getFlightDestination(x,y))
+        return destinationAngleRad(realX,realY,x,y)*8/(FixPt_PI << 1);
+    return AirUnit::getDestinationAngle();
+}
+
+void Carryall::move() {
+    const FixPoint cruise = currentGame->objectData.data[itemID][originalHouseID].maxspeed;
+    FixPoint x, y;
+    if(!getFlightDestination(x,y)) {
+        currentMaxSpeed = std::min(currentMaxSpeed + 0.2_fix, cruise);
+        AirUnit::move();
+        return;
+    }
+    const FixPoint dist = CarryallFlight::distance(x-realX,y-realY);
+    if(dist >= TILESIZE/2) {
+        FixPoint error = FixPoint::abs(getDestinationAngle()-angle);
+        error = std::min(error, FixPoint(NUM_ANGLES)-error);
+        currentMaxSpeed = CarryallFlight::approachSpeed(dist,error,cruise);
+        AirUnit::move();
+        return;
+    }
+
+    // Stop forward flight before moving directly toward the pickup/drop site.
+    // Dynasty's delayed script has a 0.25 tile/s per-axis docking rate at
+    // normal speed. Spread that movement over our updates without a teleport.
+    currentMaxSpeed = 0;
+    const FixPoint step = CarryallFlight::finalStep(cruise);
+    realX += std::clamp(x-realX,-step,step);
+    realY += std::clamp(y-realY,-step,step);
+    const Coord next(realX.lround()/TILESIZE,realY.lround()/TILESIZE);
+    if(next != location) {
+        unassignFromMap(location);
+        assignToMap(next);
+        if(auto* grid = currentGame->getSpatialGrid())
+            grid->move(*this,getGridHandle(),location,next);
+        location = next;
+    }
+    checkPos();
 }
 
 void Carryall::giveCargo(UnitBase* newUnit)

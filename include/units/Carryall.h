@@ -68,6 +68,9 @@ protected:
     void pickupTarget();
     void targeting() override;
     virtual void turn() override;
+    void move() override;
+    FixPoint getDestinationAngle() const override;
+    bool getFlightDestination(FixPoint& x, FixPoint& y) const;
 
     // unit state/properties
     std::list<Uint32>   pickedUpUnitList;   ///< What units does this carryall carry?

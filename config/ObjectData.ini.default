@@ -561,7 +561,7 @@ HitPoints = 100
 Price = 800
 ViewRange = 5
 MaxSpeed = 15.36  # Dynasty normal: 15 tiles/s × 64 world units/tile ÷ 62.5Hz; see docs/carryall-speed.md
-TurnSpeed = 0.099  # Dynasty 168.75°/s × 2.1 = 354.4°/s ÷ 62.5Hz = 5.67°/tick = 0.099 rad
+TurnSpeed = 0.09  # Dynasty 3*4/256 turns at 15Hz = 253.125 deg/s; angle units are 1/8 turn, not radians
 BuildTime = 64
 InfSpawnProp = 0
 Builder = Hightech Factory

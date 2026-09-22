@@ -1,3 +1,28 @@
+## 2026-09-22 — Dynasty carryall turning and approach (local 756)
+
+Follow-up to issue67: live production-object baseline confirmed the inherited
+2-tile snap added16 world units/axis/update on top of forward flight, defeating
+the speed cap. An aligned pickup from1.5 tiles took0.080s. Removed double
+movement; applied Dynasty's distance/heading throttle, half-tile final docking
+at0.25 tile/s/axis, and arrival-distance-based cargo deployment. TurnSpeed0.09
+matches253.125deg/s (previous0.099 was278.4375). The same pickup now takes2.208s.
+Turning/docking use our smooth fixed-point updates, not Dynasty's discrete VM.
+Shared caps cover Vanilla/Dune City/Dune2R; custom caps are respected.
+
+Tested real Carryall objects across40 pickup/delivery cases per mode, moving
+and cancelled/disappeared targets, and repair-yard delivery/collection/return.
+All three modes produce identical seeded trajectories. CTest unit suite,
+command regressions, menu probe and new carryall_flight_probe pass. Source-
+extracted Dynasty functions independently checked and executed with ASan/UBSan.
+Upgrade testing exposed stale Workshop-materialized Dune2R ObjectData; managed
+refresh now catches it, with an explicit regression in the menu probe.
+
+Built1.0.756 locally at build/bin/dunecity.app; version/dependency audits pass.
+Network14 prevents joining older simulation rules; no save fields added.
+Saved ObjectData caps remain saved, while new approach code applies on load.
+No push/release. Details: docs/carryall-speed.md; receipts:
+../outputs/carryall-handling-67/ and build/carryall-flight-probe/.
+
 ## 2026-09-22 — Carryall cruise speed aligned with Dynasty (local 755)
 
 Issue67 reported overly fast carryalls in Dune2R1.0.737. Pulled

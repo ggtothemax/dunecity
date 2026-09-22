@@ -1615,6 +1615,15 @@ bool ModManager::dune2rNeedsReseed() const {
         return true;
     }
 
+    // Workshop capture can materialize Vanilla's effective rules inside the
+    // managed Dune2R shell. Refresh that copy when the installer defaults
+    // change, even if the independently versioned graphics shell did not.
+    if(!std::filesystem::is_regular_file(bundled / OBJECT_DATA_FILE)
+       && installedObjectDataDiffersFromDefaults(DUNE2R_MOD_NAME)) {
+        SDL_Log("ModManager: Dune2R inherited ObjectData drifted from defaults, needs reseed");
+        return true;
+    }
+
     if(!std::filesystem::is_regular_file(installed / MOD_INI_FILE)
        || !std::filesystem::is_regular_file(installed / GAME_OPTIONS_FILE)
        || !std::filesystem::is_directory(installed / "graphics_hd" / "units")) {
