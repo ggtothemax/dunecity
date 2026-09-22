@@ -3676,8 +3676,8 @@ void QuantBot::build(int militaryValue) {
     if(yardLimit > 0) cityYardTarget = std::min(cityYardTarget, yardLimit);
     const int cityConstructionCapacity = itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV];
 
-    // Custom-game city size ceiling for this AI house. Campaign games keep
-    // their own stricter gates, and a human city is never limited here.
+    // Custom-game city size ceiling for this bot, including shared-house
+    // helpers. Campaign games keep their own separate gates.
     const int populationCeiling = getCityPopulationLimit(getMap().getSizeX()*getMap().getSizeY());
     const auto cityGrowthLimits = populationCeiling > 0
         ? QuantBotCityPolicy::limits(static_cast<int>(difficulty), getMap().getSizeX()*getMap().getSizeY())

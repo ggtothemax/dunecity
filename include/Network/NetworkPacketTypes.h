@@ -72,7 +72,8 @@
 // Version 13: QuantBot population admission and growth ceilings change lockstep decisions.
 // Version 14: Carryall approach, docking and turning change lockstep movement.
 // Version 17: Dynasty projectile motion, detonation and splash rules.
-#define NETWORK_PROTOCOL_VERSION            17
+// Version 18: Combined shared-helper population admission and projectile build.
+#define NETWORK_PROTOCOL_VERSION            18
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size
