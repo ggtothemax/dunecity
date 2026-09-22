@@ -1,4 +1,4 @@
-#include <dunecity/NuclearBlastPolicy.h>
+#include <DynastyProjectile.h>
 #include <players/AIDecisionLog.h>
 /*
  *  This file is part of Dune Legacy.
@@ -39,7 +39,7 @@
 
 #include <GUI/ObjectInterfaces/PalaceInterface.h>
 
-#define PALACE_DEATHHAND_WEAPONDAMAGE       DuneCity::NuclearBlastPolicy::missileDamagePerTile
+#define PALACE_DEATHHAND_WEAPONDAMAGE       DynastyProjectile::deathHandDamage
 
 Palace::Palace(House* newOwner) : StructureBase(newOwner) {
     Palace::init();
@@ -285,22 +285,20 @@ void Palace::doLaunchDeathhand(int x, int y) {
         return;
     }
 
-    // Dynasty scatter algorithm: biased towards smaller scatter values
-    // Get random 0-255, then repeatedly halve until <= 160
-    int scatterDistance = currentGame->randomGen.rand(0, 255);
-    while (scatterDistance > 160) {
-        scatterDistance /= 2;
-    }
-    // Convert to pixels (160 Dynasty units = 10 tiles = 320 pixels)
-    int radius = scatterDistance * 2;
-    
-    FixPoint randAngle = 2 * FixPt_PI * currentGame->randomGen.randFixPoint();
-    int deathOffX = lround(FixPoint::sin(randAngle) * radius);
-    int deathOffY = lround(FixPoint::cos(randAngle) * radius);
-
+    // Dynasty scatters by up to ten tiles, rejects out-of-map scatter, then
+    // encodes the chosen tile (so the final destination is its centre).
+    int radius = currentGame->randomGen.rand(0, 255);
+    while(radius > 160) radius /= 2;
+    const int direction = currentGame->randomGen.rand(0, 255);
     Coord centerPoint = getCenterPoint();
-    Coord dest( x * TILESIZE + TILESIZE/2 + deathOffX,
-                y * TILESIZE + TILESIZE/2 + deathOffY);
+    Coord dest(x*TILESIZE+TILESIZE/2, y*TILESIZE+TILESIZE/2);
+    const Coord scattered = dest + Coord(
+        (DynastyProjectile::k_stepX[direction]*radius/128)*4,
+        -(DynastyProjectile::k_stepY[direction]*radius/128)*4);
+    if(scattered.x >= 0 && scattered.y >= 0 && scattered.x < currentGameMap->getSizeX()*TILESIZE
+       && scattered.y < currentGameMap->getSizeY()*TILESIZE) {
+        dest = Coord(scattered.x/TILESIZE*TILESIZE+TILESIZE/2, scattered.y/TILESIZE*TILESIZE+TILESIZE/2);
+    }
 
     AITelemetry::log().write(currentGame->getGameCycleCount(), owner->getHouseID(), -1, "palace_missile_launched",
         AITelemetry::Record().set("palace", objectID).set("aim_x", x).set("aim_y", y)

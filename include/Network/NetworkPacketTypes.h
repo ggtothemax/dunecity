@@ -70,7 +70,10 @@
 // Version 12: MOD5 game setup carries construction-yard limits. Older peers
 //             cannot enforce the rule and must not join the same simulation.
 // Version 13: QuantBot population admission and growth ceilings change lockstep decisions.
-#define NETWORK_PROTOCOL_VERSION            13
+// Version 14: Carryall approach, docking and turning change lockstep movement.
+// Version 17: Dynasty projectile motion, detonation and splash rules.
+// Version 18: Combined shared-helper population admission and projectile build.
+#define NETWORK_PROTOCOL_VERSION            18
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

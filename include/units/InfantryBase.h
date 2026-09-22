@@ -75,6 +75,7 @@ public:
 
 protected:
     void setSpeeds() override;
+    Coord movementEndpoint() const override;
 
     // infantry state
     Sint8   tilePosition;       ///< The position in the current tile (0 to 4)

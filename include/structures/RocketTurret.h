@@ -30,6 +30,7 @@ public:
 
     bool canAttack(const ObjectBase* object) const override;
 
+    const ObjectBase* findTarget() const override;
     void attack() override;
 
 protected:

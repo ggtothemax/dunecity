@@ -174,8 +174,8 @@ void TankBase::turn() {
     FixPoint angleLeft = 0;
     FixPoint angleRight = 0;
 
-    if(!moving && !justStoppedMoving) {
-        if(nextSpotAngle != INVALID) {
+    if(!moving && (usesDynastyGroundTiming() || !justStoppedMoving)) {
+        if(nextSpotAngle != INVALID && !turnDynastyBody(nextSpotAngle)) {
             if(angle > nextSpotAngle) {
                 angleRight = angle - nextSpotAngle;
                 angleLeft = FixPoint::abs(8-angle) + nextSpotAngle;
@@ -184,7 +184,10 @@ void TankBase::turn() {
                 angleLeft = nextSpotAngle - angle;
             }
 
-            if(angleLeft <= angleRight) {
+            const FixPoint speed=currentGame->objectData.data[itemID][originalHouseID].turnspeed;
+            if(usesDynastyGroundTiming() && std::min(angleLeft,angleRight)<=speed) {
+                angle=nextSpotAngle; drawnAngle=nextSpotAngle;
+            } else if(angleLeft <= angleRight) {
                 turnLeft();
             } else {
                 turnRight();
@@ -210,7 +213,8 @@ void TankBase::turn() {
 }
 
 void TankBase::turnTurretLeft() {
-    turretAngle += turretTurnSpeed;
+    turretAngle += (itemID==Unit_Tank || itemID==Unit_SiegeTank)
+        ? currentGame->objectData.data[itemID][originalHouseID].turnspeed : turretTurnSpeed;
     if(turretAngle >= 7.5_fix) {
         drawnTurretAngle = lround(turretAngle) - NUM_ANGLES;
         turretAngle -= NUM_ANGLES;
@@ -220,7 +224,8 @@ void TankBase::turnTurretLeft() {
 }
 
 void TankBase::turnTurretRight() {
-    turretAngle -= turretTurnSpeed;
+    turretAngle -= (itemID==Unit_Tank || itemID==Unit_SiegeTank)
+        ? currentGame->objectData.data[itemID][originalHouseID].turnspeed : turretTurnSpeed;
     if(turretAngle <= -0.5_fix) {
         drawnTurretAngle = lround(turretAngle) + NUM_ANGLES;
         turretAngle += NUM_ANGLES;

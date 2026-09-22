@@ -46,9 +46,6 @@
 /* how often to change harvester position while harvesting */
 #define RANDOMHARVESTMOVE 500
 
-/* how much is the harvester movement slowed down when full  */
-#define MAXIMUMHARVESTERSLOWDOWN 0.4_fix
-
 /* number spice output frames - 1 */
 #define LASTSANDFRAME 2
 
@@ -640,18 +637,13 @@ FixPoint Harvester::extractSpice(FixPoint extractionSpeed)
 
 void Harvester::setSpeeds()
 {
-    FixPoint speed = getMaxSpeed();
-
-    if(isBadlyDamaged()) {
-        speed *= HEAVILYDAMAGEDSPEEDMULTIPLIER;
-    }
-
-    FixPoint percentFull = spice/HARVESTERMAXSPICE;
-    speed = speed * (1 - MAXIMUMHARVESTERSLOWDOWN*percentFull);
-
-    if(currentGameMap->getTile(location)->isRoad()) {
-        // Roads boost ground-unit travel speed (city-sim feature).
-        speed *= ROADSPEEDMULTIPLIER;
+    const int cargoPercent = std::clamp((spice*100/HARVESTERMAXSPICE).floor(),0,100);
+    FixPoint speed = getTerrainAdjustedSpeed(cargoPercent);
+    if(itemID != Unit_Harvester) {
+        // Preserve the explicit behavior of mod-only harvester derivatives.
+        speed = getMaxSpeed() * (1-0.4_fix*spice/HARVESTERMAXSPICE);
+        if(isBadlyDamaged()) speed *= HEAVILYDAMAGEDSPEEDMULTIPLIER;
+        if(currentGameMap->getTile(location)->isRoad()) speed *= ROADSPEEDMULTIPLIER;
     }
 
     switch(drawnAngle){

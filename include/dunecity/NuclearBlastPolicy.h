@@ -5,7 +5,9 @@
 #include <cstdint>
 
 namespace DuneCity::NuclearBlastPolicy {
-// Palace rockets strike a 5x5 tile pattern excluding its four corners.
+// Nuclear plants retain their established balance, based on the historical
+// Legacy palace footprint (21 centres, 100 damage). Live Palace missiles now
+// use DynastyProjectile parameters; changing them must not rebalance plants.
 constexpr int missileImpactTiles = 21;
 constexpr int missileDamagePerTile = 100;
 constexpr int plantBlastDamage = 9 * missileDamagePerTile;

@@ -19,6 +19,8 @@
 #include <structures/RocketTurret.h>
 
 #include <globals.h>
+#include <DynastyProjectile.h>
+#include <units/UnitBase.h>
 
 #include <Bullet.h>
 #include <SoundPlayer.h>
@@ -68,11 +70,29 @@ void RocketTurret::updateStructureSpecificStuff() {
 bool RocketTurret::canAttack(const ObjectBase* object) const {
     if((object != nullptr)
         && ((object->getOwner()->getTeamID() != owner->getTeamID()) || object->getItemID() == Unit_Sandworm)
-        && object->isVisible(getOwner()->getTeamID())) {
+        && (object->getItemID() == Unit_Ornithopter || object->isVisible(getOwner()->getTeamID()))) {
         return true;
     } else {
         return false;
     }
+}
+
+const ObjectBase* RocketTurret::findTarget() const {
+    if(attackMode == STOP) return nullptr;
+    const auto* best = TurretBase::findTarget();
+    const Coord center = getCenterPoint();
+    int bestDistance = best ? DynastyProjectile::distance(center*4, best->getCenterPoint()*4) : 0x7fffffff;
+    // Script_Structure_FindTarget explicitly sees ornithopters at triple range,
+    // even outside unveiled terrain. Other aircraft retain the normal range.
+    for(const auto* unit : unitList) {
+        if(unit->getItemID() != Unit_Ornithopter || unit->getHealth() <= 0 || !canAttack(unit)) continue;
+        const int distance = DynastyProjectile::distance(center*4, unit->getCenterPoint()*4);
+        if(distance <= getWeaponRange()*3*TILESIZE*4 && distance < bestDistance) {
+            best = unit;
+            bestDistance = distance;
+        }
+    }
+    return best;
 }
 
 void RocketTurret::attack() {
@@ -83,8 +103,8 @@ void RocketTurret::attack() {
 
         if(distanceFrom(centerPoint, targetCenterPoint) < 3 * TILESIZE) {
             // we are just shooting a bullet as a gun turret would do
-            // for air units do nothing
-            if(!pObject->isAFlyingUnit()) {
+            // Dynasty also uses its cannon against aircraft inside three tiles.
+            {
                 bulletList.push_back( new Bullet( objectID, &centerPoint, &targetCenterPoint, Bullet_ShellTurret,
                                                        currentGame->objectData.data[Structure_GunTurret][originalHouseID].weapondamage,
                                                        pObject->isAFlyingUnit(),

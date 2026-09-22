@@ -1,3 +1,7 @@
+# Standard rockets share Dynasty motion/steering/fuse rules in the engine.
+# WeaponDamage and WeaponReloadTime below still configure the shooter.
+# Rocket-turret WeaponRange is the ground range; ornithopters use 3x that range.
+# Turret missiles also detect physical aircraft crossings within 1/8 tile.
 # ============================================================================
 # DUNE LEGACY - UNIT & STRUCTURE DATA CONFIGURATION
 # ============================================================================
@@ -31,8 +35,11 @@
 # WeaponDamage     - How much damage does the weapon of this unit/turret have?
 # WeaponRange      - How far can this unit/turret shoot?
 # WeaponReloadTime - How many frames does it take to reload the weapon?
-# MaxSpeed         - How fast can this unit move?
-# TurnSpeed        - How fast can this unit/turret turn around?
+# MaxSpeed         - Nominal movement cap in world units per 16 ms cycle.
+#                    Standard ground units also use Dynasty tile/turn timing;
+#                    see docs/unit-route-comparison.md. Custom caps scale travel.
+# TurnSpeed        - Eighth-turns per 16 ms cycle. Ground route turns finish
+#                    the exact heading on Dynasty rotation ticks before moving.
 # BuildTime        - How much time does the production of this structure/unit take?
 # InfSpawnProp     - What is the probability (in percent) that an infantry soldier
 #                    is spawned on destruction?
@@ -560,8 +567,8 @@ Enabled = true
 HitPoints = 100
 Price = 800
 ViewRange = 5
-MaxSpeed = 19.2  # Dynasty 240 px/s × 5.0 = 1,200 px/s ÷ 62.5Hz = 19.2
-TurnSpeed = 0.099  # Dynasty 168.75°/s × 2.1 = 354.4°/s ÷ 62.5Hz = 5.67°/tick = 0.099 rad
+MaxSpeed = 15.36  # Dynasty normal: 15 tiles/s × 64 world units/tile ÷ 62.5Hz; see docs/carryall-speed.md
+TurnSpeed = 0.09  # Dynasty 3*4/256 turns at 15Hz = 253.125 deg/s; angle units are 1/8 turn, not radians
 BuildTime = 64
 InfSpawnProp = 0
 Builder = Hightech Factory
@@ -574,7 +581,8 @@ ViewRange = 4
 WeaponDamage = 40
 WeaponRange = 5
 WeaponReloadTime = 300
-MaxSpeed = 1.28
+MaxSpeed = 0.72  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 104
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -590,7 +598,8 @@ ViewRange = 5
 WeaponDamage = 0
 WeaponRange = 7
 WeaponReloadTime = 540
-MaxSpeed = 3.8400
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 80
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -608,8 +617,8 @@ Enabled = true
 HitPoints = 10000
 Price = 0
 ViewRange = 5
-MaxSpeed = 12.8  # Dynasty 160 px/s × 5.0 = 800 px/s ÷ 62.5Hz = 12.8
-TurnSpeed = 0.099  # Dynasty 168.75°/s × 2.1 = 354.4°/s ÷ 62.5Hz = 5.67°/tick = 0.099 rad
+MaxSpeed = 10.24  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.06
 InfSpawnProp = 0
 
 [Harvester]
@@ -617,7 +626,8 @@ Enabled = true
 HitPoints = 150
 Price = 300
 ViewRange = 2
-MaxSpeed = 2.5600
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 64
 InfSpawnProp = 50
 Builder = Heavy Factory
@@ -630,7 +640,8 @@ ViewRange = 5
 WeaponDamage = 75
 WeaponRange = 9
 WeaponReloadTime = 360
-MaxSpeed = 3.8400
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 72
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -657,7 +668,8 @@ Enabled = true
 HitPoints = 150
 Price = 900
 ViewRange = 2
-MaxSpeed = 2.56
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 80
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -672,8 +684,8 @@ ViewRange = 5
 WeaponDamage = 45#50
 WeaponRange = 5
 WeaponReloadTime = 150
-MaxSpeed = 14.4  # Dynasty 180 px/s × 5.0 = 900 px/s ÷ 62.5Hz = 14.4
-TurnSpeed = 0.0707  # Dynasty 168.75°/s × 1.5 = 253.1°/s ÷ 62.5Hz = 4.05°/tick = 0.0707 rad
+MaxSpeed = 11.52  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.06
 BuildTime = 96
 InfSpawnProp = 0
 Builder = Hightech Factory
@@ -690,7 +702,8 @@ ViewRange = 2
 WeaponDamage = 7
 WeaponRange = 3
 WeaponReloadTime = 150
-MaxSpeed = 5.12
+MaxSpeed = 2.56  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.06
 BuildTime = 48
 InfSpawnProp = 25
 Builder = Light Factory
@@ -707,7 +720,8 @@ ViewRange = 2
 WeaponDamage = 5
 WeaponRange = 3
 WeaponReloadTime = 150
-MaxSpeed = 9.25
+MaxSpeed = 3.84  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.06
 BuildTime = 40
 InfSpawnProp = 25
 Builder = Light Factory
@@ -734,7 +748,8 @@ HitPoints = 10
 Price = 0
 ViewRange = 1
 WeaponRange = 0
-MaxSpeed = 5.1200
+MaxSpeed = 2.56  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.09
 BuildTime = 48
 InfSpawnProp = 0
 
@@ -746,8 +761,8 @@ ViewRange = 2
 WeaponDamage = 300
 WeaponRange = 0
 WeaponReloadTime = 60
-MaxSpeed = 4.4800
-TurnSpeed = 0.625
+MaxSpeed = 2.56  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.09
 InfSpawnProp = 0
 
 [Siege Tank]
@@ -758,7 +773,8 @@ ViewRange = 4
 WeaponDamage = 30
 WeaponRange = 5
 WeaponReloadTime = 270
-MaxSpeed = 2.5600
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 96
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -775,7 +791,8 @@ ViewRange = 1
 WeaponDamage = 3
 WeaponRange = 2
 WeaponReloadTime = 135
-MaxSpeed = 1.0240
+MaxSpeed = 0.56  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.09
 BuildTime = 32
 InfSpawnProp = 0
 Builder = Barracks
@@ -788,7 +805,8 @@ ViewRange = 4
 WeaponDamage = 60
 WeaponRange = 8
 WeaponReloadTime = 240
-MaxSpeed = 3.8400
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 104
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -804,7 +822,8 @@ ViewRange = 3
 WeaponDamage = 25
 WeaponRange = 4
 WeaponReloadTime = 240
-MaxSpeed = 4.0
+MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.03
 BuildTime = 64
 InfSpawnProp = 25
 Builder = Heavy Factory
@@ -817,7 +836,8 @@ ViewRange = 2
 WeaponDamage = 5
 WeaponRange = 3
 WeaponReloadTime = 150
-MaxSpeed = 6.4425
+MaxSpeed = 2.56  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.06
 BuildTime = 40
 InfSpawnProp = 25
 Builder = Light Factory
@@ -832,7 +852,8 @@ ViewRange = 1
 WeaponDamage = 5
 WeaponRange = 5
 WeaponReloadTime = 150
-MaxSpeed = 1.9200
+MaxSpeed = 1.12  # Dynasty normal-speed cap; see docs/unit-speeds.md
+TurnSpeed = 0.09
 BuildTime = 56
 InfSpawnProp = 0
 Builder = WOR

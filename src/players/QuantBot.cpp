@@ -3676,8 +3676,8 @@ void QuantBot::build(int militaryValue) {
     if(yardLimit > 0) cityYardTarget = std::min(cityYardTarget, yardLimit);
     const int cityConstructionCapacity = itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV];
 
-    // Custom-game city size ceiling for this AI house. Campaign games keep
-    // their own stricter gates, and a human city is never limited here.
+    // Custom-game city size ceiling for this bot, including shared-house
+    // helpers. Campaign games keep their own separate gates.
     const int populationCeiling = getCityPopulationLimit(getMap().getSizeX()*getMap().getSizeY());
     const auto cityGrowthLimits = populationCeiling > 0
         ? QuantBotCityPolicy::limits(static_cast<int>(difficulty), getMap().getSizeX()*getMap().getSizeY())
@@ -4903,12 +4903,16 @@ void QuantBot::build(int militaryValue) {
     // saving for the next launcher repeatedly withholds even the last100 credits
     // from idle yards, despite positive demand and legal space. Reserve one lot,
     // release it on acceptance, and let independent factories use the remainder.
+    // A selected safety investment owns its cash and yard until accepted.
+    // Cheap zoning must not repeatedly consume the savings for that service.
+    const bool protectionCapital = capitalChoice >= 0
+        && capitalCandidates[capitalChoice].reason == std::string("crime_prevention");
     bool cityGrowthProtected=false;
-    // With multiple yards, assign one to a demanded lot even when services,
-    // refineries or factory expansion win the investment comparison. The other
-    // yards still handle those needs. A lone opening yard retains its tech path.
+    // With multiple yards, assign one to growth alongside routine investment.
+    // Crime protection keeps the winning allocation; growth resumes after its
+    // order is accepted. A lone opening yard retains its tech path.
     Uint32 dedicatedCityYard=NONE_ID;
-    if (sharedSpending && citySimEnabled && cityYards>1) {
+    if (sharedSpending && citySimEnabled && cityYards>1 && !protectionCapital) {
         for (const auto* builder:capitalBuilders) {
             if (builder->getItemID()!=Structure_ConstructionYard || builder->isUpgrading()
                 || builder->isOnHold()) continue;
@@ -6164,6 +6168,20 @@ void QuantBot::build(int militaryValue) {
 						logDebug("POWER-RECOVERY: Building windtrap for power deficit (%d)", powerDeficit);
 					}
 				}
+                // Honour the winning service before optional power headroom,
+                // opening tech, civic growth and production expansion. Actual
+                // blackout recovery above remains necessary to operate it.
+                if (itemID == NONE_ID && !skipRemainingStructureLogic
+                    && protectionCapital && capitalPending()
+                    && capitalCandidates[capitalChoice].builder == pBuilder->getObjectID()) {
+                    const auto& service = capitalCandidates[capitalChoice];
+                    if (campaignAvailableToBuild(pBuilder, service.item) && service.site.isValid()) {
+                        itemID = money >= service.price + service.foundationCost ? service.item : NONE_ID;
+                        crimeServiceSite = service.site;
+                        structureRule = itemID == NONE_ID ? "save_city_protection" : "city_protection";
+                        skipRemainingStructureLogic = true;
+                    }
+                }
                 // 1c. Cover zone maturation/recovery and queued consumers as
                 // well as the normal reserve. Keep one generator in flight.
 				if (itemID == NONE_ID && !skipRemainingStructureLogic
@@ -6192,7 +6210,8 @@ void QuantBot::build(int militaryValue) {
 				}
                 // Accumulate reactor funds before optional orders consume them.
                 // An actual blackout can still buy an immediately affordable windtrap.
-                if (nuclearPlan && getHouse()->hasPower() && !powerGenerationPending()
+                if (nuclearPlan && !(protectionCapital && capitalPending())
+                    && getHouse()->hasPower() && !powerGenerationPending()
                     && campaignAvailableToBuild(pBuilder,Structure_NuclearPlant)
                     && (itemID == NONE_ID || itemID == Structure_WindTrap || itemID == Structure_NuclearPlant)
                     && findPlaceLocation(Structure_NuclearPlant).isValid()) {
@@ -7139,6 +7158,7 @@ void QuantBot::build(int militaryValue) {
                     selectedCost+=purchasePrice(pBuilder,foundation.first);
             if (isCitySim && !pBuilder->isUpgrading() && !pBuilder->isOnHold()
                 && pBuilder->getProductionQueueSize()==0
+                && !(protectionCapital && capitalPending())
                 && (!selectedPlaceLocation.isValid() || money<selectedCost)) {
                 const Uint32 zone=affordableCityZone(pBuilder,money);
                 if (zone!=NONE_ID) {

@@ -408,7 +408,14 @@ void InfantryBase::destroy() {
     GroundUnit::destroy();
 }
 
+Coord InfantryBase::movementEndpoint() const {
+    Coord end = GroundUnit::movementEndpoint();
+    if(tilePosition != INVALID_POS) end += tilePositionOffset[tilePosition];
+    return end;
+}
+
 void InfantryBase::move() {
+    if(moveDynastyStep()) return;
     if(!moving && !justStoppedMoving && (((currentGame->getGameCycleCount() + getObjectID()) % 512) == 0)) {
         currentGameMap->viewMap(owner->getHouseID(), location, getViewRange());
     }
@@ -530,7 +537,7 @@ void InfantryBase::setSpeeds() {
         dx -= sx;
         dy -= sy;
 
-        FixPoint scale = currentGame->objectData.data[itemID][originalHouseID].maxspeed/FixPoint::sqrt((dx*dx + dy*dy));
+        FixPoint scale = getTerrainAdjustedSpeed()/FixPoint::sqrt((dx*dx + dy*dy));
         xSpeed = dx*scale;
         ySpeed = dy*scale;
     }

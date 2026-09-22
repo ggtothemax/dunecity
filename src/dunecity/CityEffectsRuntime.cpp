@@ -858,7 +858,9 @@ void CitySimulation::runZoneGrowth() {
         if(!house) continue;
         for(const auto& player : house->getPlayerList()) {
             const int limit = player->getCityPopulationLimit(map.getSizeX()*map.getSizeY());
-            // Human/shared houses and unrestricted bots are never constrained.
+            // A helper's construction ceiling must not cap its human partner's
+            // natural city growth. Human and other unrestricted controllers
+            // keep the whole house's natural growth unrestricted.
             if(limit <= 0) { cityLimits[h]=0; break; }
             cityLimits[h] = cityLimits[h] ? std::min(cityLimits[h],limit) : limit;
         }

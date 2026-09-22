@@ -1,3 +1,259 @@
+## 2026-09-22 — Combined local test build 1.0.760 installed on MBA
+
+Merged helper population-cap commits b8d78daf and b9266479 with the local
+carryall/unit timing, projectile alignment/physical AA interception and
+crime-service spending fixes on branch test/all-local-760 (merge bb184a62).
+All recent local gameplay commits are included. Version 1.0.760, protocol 18,
+save format 9845. No public release, push or PR.
+
+Build and dependency audit passed, all 16 CTest targets passed (158.34 seconds),
+and the real-engine shared-spending crime-priority probe passed. Packaged SDL
+runtime initialization and hidden-window rendering passed locally and on MBA.
+Installed /Applications/dunecity.app on Stefans-MacBook-Air.local; binary hash
+matches local package: 57b45b7814cd6cd5691d2ea8726724de97335c7c1eab42e6b23a62de9c2a7a16.
+Previous app retained at /Applications/.dunecity-760-CNQ4FW/dunecity-previous.app.
+All 511 checked profile INIs preserved unchanged; saves/preferences not modified.
+No gameplay window launched. Receipts and test logs: ../outputs/combined-760/.
+Claude Max bounded integration review found no blocker; helper cap and crime
+priority exercised by their respective regression fixtures.
+
+## 2026-09-22 — Projectile alignment and physical turret intercept (local 759)
+
+Implemented Dynasty 4469449c missile speed/steering, exact 20Hz movement/15Hz
+rotation, integer geometry, arming, scatter and actual-position explosions in
+all three modes. Launcher anti-air fire skips the facing gate, doubles arming to
+0.8s and guides at the live aircraft while retaining its scattered destination.
+Restored turret triple range/visibility exception for ornithopters and close
+cannon fire. Rocket splash affects both layers with quarter-tile falloff; removed
+orni-only full splash. Gas radius/no structure HP damage corrected; house/mod
+deviation chances retained. Trooper damage reduction moved to long-range rockets.
+Palace uses corrected scatter and 17 Death Hand blasts at 200 damage; nuclear
+plant balance remains independent. INI template notes updated; no invented keys.
+
+Intentional deviation: strict Dynasty turret arrival gave 0/64 isolated AA kills.
+Added a 1/8-tile swept relative-motion physical intercept, never a destination
+snap. Final full-game encounters: launcher15/64, turret16/64 kills; same all modes,
+384 encounters total. Mechanics192 cases, original-source trace32,826 exact
+samples in540 standard scenarios (turret-air extension tested separately),
+10,080 exact save/observer continuation frames and old byte migration pass.
+Source reference ASan/UBSan and unit-speed/real aircraft attack-pass probe pass.
+Existing13 CTest targets pass, including carryall, ground continuation, commands
+and menu. All three newly registered projectile CTest probes also pass (16 total).
+Save9845, protocol17. Local759 rebuilt; no push/PR/MBA install. Full results and
+reproduction: docs/projectile-comparison.md; receipts ../outputs/projectile-fix/.
+Claude Max supplied the bounded launcher/air review; Codex integrated and tested.
+
+## 2026-09-22 — Protect crime-service construction from growth starvation
+
+Diagnosed live MBA 1.0.758 session1790068138510777-0 (Alkozeltser4).
+Ordos completed zero police/rocket turrets before elimination. Its planner
+identified useful police sites, but opening infrastructure, extra power and
+idle-yard zoning preempted the winning service. At cycle28748,515 credits
+became a300-credit windtrap despite a500-credit police candidate (foundations
+also cost money). Crime250 later spawned45 hostile units at cycle36114.
+Neutral's first40-unit unrest preceded its first rocket turret (37596 vs55944).
+
+QuantBot now preserves a winning crime-prevention investment against dedicated
+city growth and the idle-zone fallback, and executes/reserves it before optional
+power headroom, nuclear growth, opening tech and civic expansion. Actual blackout
+recovery remains first. This handles police and eligible rocket turrets through
+the existing service scorer; it does not remove turret tech requirements.
+
+Real-engine shared-spending probe passes at DuneCity level9: single/multiple-yard
+savings, later funded police orders with rocket tech unavailable, explicit rocket
+orders, peaceful growth, parallel production, blackout and placement controls.
+Unit CTest and dependency audit pass. Receipts: /tmp/dunecity-ai-defense/verified.log,
+verified/run.log and ctest-final.log. Claude subscription diagnosis exhausted its
+bounded run and focused retry without a final report; Codex completed diagnosis,
+implementation and verification from source and live telemetry.
+
+Local source fix only, no push, install or release. Running MBA758 is unchanged.
+Before distributing, bump app version and network compatibility for changed
+lockstep AI decisions; no save-layout changes were introduced.
+
+## 2026-09-22 — Projectile comparison (audit only, app remains758)
+
+Compared standard rocket/missile types against Dynasty4469449c. Current launcher/
+gas18.75tiles/s vs15, turret18.75vs11.25, MiniRocket22.5vs13.75, DeathHand31.25vs18.75.
+Current homing395.508deg/s vs Dynasty168.75 launcher/gas,675turret,421.875mini;
+current mini/deathhand do not steer. Arming counters/air tracking and impact
+coordinates differ; turret60/120cycle constructor override becomes0.96/1.92s
+forced expiry, not Dynasty3/6s steering/arming counter. Dynasty does not have a
+universal timeout explosion. Rocket scatter is~4x too small in current world units.
+
+Controlled actual-code tests reproduced a turret missile snapping an explosion
+onto an ornithopter8tiles away (25HP killed in16ms); Dynasty inflicted0. Our
+orni-only full splash damage also differs:8damage at0.375tile vs4Dynasty, but
+current0 at0.625tile vs2Dynasty. Gas effect radius and close turret AA handling
+also differ. See docs/projectile-comparison.md for complete rules and boundaries.
+
+171 current cases across3modes identical;48 original-source reference cases pass
+ASan/UBSan. Fixtures measure projectile mechanics, not natural combat hit rates;
+scatter is fixed in trajectory tests. Repro scripts committed; artifacts under
+../outputs/projectile-audit/. No gameplay changes, push, release or installation.
+Claude Max static-table audit followed by Codex runtime investigation/testing.
+## 2026-09-22 — Restore missing shared-helper population ceiling on758
+
+Fresh ai-audit.dls from the running MBA758 game has Fremen238440 population,
+Neutral120000 and Rebels118840. Detailed telemetry had reached its capture
+limit at19:22, so current statistics were recovered from the19:35 save using
+matching758 source and its pinned mod, without advancing simulation cycles.
+Full per-unit statistics: ../outputs/live-game-20260922/report.md.
+
+The758 branch omitted the earlier fbbc3ce1 fix: getCityPopulationLimit returned
+zero for every human-shared or support-mode QuantBot. Ported only its population
+policy, comments and regression probe; preserved758 version/network metadata.
+Shared helpers now apply their difficulty ceiling to their own construction;
+human commands and natural shared-city growth remain unrestricted. Campaign
+and unlimited difficulties preserve existing policy. Existing orders may finish.
+
+Expanded actual build/growth tests to Hard as well as Easy/Medium. CTest unit
+suite and quantbot_custom_attack pass; the latter checks helper refusal, actual
+human orders and natural growth, with Brutal positive control. A separate load
+of Stefan's actual save confirms the Hard Fremen helper reports120000 and adds
+no population-bearing orders at238440. Receipts: /tmp/dunecity-live-audit/
+cap-ctest.log and fixed-save-test.log (SAVED_FREMEN_CAP_PASS).
+
+Source fix only on fix/helper-population-cap-758; no publish/install. Include
+this change alongside the other pending fixes before the next release, bumping
+app/network compatibility for changed lockstep AI decisions. Never copy754's
+old version/protocol metadata over the newer758 branch.
+
+## 2026-09-22 — Ground route timing aligned (local 758)
+
+Completed issue67 follow-up: standard ground routes use Dynasty's15/60-second
+script retry cadence, movement-before-routing order, reset accumulator/arrival
+and diagonal-table timing, and exact heading completion on4/60-second rotation
+ticks. Positions interpolate smoothly, retaining infantry slots and rock wobble.
+Custom INI caps and city roads scale movement; nominal INI numbers remain correct.
+Zero-speed units do not reserve tiles. Mod-only units and flight handling retained.
+Source defaults document the new timing. Save9844 persists phase/deadlines/start/
+endpoint; old saves finish the current Legacy step. Protocol16 gates new behavior.
+
+Original Dynasty4469449c core plus UNIT.EMC reference:15,600 scenarios under
+ASan/UBSan, repeated for produced/scenario units identically. Production game
+loops run32,500 routes per mode (97,500 total), identical Vanilla/DuneCity/Dune2R.
+260 groups:8/16tile sand; diagonals; rock/dunes/spice/slabs/mountain foot units;
+damage; loaded harvesters;90degree starts; two-leg corner orders. Worst mean
+error0.593%, within2% acceptance. Details: docs/unit-route-comparison.md.
+
+CTest unit suite, menu, command, carryall and unit-speed probes pass. New route
+continuation probe checks4,320 exact post-save/observer frames, custom caps/roads,
+zero-speed occupancy and replacement commands. Reused command-probe profile had
+a stale Workshop selection after default-template refresh; fresh isolated profile
+passed. No user-profile reset. Full receipts: ../outputs/route-speed-alignment/.
+
+Built758; dependency/version audits and portable packaged runtime pass. Installed
+on MBA at /Applications/dunecity.app; all18 speed/turn INI values verified locally
+and remotely, with Dune2R inheriting shared rules. Saved game-speed preferences
+are unchanged (Vanilla4ms, city18ms, Dune2R16ms); compare at equal game speed.
+Prior757 preserved at /Applications/.dunecity-758-4ove7wuf/dunecity-previous.app.
+No push, PR or public release.
+
+Claude Max review completed after fixing the worker invocation: --project expects
+canonical slug dunecity, not checkout path. Memory service was healthy. Launcher
+now validates the slug and distinguishes invalid requests from connection failure
+(hermes-orchestration commit9ce8319). Claude flagged the zero-speed reservation
+edge, which was fixed and regression-tested. Other conditional concerns were
+checked against current caps, initialized save fields and complete observer loads.
+
+## 2026-09-22 — Full-route timing comparison (no app change)
+
+Compared757 ground travel with Dynasty4469449c using unmodified production
+movement/map/pathfinder/script VM plus real UNIT.EMC from installed DUNE.PAK.
+Headless UI/audio/network stubs; source-built ASan/UBSan reference passes and
+reproduces initial CSV. All3360 Dynasty routes repeated with scenario=false
+(produced units) identically. DuneCity's full updateGameState runs280 routes per
+mode (Vanilla/Dune City/Dune2R), identical acrossmodes. Eight/sixteen flat-sand
+tiles, aligned/90degree start, phase sweeps. Most straight routes differ1–4%;
+Raider Trike and launcher-family take11–12% longer; Soldier/Saboteur arrive7–11%
+sooner. Initial90degree tank penalty0.80s vs1.25s Dynasty because Legacy starts
+movement on rounded heading plus different scheduling. Nominal speeds match,
+complete travel times do not. No gameplay/config/preference changes in this turn.
+
+Repro: tests/units/compare-dynasty-routes.py --dynasty-dir ../dunedynasty
+--output-dir ../outputs/route-speed-comparison/repro. Data not committed.
+Results: docs/unit-route-comparison.md, ../outputs/route-speed-comparison/.
+Claude compiled initial reference objects but both bounded runs exhausted turns;
+Codex finished harness/stubs and independently verified/reproduced timings.
+Air saved speed preferences: Vanilla4ms, Dune City18ms, Dune2R defaults16ms;
+normal-speed comparison uses16ms. User preferences left unchanged.
+
+## 2026-09-22 — All standard unit movement aligned (local757)
+
+Follow-up to carryall issue67 audits17 other standard mobile types against
+Dynasty4469449c. Shared ObjectData now converts quantized normal-speed cruise/
+concrete caps and nominal rotation correctly. Ground movement applies entered-
+terrain throttle, <half-health reduction and harvester0–100 load before Dynasty
+integer quantization; smooth updates retain the average below16-step cadence.
+Removed the duplicate half-speed damage penalty for these standard units,
+unified infantry slot movement modifiers, and corrected tank/siege turret rates.
+Custom caps scale the rates; city roads retain4x. Mod-only units retain explicit
+legacy behavior. Existing saves keep caps but use new modifiers. No save fields;
+protocol15 prevents mixing changed simulation with756/protocol14.
+
+Source-extracted Unit_SetSpeed with parsed Dynasty unit/terrain tables runs under
+ASan/UBSan and reproduces committed oracle CSV. Real production-object tests
+measure translation/turning across terrain, damage, load, cardinal/diagonal and
+infantry slots in Vanilla/Dune City/Dune2R; all-house stats, roads, entered terrain
+and custom caps checked. Full headless Game::updateGameState completes14 ground
+unit routes and two damaging ornithopter attack passes per mode. Cross-mode CSVs
+are identical. CTest unit suite, command/menu/carryall probes and unit-speed probe
+pass; version/dependency audits pass. Initial failures were stale protocol test
+expectation and diagnostic setup/handwritten expectation errors, since corrected.
+
+Installed757 on Stefans-MacBook-Air.local at /Applications/dunecity.app; archive
+SHA256 verified and bundled runtime/hidden rendering passed at final path.
+Prior756 backed up at /Applications/.dunecity-757-g5jiz5bo/dunecity-previous.app.
+
+Details and reproduction: docs/unit-speeds.md. Receipts ../outputs/unit-speed-audit/.
+This is nominal-rate alignment, not a port of Dynasty's pathfinder/VM/heading
+rounding. Flight combat/Frigate approach remain existing engine behavior; Infantry/
+Troopers squad map entries still expand into individual units. No push/release.
+
+## 2026-09-22 — Dynasty carryall turning and approach (local 756)
+
+Follow-up to issue67: live production-object baseline confirmed the inherited
+2-tile snap added16 world units/axis/update on top of forward flight, defeating
+the speed cap. An aligned pickup from1.5 tiles took0.080s. Removed double
+movement; applied Dynasty's distance/heading throttle, half-tile final docking
+at0.25 tile/s/axis, and arrival-distance-based cargo deployment. TurnSpeed0.09
+matches253.125deg/s (previous0.099 was278.4375). The same pickup now takes2.208s.
+Turning/docking use our smooth fixed-point updates, not Dynasty's discrete VM.
+Shared caps cover Vanilla/Dune City/Dune2R; custom caps are respected.
+
+Tested real Carryall objects across40 pickup/delivery cases per mode, moving
+and cancelled/disappeared targets, and repair-yard delivery/collection/return.
+All three modes produce identical seeded trajectories. CTest unit suite,
+command regressions, menu probe and new carryall_flight_probe pass. Source-
+extracted Dynasty functions independently checked and executed with ASan/UBSan.
+Upgrade testing exposed stale Workshop-materialized Dune2R ObjectData; managed
+refresh now catches it, with an explicit regression in the menu probe.
+
+Built1.0.756 locally at build/bin/dunecity.app; version/dependency audits pass.
+Network14 prevents joining older simulation rules; no save fields added.
+Saved ObjectData caps remain saved, while new approach code applies on load.
+No push/release. Details: docs/carryall-speed.md; receipts:
+../outputs/carryall-handling-67/ and build/carryall-flight-probe/.
+
+## 2026-09-22 — Carryall cruise speed aligned with Dynasty (local 755)
+
+Issue67 reported overly fast carryalls in Dune2R1.0.737. Pulled
+gameflorist/dunedynasty at4469449c and traced its normal-speed movement:
+192 position units every3 ticks at60Hz /256 units per tile =15 nominal tiles/s.
+The old shared carryall cap was18.75 tiles/s because its conversion multiplied
+Dynasty pixels by5 instead of the actual4x tile scale. Changed MaxSpeed19.2
+to15.36 in the shared ObjectData template. Dune City, Vanilla and Dune2R all
+load this value; Tornie's independent override remains outside this request.
+
+App1.0.755 built locally in dunecity-carryall-audit/build/bin/dunecity.app.
+Version consistency and post-build Ninja dependency audit pass. CTest
+dunelegacy_tests and menu_navigation_probe pass; the latter loads real installed
+data for all three modes and every house at640/854/1280. No push or release.
+Existing saves retain serialized unit data. Approach/turning logic and automatic
+repair behavior are unchanged; see docs/carryall-speed.md for source derivation
+and the separate repair-loop finding. Receipts: ../outputs/carryall-speed-67/.
+
 ## 2026-09-21 — Public753 release preparation and bundled-mod lobby repair
 
 User authorized public installers/browser deployment; bumped app752->753 so Air

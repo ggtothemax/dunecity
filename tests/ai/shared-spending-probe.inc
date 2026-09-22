@@ -138,6 +138,7 @@ void runSharedSpendingProbe(Game& game) {
                 occupancy.push_back({structure,structure->getCityOccupancy()});
                 structure->setCityOccupancy(1);
             }
+            setCrime(0);
             // The reported 100k opening must grow production before reaching
             // its six-yard target, while its dedicated yard still zones.
             reset(100000,0);structureList.push_back(secondYard);
@@ -172,21 +173,43 @@ void runSharedSpendingProbe(Game& game) {
             setCrime(250);
             reset(2000,0);structureList.push_back(secondYard);
             bot->build(10000);
-            require(hasZone(yard),"Services stole the dedicated city growth queue");
-            require(count(secondYard,Structure_PoliceStation)>0 || count(secondYard,Structure_RocketTurret)>0,
-                "Dedicated city growth stopped independent crime protection");
+            auto hasProtection=[&](BuilderBase* builder) {
+                return count(builder,Structure_PoliceStation)>0 || count(builder,Structure_RocketTurret)>0;
+            };
+            require(hasProtection(yard) || hasProtection(secondYard),
+                "Dangerous crime lost its funded protection slot to growth");
 
             reset(2000,0);structureList.push_back(secondYard);
             secondYard->doProduceItem(Structure_ZoneCommercial);
             bot->build(10000);
-            require(hasZone(yard),"Another yard's zoning diverted the dedicated queue into services");
+            require(hasProtection(yard),"Busy growth yard prevented the idle yard from ordering protection");
 
             // One lot is already underway. The remaining yard cannot afford a
-            // service, but its last 100 credits can buy another plot immediately.
+            // service. Preserve savings instead of spending them on another plot.
             reset(200,0);structureList.push_back(secondYard);
             yard->doProduceItem(Structure_ZoneResidential);
             bot->build(10000);
-            require(hasZone(secondYard),"Idle yard saved for services instead of spending 100 on demanded R/I/C");
+            require(!hasZone(secondYard),"Idle zoning consumed savings for urgent protection");
+            // More income must eventually fund a real service queue, including
+            // its foundations, rather than start the starvation loop again.
+            house->addCredits(1000);
+            bot->build(10000);
+            require(hasProtection(secondYard),"Saved protection never became a real construction order");
+
+            // The single-yard case must save for police even before rocket
+            // technology exists; once unlocked, turrets must also get a slot.
+            auto& rocketData=game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN];
+            auto& policeData=game.objectData.data[Structure_PoliceStation][HOUSE_HARKONNEN];
+            const bool rocketEnabled=rocketData.enabled, policeEnabled=policeData.enabled;
+            rocketData.enabled=false;yard->updateBuildList();
+            reset(200,0);bot->build(10000);
+            require(!hasZone(yard),"Single-yard growth consumed police savings");
+            house->addCredits(1000);bot->build(10000);
+            require(count(yard,Structure_PoliceStation)>0,"Single yard failed to build funded police");
+            rocketData.enabled=rocketEnabled;policeData.enabled=false;yard->updateBuildList();
+            reset(2000,0);bot->build(10000);
+            require(count(yard,Structure_RocketTurret)>0,"Single yard failed to build funded rocket protection");
+            policeData.enabled=policeEnabled;yard->updateBuildList();
 
             // Actual shortages and invalid demand still prevent zoning.
             reset(99,0);structureList.push_back(secondYard);bot->build(10000);

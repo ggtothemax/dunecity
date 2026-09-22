@@ -57,8 +57,37 @@ int runMenuProbe() {
     effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     {
         auto& mods = ModManager::instance();
+        // Upgrading a Dune2R profile previously captured by Workshop must not
+        // retain its materialized copy of older Vanilla flight rules.
+        {
+            INIFile oldRules(mods.getActiveObjectDataPath());
+            oldRules.setStringValue("Carryall", "MaxSpeed", "19.2");
+            oldRules.setStringValue("Carryall", "TurnSpeed", "0.099");
+            menuRequire(oldRules.saveChangesTo(mods.getModPath("Dune2R")+"/ObjectData.ini"),
+                        "Cannot seed stale inherited Dune2R fixture");
+            menuRequire(mods.dune2rNeedsReseed(), "Stale Dune2R flight rules were not detected");
+            mods.initialize();
+            menuRequire(!mods.dune2rNeedsReseed(), "Dune2R inherited rules did not refresh");
+        }
         for(const auto& name : OnlineModPolicy::approvedMods()) {
             menuRequire(mods.setActiveMod(name), "Approved mod is not installed");
+            if(name == "vanilla" || name == "dunecity" || name == "Dune2R") {
+                // Exercise the installed mod path and real fixed-point loader:
+                // Dune2R inherits Vanilla, while Dune City has a seeded copy.
+                ObjectData units;
+                units.loadFromINIFile(mods.getActiveObjectDataPath(), false);
+                for(int house = 0; house < NUM_HOUSES; ++house) {
+                    const double tilesPerSecond = units.data[Unit_Carryall][house].maxspeed.toDouble()
+                        * (1000.0 / GAMESPEED_DEFAULT) / TILESIZE;
+                    menuRequire(std::abs(tilesPerSecond - 15.0) < 0.0001,
+                                "Bundled carryall cruise speed differs from Dynasty normal speed");
+                    const double degreesPerSecond = units.data[Unit_Carryall][house].turnspeed.toDouble()
+                        * 45 * (1000.0 / GAMESPEED_DEFAULT);
+                    menuRequire(std::abs(degreesPerSecond - 253.125) < 0.0001,
+                                "Bundled carryall turn rate differs from Dynasty normal speed");
+                }
+                SDL_Log("CARRYALL_SPEED_PROBE_PASS: %s = 15 tiles/s", name.c_str());
+            }
             const auto revisions = Workshop::store().list("mod").size();
             const auto token = OnlineModPolicy::fingerprint();
             menuRequire(OnlineModPolicy::approvedName(token) == name, "Approved mod token cannot identify its installed mod");
