@@ -52,15 +52,12 @@ inline bool preferFactoryHarvester(int workers, int target, int armyValue,
     return int64_t(armyValue) >= std::min<int64_t>(armyTarget,
         int64_t(std::max(0,workers))*std::max(0,workerPrice)*(cityOpening && brutal ? 1 : 2));
 }
-// Expand the opening in parallel with the heavy factory when the included
-// worker beats zoning on return per credit. This is not a permanent bay target:
-// after the opening, additional bays require actual fleet throughput pressure.
-// Each opening bay arrives with its own worker, so a rich field earns the
-// parallel bay at any difficulty. Four early bays are bounded by the field,
-// leaving a depleted map with its smaller opening.
+// A profitable refinery may supply the opening fleet even beyond four bays.
+// Remaining spice, worker demand and the return comparison bound expansion;
+// once the opening workforce exists, actual throughput governs extra bays.
 inline bool openingRefineryInvestment(bool brutal, int workers, int target, int refineries) {
     return openingWorkersNeeded(workers,target,brutal)
-        && refineries < std::clamp(target,1,4);
+        && refineries < std::max(0,target);
 }
 inline int demandedCivic(uint8_t blocked, int stadiumCommitted, bool stadiumAvailable,
                          int airportCommitted, bool airportAvailable) {

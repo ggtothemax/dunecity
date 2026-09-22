@@ -113,6 +113,9 @@ void runCityGrowthProbe(Game& game) {
     for(auto* structure:structureList)
         if(structure->getOwner()==house && structure->getItemID()==Structure_RocketTurret)
             structure->setHealth(0);
+    // This city can sustainably fund protection; the separate budget probe
+    // covers a zero-tax city, where an emergency cannot bypass the spending cap.
+    state.taxBaseEighths=2000;
     setCrime(250);
     const Uint32 urgent=decide(150);
     require(!DuneCity::isCityZoneStructure(urgent),

@@ -2653,8 +2653,15 @@ bool QuantBot::selectCityServiceInvestment(const BuilderBase* builder, int money
     const auto& prices = currentGame->objectData.data;
     unsigned available = 0;
     const std::array<Uint32,2> serviceItems{Structure_PoliceStation,Structure_RocketTurret};
+    bool coreReady=true;
+    if (gameMode==GameMode::Custom && !supportMode)
+    for (Uint32 item:{Structure_HeavyFactory,Structure_HighTechFactory,Structure_RepairYard})
+        if (prices[item][house].enabled && prices[item][house].techLevel<=currentGame->techLevel
+            && getHouse()->getNumItems(item)==0) coreReady=false;
+    const bool rocketOpeningReady=coreReady || getHouse()->getNumItems(Structure_RocketTurret)<2;
     for (unsigned i=0;i<serviceItems.size();++i)
-        if ((requiredItem == NONE_ID || requiredItem == serviceItems[i])
+        if ((serviceItems[i]!=Structure_RocketTurret || rocketOpeningReady)
+            && (requiredItem == NONE_ID || requiredItem == serviceItems[i])
             && campaignAvailableToBuild(builder,serviceItems[i]) && money >= prices[serviceItems[i]][house].price)
             available |= 1u << i;
     if (!available || (landValueOnly && !(available & 2))) return false;
@@ -2668,7 +2675,37 @@ bool QuantBot::selectCityServiceInvestment(const BuilderBase* builder, int money
             if (!(available & (1u<<i)) || candidate.site.isInvalid()) continue;
             // Routine coverage belongs to multipurpose turrets. Buy the
             // stronger station when occupied buildings face dangerous crime.
-            if (serviceItems[i]==Structure_PoliceStation && candidate.value.dangerousRelief<32) continue;
+            if (serviceItems[i]==Structure_PoliceStation) {
+                if (candidate.value.dangerousRelief<32) continue;
+                const auto& hs=sim->getHouseState(house);
+                const bool stationCommitted=getHouse()->getNumItems(Structure_PoliceStation)>0
+                    || std::any_of(reservedStructures.begin(),reservedStructures.end(),[](const auto& plan) {
+                        return plan.second.item==Structure_PoliceStation;
+                    });
+                // A lower service budget must not trigger a construction loop
+                // that buys replacement coverage with still more permanent bills.
+                // Grow income before adding another station to an underfunded city.
+                if (gameMode==GameMode::Custom && !supportMode && stationCommitted
+                    && hs.policeFundingPercent<100) continue;
+                const int annualTax=DuneCity::computeAnnualTaxRevenue(hs.taxBaseEighths,sim->getCityTax(),hs.avgLandValue);
+                const int annualPower=getHouse()->isPowerRequired() ? getHouse()->getPowerRequirement()/8 : 0;
+                int committedCost=hs.nominalPoliceCost;
+                for (const auto& plan:reservedStructures)
+                    if (plan.first!=planningBuilder)
+                        committedCost+=DuneCity::getPoliceAnnualCost(plan.second.item).lround();
+                const bool overBudget=gameMode==GameMode::Custom && !supportMode
+                    && committedCost+DuneCity::getPoliceAnnualCost(Structure_PoliceStation).lround()
+                    > CityServiceInvestmentPolicy::policingAllowance(annualTax,annualPower,
+                        CityServiceInvestmentPolicy::policingBudgetPercent(getHouse()->getCredits(),annualTax,annualPower,committedCost));
+                // Prefer cheaper useful relief before accepting another permanent
+                // station bill. Accept an otherwise unaffordable full-strength
+                // station only for danger a turret cannot treat; its actual
+                // funding still remains under the recurring budget limit.
+                const auto& rocket=results[mode][1];
+                const bool rocketTreatsDanger=(available&2) && rocket.site.isValid()
+                    && rocket.value.dangerousRelief>=32;
+                if (overBudget && (!emergency || rocketTreatsDanger)) continue;
+            }
             if (!best || candidate.value.betterThan(best->value)) {
                 best = &candidate;
                 selectedItem = serviceItems[i];
@@ -3430,25 +3467,34 @@ void QuantBot::build(int militaryValue) {
 		}
 	}
 
-    if (citySimEnabled && !supportMode && gameMode == GameMode::Custom
-        && getGameCycleCount()-lastPoliceBudgetReviewCycle >= MILLI2CYCLES(30000)) {
+    if (citySimEnabled && !supportMode && gameMode == GameMode::Custom) {
         lastPoliceBudgetReviewCycle = getGameCycleCount();
         auto* sim = currentGame->getCitySimulation();
         const auto& hs = sim->getHouseState(houseID);
         const int recentLosses = std::count_if(recentStructureLosses.begin(),recentStructureLosses.end(),[&](const auto& loss) {
             return getGameCycleCount()-loss.cycle < MILLI2CYCLES(180000);
         });
-        const bool majorLosses = recentLosses >= std::max(3,int(getHouse()->getNumStructures())/10);
         const int taxIncome = DuneCity::computeAnnualTaxRevenue(ownTaxBaseEighths,sim->getCityTax(),ownAvgLandValue);
         const int powerCost = getHouse()->isPowerRequired() ? getHouse()->getPowerRequirement()/8 : 0;
-        const int funding = QuantBotBuildPolicy::recoveryPoliceFunding(hs.policeFundingPercent,
-            taxIncome,powerCost,hs.nominalPoliceCost,money,majorLosses);
+        // Include queued services, so their completion cannot silently push
+        // recurring costs above the limit between periodic city scans.
+        int committedPoliceMilli=0;
+        for (Uint32 item:{Structure_PoliceStation,Structure_GunTurret,Structure_RocketTurret})
+            committedPoliceMilli+=itemCount[item]*(DuneCity::getPoliceAnnualCost(item)*1000).lround();
+        const int committedPoliceCost=(committedPoliceMilli+999)/1000;
+        const int budgetPercent=CityServiceInvestmentPolicy::policingBudgetPercent(money,taxIncome,powerCost,committedPoliceCost);
+        const int funding=CityServiceInvestmentPolicy::affordablePoliceFunding(taxIncome,powerCost,committedPoliceCost,budgetPercent);
         if (funding != hs.policeFundingPercent) {
-            currentGame->getCommandManager().addCommand(Command(getPlayerID(),CMD_CITY_SET_BUDGET,funding,0,0));
-            traceDecision("city_police_budget",AITelemetry::Record().set("previous",hs.policeFundingPercent)
+            const int previousFunding=hs.policeFundingPercent;
+            // AI updates already run deterministically on every peer, after
+            // this cycle's commands have executed. A same-cycle queued budget
+            // command is never consumed; apply it like other AI economic orders.
+            sim->setPoliceFundingPercent(houseID,funding);
+            traceDecision("city_police_budget",AITelemetry::Record().set("previous",previousFunding)
                 .set("funding",funding).set("tax_income",taxIncome).set("power_cost",powerCost)
                 .set("nominal_cost",hs.nominalPoliceCost).set("cash",money).set("recent_losses",recentLosses)
-                .set("reason",funding < hs.policeFundingPercent ? "post_loss_recovery" : "funding_recovery"));
+                .set("budget_percent",budgetPercent).set("committed_police_cost",committedPoliceCost)
+                .set("reason",funding < hs.policeFundingPercent ? "police_budget_limit" : "police_budget_headroom"));
         }
     }
 
@@ -4710,7 +4756,17 @@ void QuantBot::build(int militaryValue) {
     // which is what stopped city growth. Bound the proactive claim by the
     // emplacements the base's own demand justifies; observed aircraft keep the
     // unbounded shortfall, because that is a present loss rather than a plan.
+    Uint32 missingCoreInfrastructure=NONE_ID;
+    bool coreInfrastructureReady=true;
+    if (citySimEnabled && gameMode==GameMode::Custom && !supportMode)
+    for (Uint32 item:{Structure_HeavyFactory,Structure_HighTechFactory,Structure_RepairYard}) {
+        if (!data[item][houseID].enabled || data[item][houseID].techLevel>currentGame->techLevel) continue;
+        if (getHouse()->getNumItems(item)==0) coreInfrastructureReady=false;
+        if (missingCoreInfrastructure==NONE_ID && itemCount[item]==0) missingCoreInfrastructure=item;
+    }
+    const bool routineRocketsAllowed=coreInfrastructureReady || itemCount[Structure_RocketTurret]<2;
     auto proactiveCoverageShortfall=[&]() {
+        if (!routineRocketsAllowed) return 0;
         if (enemyAircraft>0) return coreCoverageShortfall();
         return itemCount[Structure_RocketTurret]>=RocketTurretPolicy::coverageTurretCap(coverageDemand)
             ? 0 : coreCoverageShortfall();
@@ -4804,6 +4860,7 @@ void QuantBot::build(int militaryValue) {
                     && (enemyAircraft>0 || coreShortfall>0
                         || nonServiceConstructionOrders>=3 || itemCount[Structure_RocketTurret]==0)
                     && (!openingSupplierDue || enemyAircraft>0)
+                    && routineRocketsAllowed
                     && campaignAvailableToBuild(builder,Structure_RocketTurret)
                     && (!turretPowerRequired || getHouse()->getProducedPower()-getHouse()->getPowerRequirement()>=rocketPowerBuffer)) {
                     int uncovered=0;
@@ -6248,6 +6305,7 @@ void QuantBot::build(int militaryValue) {
 								// CRITICAL: Counter enemy ornithopters ASAP (prep prerequisites if needed)
 								if (itemID == NONE_ID && !skipRemainingStructureLogic
 									&& maxEnemyOrnithopters > 0
+                                    && (!citySimEnabled || routineRocketsAllowed)
 									&& itemCount[Structure_RocketTurret] < activeRocketTurretGoal) {
 								bool hasWindtrap = itemCount[Structure_WindTrap] > 0;
 								bool hasRadar = itemCount[Structure_Radar] > 0;
@@ -6361,10 +6419,25 @@ void QuantBot::build(int militaryValue) {
                         }
                     }
                 }
+                // On a rich field, keep compounding a profitable refinery's
+                // included worker beyond four bays before optional construction.
+                // One housing seed and the first two rockets retain their slots.
+                if (itemID==NONE_ID && !skipRemainingStructureLogic && citySimEnabled
+                    && !higherPriorityCapital && itemCount[Structure_RocketTurret]>=2
+                    && openingFleetIncomplete() && itemCount[Structure_ZoneResidential]>0) {
+                    const Uint32 investment=chooseCityEconomy(pBuilder,false);
+                    if (investment==Structure_Refinery) {
+                        itemID=money>=buildingCapitalCost(investment) ? investment : NONE_ID;
+                        structureRule=itemID==NONE_ID ? "save_profitable_spice" : "profitable_spice_expansion";
+                        skipRemainingStructureLogic=true;
+                        serviceSavingHold=itemID==NONE_ID;
+                    }
+                }
                 // Protect the income/rebuild core before optional tech. Walk the
                 // actual mod prerequisites and save their cost, rather than
                 // waiting for enemy aircraft to reveal that the yard is unready.
-                const bool openingWorkerSupplier = openingSupplierDue;
+                const bool completingCore=itemCount[Structure_RocketTurret]>=2 && missingCoreInfrastructure!=NONE_ID;
+                const bool openingWorkerSupplier = openingSupplierDue || completingCore;
                 if (itemID == NONE_ID && !skipRemainingStructureLogic && citySimEnabled
                     && !higherPriorityCapital
                     && ((openingWorkerSupplier && itemCount[Structure_RocketTurret] >= 2)
@@ -6376,11 +6449,13 @@ void QuantBot::build(int militaryValue) {
                     // fill the opening fleet. Starport upgrades otherwise wait
                     // behind cheap lots even on a rich spice field.
                     const bool supplyingWorkers = openingWorkerSupplier && itemCount[Structure_RocketTurret] >= 2;
-                    Uint32 step = supplyingWorkers
+                    Uint32 step = completingCore ? missingCoreInfrastructure : supplyingWorkers
                         ? (itemCount[Structure_Refinery]<4 ? Structure_Refinery
                             : starportMarketAvailable ? Structure_StarPort : Structure_HeavyFactory)
                         : Structure_RocketTurret;
                     if (!supplyingWorkers && !hasPowerBufferForTurret()) step = Structure_WindTrap;
+                    if (completingCore && data[step][houseID].power>
+                        getHouse()->getProducedPower()-getHouse()->getPowerRequirement()) step=Structure_WindTrap;
                     for (int depth=0; depth<Structure_LastID && step!=NONE_ID; ++depth) {
                         if (!data[step][houseID].enabled || data[step][houseID].techLevel>currentGame->techLevel) break;
                         if (step!=Structure_RocketTurret && itemCount[step]>getHouse()->getNumItems(step)) break;
@@ -7106,6 +7181,7 @@ void QuantBot::build(int militaryValue) {
 					&& campaignAvailableToBuild(pBuilder,Structure_RocketTurret)
 					&& money >= data[Structure_RocketTurret][houseID].price
 					&& maxEnemyOrnithopters > 0
+                                    && (!citySimEnabled || routineRocketsAllowed)
 					&& itemCount[Structure_RocketTurret] < activeRocketTurretGoal
 					&& findEffectiveTurretPlaceLocation(Structure_RocketTurret).isValid()) {
 					itemID = Structure_RocketTurret; structureRule = "rocket_defense";
@@ -7449,6 +7525,11 @@ void QuantBot::build(int militaryValue) {
                     .set("rule",structureRule).set("reason","city_growth_power_headroom"));
                 itemID=NONE_ID;
                 skipRemainingStructureLogic=true;
+            }
+            if (citySimEnabled && itemID==Structure_RocketTurret && !routineRocketsAllowed) {
+                itemID=NONE_ID;
+                crimeServiceSite=Coord::Invalid();
+                structureRule="core_infrastructure_before_more_rockets";
             }
 			if (emitStatsLog) logDebug("BUILD-CHOICE: CY=%u item=%u credits=%d skip=%d",
 				pBuilder->getObjectID(), itemID, money, skipRemainingStructureLogic);

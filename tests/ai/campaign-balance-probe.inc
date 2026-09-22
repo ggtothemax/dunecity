@@ -18,6 +18,7 @@
 #include "harvester-safety-probe.inc"
 #include "shared-spending-probe.inc"
 #include "police-placement-probe.inc"
+#include "police-budget-probe.inc"
 #include "city-growth-probe.inc"
 #include "opening-economy-probe.inc"
 #include "army-movement-probe.inc"
@@ -135,6 +136,10 @@ int runCampaignBalanceProbe() {
     }
     if (std::getenv("BALANCE_POLICE_PLACEMENT_PROBE")) {
         runPolicePlacementProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_POLICE_BUDGET_PROBE")) {
+        runPoliceBudgetProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_CITY_GROWTH_PROBE")) {

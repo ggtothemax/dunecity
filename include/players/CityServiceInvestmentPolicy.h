@@ -40,6 +40,18 @@ inline int reliefAboveBand(int crime, int reduction, int threshold) {
 // the buildup starting; relief inside it only answers one already under way.
 constexpr int preOutbreakBand = 159; // One below the 160 approach threshold.
 constexpr int dangerousBand   = 191; // One below Micropolis' 192 dangerous band.
+// Savings or a sustained city surplus unlock the later budget. Cash itself
+// never becomes recurring income in the allowance calculation.
+inline int policingBudgetPercent(int cash, int annualTax, int annualPower, int nominalCost) {
+    return cash>=5000 || annualTax-annualPower-nominalCost>=500 ? 50 : 33;
+}
+inline int policingAllowance(int annualTax, int annualPower, int percent) {
+    return int(int64_t(std::max(0,annualTax-annualPower))*percent/100);
+}
+inline int affordablePoliceFunding(int annualTax, int annualPower, int nominalCost, int percent) {
+    if (nominalCost <= 0) return 100;
+    return std::clamp(int(int64_t(policingAllowance(annualTax,annualPower,percent))*100/nominalCost),0,100);
+}
 // One game-year horizon. Crime is a civic utility weight, not tax income:
 // weighted by actual growth thresholds and severe-crime relief.
 struct Value {

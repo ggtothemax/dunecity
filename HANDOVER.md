@@ -1,3 +1,72 @@
+## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
+
+Follow-up to the live 763 budget complaint. Version 1.0.764, protocol 22;
+save format unchanged. Same branch/worktree. No push, PR or public release.
+Live Alkozeltser 4 telemetry, seed 1952910083, showed policing at 56–70% of
+annual tax for five houses around minute 15, despite only 1–3 stations. The
+Budget police line also includes turret upkeep. User explicitly requested
+33% early / 50% established spending, core factories before extra rockets,
+and continued profitable refinery expansion beyond the four-bay opening.
+
+The AI now caps funded policing (stations, gun and rocket turrets, including
+queued commitments) at 33% of annual tax after power costs. Healthy uncommitted
+cash >=5000 or annual tax surplus after power and nominal policing >=500 permits
+50%. Cash does not count as recurring revenue. Funding can fall to zero when
+there is no sustainable city income; there is no emergency spending bypass.
+Custom AI applies its own funding directly during deterministic house updates.
+The old same-cycle command was added AFTER Game had executed that cycle's
+commands, so intended AI budget changes never affected the actual bill. Tests
+now verify applied state and the real budget charge, not merely queued intent.
+Human/helper and campaign budgets remain under their existing control.
+
+An underfunded existing/pending station blocks further station purchases: a
+funding cut must not cause a loop buying more permanent capacity. At full
+funding, stations still require dangerous-crime relief and prefer a useful
+cheaper turret when full-strength station upkeep exceeds the allowance.
+No change to the game's player-facing police prices or coverage strength.
+
+Custom city AI keeps the first two rockets, then completes Heavy Factory,
+High Tech Factory and Repair Yard (including prerequisites/power) before more
+rockets. Enemy aircraft elsewhere no longer override this core progression.
+Unavailable tech is excluded; completed core infrastructure releases the
+existing difficulty-scaled overlapping coverage policy. R/C/I seeds and
+independent-yard city growth are preserved.
+
+The four-refinery opening eligibility cutoff is removed. A profitable refinery
+and its included worker can keep competing through the opening workforce phase
+(eight on rich Medium/Hard fields, twelve Brutal), subject to remaining spice,
+worker limits, placement, power and expected return. After that phase, workers
+and actual processing pressure still govern capacity; this is not a fixed cap
+on total refineries. Medium had the same old four-refinery threshold as Hard.
+
+Final same-map/seed/roster 24-minute powered-rocket simulations:
+- Medium: all six houses reached 8 refineries; every third rocket followed
+  completion of all three core facilities. Zero crime outbreaks or yard losses.
+  Maximum observed actual policing/tax ratio 44.60%; 904 funding changes, none
+  exceeded the applicable 33%/50% allowance.
+- Hard: all six houses reached 8 refineries; third-rocket ordering also passed.
+  Zero crime outbreaks; maximum observed actual policing/tax ratio 46.34%;
+  1265 funding changes, none exceeded the allowance. Combat/expansion still
+  lost construction yards (11 total); these runs do not establish loss immunity.
+These are bounded single-seed balance checks. Intermediate runs measuring only
+queued budget commands are invalid budget evidence and were superseded.
+
+Claude Max supplied the bounded police-budget fixture after the first read-only
+run exhausted its turn limit. Codex implemented/reviewed production changes,
+corrected fixture assumptions and tested applied charges and underfunded-station
+feedback. Release build, pre/post Ninja dependency audits and all 29 CTest
+targets passed (231.68s), followed by all five affected real-engine tests after
+the final station feedback guard (31.61s). Packaged signature, SDL initialization
+and hidden-window rendering passed. Source version metadata agrees.
+Evidence: ../outputs/ai-police-excess/, especially final-comparison.json.
+
+Final archive: ../outputs/ai-police-excess/install-764/dunecity-1.0.764.zip
+SHA256: 3ec6ffbe0d99cf4bcfe748683285063ce72209569c52caacec1deb81e374c25f
+Binary SHA256: 051e16f5936a25b0afa352e1f8c23c359e86c879d7cd96538d3bce399c6e32b5
+Installation pending: Air became unreachable; user was asked to save/close the
+running 763 game and wake the Air. Do not replace a running game. The final
+packaged app is in install-764/final-stage; earlier stage/archive is intermediate.
+
 ## 2026-09-23 — Restore early city growth and sustain rocket coverage (local 1.0.763)
 
 Follow-up to the user's 762 regression report. Version 1.0.763, protocol 21;

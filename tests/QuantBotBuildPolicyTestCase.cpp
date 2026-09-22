@@ -1,3 +1,4 @@
+#include <players/CityServiceInvestmentPolicy.h>
 #include <players/CombatReward.h>
 #include <misc/OMemoryStream.h>
 #include <misc/IMemoryStream.h>
@@ -1453,7 +1454,9 @@ TEST_CASE("Brutal can choose a profitable third refinery with a worker-capable f
     CHECK(openingRefineryInvestment(true,8,120,2));
     CHECK_FALSE(openingRefineryInvestment(true,12,120,2));
     CHECK(openingRefineryInvestment(false,3,120,3)); // Fourth rich-field bay on Medium too.
-    CHECK_FALSE(openingRefineryInvestment(true,4,120,4)); // No unlimited spare bays.
+    CHECK(openingRefineryInvestment(true,4,120,4)); // Profitable fifth bay can supply the opening fleet.
+    CHECK(openingRefineryInvestment(false,6,120,6));
+    CHECK_FALSE(openingRefineryInvestment(false,8,120,8)); // Worker floor ends opening priority.
     CHECK_FALSE(openingRefineryInvestment(true,2,2,2));
     refinery.projectedProceeds=300;
     CHECK_FALSE(preferRefinery(refinery,zone,true,false)); // Bad/risky trips still lose.
@@ -1616,4 +1619,16 @@ TEST_CASE("Custom attacks commit a strict share of the owned ground army", "[qua
     REQUIRE(customAttack(18850,0,25,reversed)==customAttack(18850,0,25,infantry));
     // The deliberately lenient campaign helper remains separate.
     REQUIRE(limitedAttack(300,0,25,{{7,300,0}})==std::vector<uint32_t>{7});
+}
+
+TEST_CASE("City policing fits early and established recurring budgets", "[ai][city][budget]") {
+    using namespace CityServiceInvestmentPolicy;
+    CHECK(policingBudgetPercent(1000,600,50,300)==33);
+    CHECK(policingBudgetPercent(5000,600,50,300)==50);
+    CHECK(policingBudgetPercent(1000,1000,50,300)==50);
+    CHECK(policingAllowance(600,50,33)==181);
+    CHECK(affordablePoliceFunding(600,50,300,33)==60);
+    CHECK(affordablePoliceFunding(600,50,300,50)==91);
+    CHECK(affordablePoliceFunding(0,50,300,33)==0);
+    CHECK(affordablePoliceFunding(600,50,0,33)==100);
 }

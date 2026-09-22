@@ -76,7 +76,8 @@
 // Version 19: All-difficulty emergency Starport MCV recovery changes AI orders.
 // Version 20: Proactive crime/rocket coverage, opening economy and air defence AI.
 // Version 21: Keep opening city growth alongside routine defence and supplier investment.
-#define NETWORK_PROTOCOL_VERSION            21
+// Version 22: Sustainable policing budgets and core-first spice expansion.
+#define NETWORK_PROTOCOL_VERSION            22
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

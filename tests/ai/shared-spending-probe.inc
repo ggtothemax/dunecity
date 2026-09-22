@@ -114,11 +114,16 @@ void runSharedSpendingProbe(Game& game) {
             reset(price+1000,1000000);
             structureList.push_back(secondYard);
             bot->build(10000);
+            bool parallelZone=false;
             for (auto* builder:{yard,secondYard}) {
-                bool zone=false;
-                for (const auto& order:builder->currentProductionQueue) zone|=DuneCity::isCityZoneStructure(order.itemID);
-                require(zone,"Funded second construction yard failed to grow R/I/C in parallel");
+                bool economy=false;
+                for (const auto& order:builder->currentProductionQueue) {
+                    parallelZone|=DuneCity::isCityZoneStructure(order.itemID);
+                    economy|=DuneCity::isCityZoneStructure(order.itemID) || order.itemID==Structure_Refinery;
+                }
+                require(economy,"Funded parallel yard failed to grow the tax or spice economy");
             }
+            require(parallelZone,"Profitable refinery displaced every dedicated city-growth slot");
             require(count(heavy,Unit_Harvester)==1,"Parallel yards consumed the worker reserve");
 
             const int firstGrowthUpgrade=yard->curUpgradeLev, secondGrowthUpgrade=secondYard->curUpgradeLev;
