@@ -59,6 +59,19 @@ int runMenuProbe() {
         auto& mods = ModManager::instance();
         for(const auto& name : OnlineModPolicy::approvedMods()) {
             menuRequire(mods.setActiveMod(name), "Approved mod is not installed");
+            if(name == "vanilla" || name == "dunecity" || name == "Dune2R") {
+                // Exercise the installed mod path and real fixed-point loader:
+                // Dune2R inherits Vanilla, while Dune City has a seeded copy.
+                ObjectData units;
+                units.loadFromINIFile(mods.getActiveObjectDataPath(), false);
+                for(int house = 0; house < NUM_HOUSES; ++house) {
+                    const double tilesPerSecond = units.data[Unit_Carryall][house].maxspeed.toDouble()
+                        * (1000.0 / GAMESPEED_DEFAULT) / TILESIZE;
+                    menuRequire(std::abs(tilesPerSecond - 15.0) < 0.0001,
+                                "Bundled carryall cruise speed differs from Dynasty normal speed");
+                }
+                SDL_Log("CARRYALL_SPEED_PROBE_PASS: %s = 15 tiles/s", name.c_str());
+            }
             const auto revisions = Workshop::store().list("mod").size();
             const auto token = OnlineModPolicy::fingerprint();
             menuRequire(OnlineModPolicy::approvedName(token) == name, "Approved mod token cannot identify its installed mod");

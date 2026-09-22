@@ -1,3 +1,21 @@
+## 2026-09-22 — Carryall cruise speed aligned with Dynasty (local 755)
+
+Issue67 reported overly fast carryalls in Dune2R1.0.737. Pulled
+gameflorist/dunedynasty at4469449c and traced its normal-speed movement:
+192 position units every3 ticks at60Hz /256 units per tile =15 nominal tiles/s.
+The old shared carryall cap was18.75 tiles/s because its conversion multiplied
+Dynasty pixels by5 instead of the actual4x tile scale. Changed MaxSpeed19.2
+to15.36 in the shared ObjectData template. Dune City, Vanilla and Dune2R all
+load this value; Tornie's independent override remains outside this request.
+
+App1.0.755 built locally in dunecity-carryall-audit/build/bin/dunecity.app.
+Version consistency and post-build Ninja dependency audit pass. CTest
+dunelegacy_tests and menu_navigation_probe pass; the latter loads real installed
+data for all three modes and every house at640/854/1280. No push or release.
+Existing saves retain serialized unit data. Approach/turning logic and automatic
+repair behavior are unchanged; see docs/carryall-speed.md for source derivation
+and the separate repair-loop finding. Receipts: ../outputs/carryall-speed-67/.
+
 ## 2026-09-21 — Public753 release preparation and bundled-mod lobby repair
 
 User authorized public installers/browser deployment; bumped app752->753 so Air
