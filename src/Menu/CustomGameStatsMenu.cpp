@@ -28,139 +28,88 @@
 #include <Game.h>
 #include <House.h>
 #include <sand.h>
+#include <mod/ModManager.h>
+#include <misc/draw_util.h>
+#include <array>
+#include <cmath>
 
 #include <algorithm>
 
 
 CustomGameStatsMenu::CustomGameStatsMenu() : MenuBase()
 {
-    // set up window
-    SDL_Texture *pBackground = pGFXManager->getUIGraphic(UI_MenuBackground);
-    setBackground(pBackground);
-    resize(getTextureSize(pBackground));
-
+    // Restore the original yellow patterned wallpaper used by classic results.
+    auto background = copySurface(pGFXManager->getBackgroundSurface());
+    const Point size(background->w, background->h);
+    setBackground(std::move(background));
+    resize(size);
     setWindowWidget(&windowWidget);
 
-    const int localColorSlot = getHouseVisualHouse(pLocalHouse->getHouseID());
-    Uint32 localHouseColor = getHouseColorRGB(localColorSlot, 3);
-
-    windowWidget.addWidget(&mainVBox, Point(24,23), Point(getRendererWidth() - 48, getRendererHeight() - 32));
-
+    const Uint32 localHouseColor = getHouseColorRGB(getHouseVisualHouse(pLocalHouse->getHouseID()), 3);
+    showTaxStatistics = currentGame->isCitySimEnabled()
+        && ModManager::instance().getContentBase(currentGame->getGameInitSettings().getModName()) == "dunecity";
+    const int columns = showTaxStatistics ? 4 : 3;
+    const int contentWidth = size.x - 48;
+    const int nameWidth = size.x < 800 ? 132 : 150;
+    const int gap = 10;
+    const int metricWidth = (contentWidth - nameWidth - gap * columns) / columns;
+    const int fontSize = size.x < 800 ? 12 : 14;
+    windowWidget.addWidget(&mainVBox, Point(24,23), Point(contentWidth, size.y - 46));
     captionLabel.setText(getBasename(currentGame->getGameInitSettings().getFilename(), true));
     captionLabel.setTextColor(localHouseColor);
     captionLabel.setAlignment(Alignment_HCenter);
     mainVBox.addWidget(&captionLabel, 24);
     mainVBox.addWidget(VSpacer::create(24));
-
     mainVBox.addWidget(Spacer::create(), 0.05);
-
     mainVBox.addWidget(&mainHBox, 0.80);
-
-    mainHBox.addWidget(Spacer::create(), 0.4);
-    mainHBox.addWidget(&playerStatListVBox, 0.2);
-
-    headerHBox.addWidget(&headerLabelDummy, 130);
-    headerHBox.addWidget(Spacer::create(), 10);
-    headerLabel1.setText(_("Built Objects"));
-    headerLabel1.setAlignment(Alignment_HCenter);
-    headerLabel1.setTextColor(localHouseColor);
-    headerHBox.addWidget(&headerLabel1, 132);
-    headerHBox.addWidget(Spacer::create(), 30);
-    headerLabel2.setText(_("Destroyed"));
-    headerLabel2.setAlignment(Alignment_HCenter);
-    headerLabel2.setTextColor(localHouseColor);
-    headerHBox.addWidget(&headerLabel2, 132);
-    headerLabel3.setText(_("Harvested Spice"));
-    headerLabel3.setAlignment(Alignment_HCenter);
-    headerLabel3.setTextColor(localHouseColor);
-    headerHBox.addWidget(Spacer::create(), 30);
-    headerHBox.addWidget(&headerLabel3, 132);
-
-    playerStatListVBox.addWidget(&headerHBox, 25);
-
+    mainHBox.addWidget(&playerStatListVBox, 1.0);
+    headerHBox.addWidget(&headerLabelDummy, nameWidth);
+    const std::array<std::string,4> titles{{_("Built Objects"),_("Destroyed"),_("Harvested Spice"),_("Tax Collected")}};
+    for(int column=0;column<columns;++column) {
+        headerHBox.addWidget(HSpacer::create(gap));
+        headers[column].setText(titles[column]);
+        headers[column].setTextFontSize(fontSize);
+        headers[column].setAlignment(Alignment_HCenter);
+        headers[column].setTextColor(localHouseColor);
+        headerHBox.addWidget(&headers[column],metricWidth);
+    }
+    playerStatListVBox.addWidget(&headerHBox,25);
     playerStatListVBox.addWidget(VSpacer::create(15));
-
-    int maxBuiltValue = 0;
-    int maxDestroyedValue = 0;
-    float maxSpiceHarvested = 0.0;
-
-    for(int i=0;i<NUM_HOUSES;i++) {
-        House* pHouse = currentGame->getHouse(i);
-
-        if(pHouse != nullptr) {
-            maxBuiltValue = std::max(maxBuiltValue, pHouse->getBuiltValue());
-            maxDestroyedValue = std::max(maxDestroyedValue, pHouse->getDestroyedValue());
-            maxSpiceHarvested = std::max(maxSpiceHarvested, pHouse->getHarvestedSpice().toFloat());
-        }
+    auto values=[](const House* house) {
+        return std::array<double,4>{{double(house->getBuiltValue()),double(house->getDestroyedValue())*100,
+            house->getHarvestedSpice().toDouble(),house->getCityTaxReceipts().toDouble()}};
+    };
+    std::array<double,4> maxima{};
+    for(int i=0;i<NUM_HOUSES;++i) if(const auto* house=currentGame->getHouse(i)) {
+        const auto totals=values(house);
+        for(int column=0;column<columns;++column) maxima[column]=std::max(maxima[column],totals[column]);
     }
-
-    for(int i=0;i<NUM_HOUSES;i++) {
-        HouseStat& curHouseStat = houseStat[i];
-        House* pHouse = currentGame->getHouse(i);
-
-        if(pHouse != nullptr) {
-            const int visualColorSlot = getHouseVisualHouse(i);
-            Uint32 textcolor = getHouseColorRGB(visualColorSlot, 3);
-            Uint32 progresscolor = getHouseColorRGB(visualColorSlot, 1);
-
-            curHouseStat.houseName.setText(_("House") + " " + getHouseNameByNumber((HOUSETYPE) i));
-            curHouseStat.houseName.setTextColor(textcolor);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.houseName, 145);
-            curHouseStat.houseHBox.addWidget(Spacer::create(), 5);
-
-            curHouseStat.value1.setText( std::to_string(pHouse->getBuiltValue()));
-            curHouseStat.value1.setTextFontSize(12);
-            curHouseStat.value1.setAlignment(Alignment_Right);
-            curHouseStat.value1.setTextColor(textcolor);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.value1, 50);
-            curHouseStat.houseHBox.addWidget(HSpacer::create(2));
-            curHouseStat.progressBar1.setProgress( (maxBuiltValue == 0) ? 0.0f : (pHouse->getBuiltValue() * 100.0f / maxBuiltValue));
-            curHouseStat.progressBar1.setDrawShadow(true);
-            curHouseStat.progressBar1.setColor(progresscolor);
-            curHouseStat.vBox1.addWidget(Spacer::create(), 0.5);
-            curHouseStat.vBox1.addWidget(&curHouseStat.progressBar1, 12);
-            curHouseStat.vBox1.addWidget(Spacer::create(), 0.5);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.vBox1, 80);
-
-            curHouseStat.houseHBox.addWidget(Spacer::create(), 25);
-
-            curHouseStat.value2.setText( std::to_string(pHouse->getDestroyedValue()*100));
-            curHouseStat.value2.setTextFontSize(12);
-            curHouseStat.value2.setAlignment(Alignment_Right);
-            curHouseStat.value2.setTextColor(textcolor);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.value2, 50);
-            curHouseStat.houseHBox.addWidget(HSpacer::create(2));
-            curHouseStat.progressBar2.setProgress( (maxDestroyedValue == 0) ? 0.0f : (pHouse->getDestroyedValue() * 100.0f / maxDestroyedValue));
-            curHouseStat.progressBar2.setDrawShadow(true);
-            curHouseStat.progressBar2.setColor(progresscolor);
-            curHouseStat.vBox2.addWidget(Spacer::create(), 0.5);
-            curHouseStat.vBox2.addWidget(&curHouseStat.progressBar2, 12);
-            curHouseStat.vBox2.addWidget(Spacer::create(), 0.5);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.vBox2, 80);
-
-            curHouseStat.houseHBox.addWidget(Spacer::create(), 25);
-
-            curHouseStat.value3.setText( std::to_string(lround(pHouse->getHarvestedSpice())));
-            curHouseStat.value3.setTextFontSize(12);
-            curHouseStat.value3.setAlignment(Alignment_Right);
-            curHouseStat.value3.setTextColor(textcolor);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.value3, 50);
-            curHouseStat.houseHBox.addWidget(HSpacer::create(2));
-            curHouseStat.progressBar3.setProgress( (maxSpiceHarvested == 0.0f) ? 0.0f : (pHouse->getHarvestedSpice().toFloat() * 100.0f / maxSpiceHarvested));
-            curHouseStat.progressBar3.setDrawShadow(true);
-            curHouseStat.progressBar3.setColor(progresscolor);
-            curHouseStat.vBox3.addWidget(Spacer::create(), 0.5);
-            curHouseStat.vBox3.addWidget(&curHouseStat.progressBar3, 12);
-            curHouseStat.vBox3.addWidget(Spacer::create(), 0.5);
-            curHouseStat.houseHBox.addWidget(&curHouseStat.vBox3, 80);
-
-            playerStatListVBox.addWidget(&curHouseStat.houseHBox, 20);
-
-            playerStatListVBox.addWidget(VSpacer::create(15));
+    for(int i=0;i<NUM_HOUSES;++i) if(const auto* house=currentGame->getHouse(i)) {
+        auto& row=houseStat[i];
+        const auto totals=values(house);
+        const int visualColor=getHouseVisualHouse(i);
+        const Uint32 textColor=getHouseColorRGB(visualColor,3);
+        row.houseName.setText(_("House")+" "+getHouseNameByNumber(static_cast<HOUSETYPE>(i)));
+        row.houseName.setTextFontSize(fontSize);
+        row.houseName.setTextColor(textColor);
+        row.houseHBox.addWidget(&row.houseName,nameWidth);
+        for(int column=0;column<columns;++column) {
+            row.houseHBox.addWidget(HSpacer::create(gap));
+            row.values[column].setText(std::to_string(std::llround(totals[column])));
+            row.values[column].setTextFontSize(12);
+            row.values[column].setAlignment(Alignment_Right);
+            row.values[column].setTextColor(textColor);
+            row.progressBars[column].setProgress(maxima[column]>0 ? totals[column]*100/maxima[column] : 0);
+            row.progressBars[column].setDrawShadow(true);
+            row.progressBars[column].setColor(getHouseColorRGB(visualColor,1));
+            // Stacking keeps long totals legible even with four columns at 640px.
+            row.metricBoxes[column].addWidget(&row.values[column],16);
+            row.metricBoxes[column].addWidget(&row.progressBars[column],8);
+            row.houseHBox.addWidget(&row.metricBoxes[column],metricWidth);
         }
+        playerStatListVBox.addWidget(&row.houseHBox,26);
+        playerStatListVBox.addWidget(VSpacer::create(10));
     }
-
-    mainHBox.addWidget(Spacer::create(), 0.4);
 
     mainVBox.addWidget(Spacer::create(), 0.05);
 

@@ -72,6 +72,13 @@ void runSharedSpendingProbe(Game& game) {
             [&](const auto& order){return order.itemID==item;});
     };
     const int price=game.objectData.data[Unit_Harvester][HOUSE_HARKONNEN].price;
+    const bool originalRocketEnabled=game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].enabled;
+    // Isolate generic parallel spending from the new proactive core defence.
+    // Dedicated coverage/crime cases below restore the normal turret rules.
+    if(game.isCitySimEnabled()) {
+        game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].enabled=false;
+        yard->updateBuildList();secondYard->updateBuildList();
+    }
     try {
         reset(price,1000000);bot->build(10000);
         require(count(heavy,Unit_Harvester)==1,"Next worthwhile worker lost its exact purchase budget");
@@ -170,6 +177,10 @@ void runSharedSpendingProbe(Game& game) {
                 "Funded city expansion waited for the opening harvester target");
             heavy->curUpgradeLev=heavyUpgrade;heavy->updateBuildList();
             bot->militaryValueLimit=20000;
+            game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].enabled=originalRocketEnabled;
+            for(auto* builder:{yard,secondYard}) {
+                builder->curUpgradeLev=builder->getMaxUpgradeLevel();builder->updateBuildList();
+            }
             setCrime(250);
             reset(2000,0);structureList.push_back(secondYard);
             bot->build(10000);

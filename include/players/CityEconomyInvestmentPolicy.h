@@ -29,8 +29,17 @@ inline int factoryHarvesterTarget(int sustainableWorkers, int mapLimit) {
 }
 // A small opening fleet must compound before optional technology. This is a
 // priority floor bounded by remaining spice/map capacity, never a worker cap.
+// A flat four workers under-invests on a spice-rich map whose sustainable
+// target is far larger, so the floor follows half the field's own target
+// between the established four/eight minimum and a bounded eight/twelve
+// ceiling. Depleted fields keep their smaller opening unchanged.
+inline int openingWorkerFloor(int target, bool brutal) {
+    const int minimum = brutal ? 8 : 4;
+    return std::min(std::clamp(std::max(0,target)/2, minimum, brutal ? 12 : 8),
+                    std::max(0,target));
+}
 inline bool openingWorkersNeeded(int workers, int target, bool brutal = false) {
-    return workers < std::min(brutal ? 8 : 4, std::max(0,target));
+    return workers < openingWorkerFloor(target,brutal);
 }
 // This is production priority, not a worker cap. While the army is short,
 // keep twice the harvester capital in military strength (equal capital on
@@ -46,8 +55,11 @@ inline bool preferFactoryHarvester(int workers, int target, int armyValue,
 // Expand the opening in parallel with the heavy factory when the included
 // worker beats zoning on return per credit. This is not a permanent bay target:
 // after the opening, additional bays require actual fleet throughput pressure.
+// Each opening bay arrives with its own worker, so a rich field earns the
+// parallel bay at any difficulty; openingSpiceRefineries still bounds it by
+// the field, leaving a depleted map with its single opening bay.
 inline bool openingRefineryInvestment(bool brutal, int workers, int target, int refineries) {
-    return brutal && openingWorkersNeeded(workers,target,true)
+    return openingWorkersNeeded(workers,target,brutal)
         && refineries < QuantBotBuildPolicy::openingSpiceRefineries(target);
 }
 inline int demandedCivic(uint8_t blocked, int stadiumCommitted, bool stadiumAvailable,

@@ -1,5 +1,6 @@
 // Real results-screen regression, included only by the diagnostic main.
 #include <Menu/CampaignStatsMenu.h>
+#include <Menu/CustomGameStatsMenu.h>
 #include <units/Harvester.h>
 #include <FileClasses/LoadSavePNG.h>
 #include <misc/draw_util.h>
@@ -156,6 +157,34 @@ void runCampaignStatsProbe(Game& game, int level) {
             throw std::runtime_error("Results screen lost the classic stats panel background");
     }
     SDL_SetRenderTarget(renderer,nullptr);
+    // The custom debriefing reports gross receipts independently for all houses.
+    for(int h=0;h<6;++h) if(!game.house[h])
+        game.house[h]=std::make_unique<House>(static_cast<HOUSETYPE>(h),0,0,0,h+1,0);
+    local->addCityTaxReceipts(1000000); // Long values must fit the compact layout.
+    auto originalBackground=std::move(pGFXManager->pBackgroundSurface);
+    for(const Point dimensions : {Point(640,480),Point(854,480),Point(1280,720)}) {
+        pGFXManager->pBackgroundSurface.reset(SDL_CreateRGBSurfaceWithFormat(0,dimensions.x,dimensions.y,32,SCREEN_FORMAT));
+        SDL_BlitScaled(originalBackground.get(),nullptr,pGFXManager->pBackgroundSurface.get(),nullptr);
+        CustomGameStatsMenu custom;
+        if(custom.showTaxStatistics!=duneCity || (duneCity &&
+           (custom.houseStat[HOUSE_HARKONNEN].values[3].getText()!="1001235"
+            || custom.houseStat[HOUSE_ATREIDES].values[3].getText()!="700")))
+            throw std::runtime_error("Custom results tax totals or mod gating incorrect");
+        if(custom.playerStatListVBox.getMinimumSize().x>dimensions.x-48)
+            throw std::runtime_error("Custom results columns overflow the viewport");
+        sdl2::texture_ptr customTarget(SDL_CreateTexture(renderer,SDL_PIXELFORMAT_RGBA8888,
+            SDL_TEXTUREACCESS_TARGET,dimensions.x,dimensions.y));
+        if(!customTarget || SDL_SetRenderTarget(renderer,customTarget.get())!=0)
+            throw std::runtime_error("Custom results render target failed");
+        SDL_RenderSetLogicalSize(renderer,dimensions.x,dimensions.y);
+        custom.draw();
+        auto customImage=renderReadSurface(renderer);
+        const auto path="custom-stats-"+std::to_string(dimensions.x)+".png";
+        if(SavePNG(customImage.get(),path.c_str())!=0)
+            throw std::runtime_error("Custom stats screenshot failed");
+        SDL_SetRenderTarget(renderer,nullptr);
+    }
+    pGFXManager->pBackgroundSurface=std::move(originalBackground);
     SDL_Log("CAMPAIGN_STATS_PROBE_PASS: AI partner retains human score/rank, harvest cargo, kills and buildings; allies and human opponents classified by team");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: probe=stats outcome=passed");
 }

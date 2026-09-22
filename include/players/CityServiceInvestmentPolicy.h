@@ -30,21 +30,43 @@ inline int parkContribution(int item, int cx, int cy, int px, int py, int blockS
                 std::max(std::abs(cx-x),std::abs(cy-y)),DuneCity::getParkLandValueRadius(item)+1);
     return value;
 }
+// Relief measured against a band threshold: the part of the crime reduction
+// that actually leaves the band, not the whole reduction.
+inline int reliefAboveBand(int crime, int reduction, int threshold) {
+    return std::max(0, crime - threshold) - std::max(0, crime - reduction - threshold);
+}
+// Rebels gather in the 192+ "Dangerous" band over six minutes before the
+// outbreak spawns. Relief in the approach band is the investment that stops
+// the buildup starting; relief inside it only answers one already under way.
+constexpr int preOutbreakBand = 159; // One below the 160 approach threshold.
+constexpr int dangerousBand   = 191; // One below Micropolis' 192 dangerous band.
 // One game-year horizon. Crime is a civic utility weight, not tax income:
 // weighted by actual growth thresholds and severe-crime relief.
 struct Value {
     int crime = 0, tax = 0, growthTax = 0, defense = 0;
     int buildCost = 0, upkeep = 0, powerCost = 0, overlapPenalty = 0;
     int neighbourhoodTax = 0; // R/C share of tax gain; preference, not extra income.
-    int crimeUtility = 0, dangerousRelief = 0;
+    int crimeUtility = 0, dangerousRelief = 0, preOutbreakRelief = 0;
     int cost() const { return std::max(1, buildCost + upkeep + powerCost + overlapPenalty); }
     int64_t benefit() const { return int64_t(crimeUtility) + tax + growthTax + defense; }
     bool repaysThroughLandValue() const { return int64_t(tax) + growthTax > cost(); }
     bool landValueTurretEligible() const {
         return crime > 0 && neighbourhoodTax > 0 && repaysThroughLandValue();
     }
+    // A reserved service order exists to buy relief the tax return alone does
+    // not justify. Accept the cheaper pre-outbreak relief too, at a higher bar,
+    // so districts are treated on the way up instead of after the spawn.
     bool useful(bool emergency) const {
-        return crime > 0 && (benefit() > cost() || (emergency && dangerousRelief >= 32));
+        return crime > 0 && (benefit() > cost()
+            || (emergency && (dangerousRelief >= 32 || preOutbreakRelief >= 64)));
+    }
+    bool betterPoliceSiteThan(const Value& other) const {
+        // A police station's location maximizes actual crime removed from
+        // occupied buildings. Marginal coverage already discounts overlap;
+        // a separate spacing or tax preference must not send it to the fringe.
+        if (crime != other.crime) return crime > other.crime;
+        if (dangerousRelief != other.dangerousRelief) return dangerousRelief > other.dangerousRelief;
+        return betterThan(other);
     }
     bool betterThan(const Value& other) const {
         // Modest placement preference for improving homes and businesses.

@@ -12,10 +12,12 @@ inline bool antiAir(int item) {
         || item == Unit_EliteLauncher || item == Unit_Deviator;
 }
 
-// Offensive sorties prefer exposed structures. Ground units are intercepted only
-// when threatening the base or harvesters, never hunted across the map.
+// Home and harvester defence preempts raids on exposed enemy structures.
+// Unrelated ground units are never hunted across the map.
+constexpr int RaidRank = 1;
+constexpr int DefenseRank = 2;
 inline int targetRank(bool structure, bool defensiveContact) {
-    return structure ? 2 : defensiveContact ? 1 : 0;
+    return defensiveContact ? DefenseRank : structure ? RaidRank : 0;
 }
 inline int safetyRange(int weaponRange) { return weaponRange + 5; }
 

@@ -135,11 +135,18 @@ TEST_CASE("City opening grows beyond two workers before optional tech", "[quantb
         CHECK(preferFactoryHarvester(2,120,army,80000,300,true,true));
         CHECK(preferFactoryHarvester(3,120,army,80000,300,true,true));
     }
-    // Already queued workers count: do not duplicate the fourth from another factory.
-    CHECK_FALSE(openingWorkersNeeded(4,120));
-    CHECK_FALSE(preferFactoryHarvester(4,120,300,80000,300,true,true));
-    CHECK(preferFactoryHarvester(4,120,2400,80000,300,true,true));
+    // A spice-rich field funds a larger opening fleet before optional tech.
+    CHECK(openingWorkersNeeded(4,120));
+    CHECK(preferFactoryHarvester(4,120,300,80000,300,true,true));
+    // Already queued workers count at the floor: do not duplicate from another factory.
+    CHECK_FALSE(openingWorkersNeeded(8,120));
+    CHECK_FALSE(preferFactoryHarvester(8,120,300,80000,300,true,true));
+    CHECK(preferFactoryHarvester(8,120,4800,80000,300,true,true));
     CHECK(preferFactoryHarvester(60,120,80000,80000,300,true,true));
+    // A modest field keeps the established four-worker opening.
+    CHECK(openingWorkersNeeded(3,8));
+    CHECK_FALSE(openingWorkersNeeded(4,8));
+    CHECK_FALSE(preferFactoryHarvester(4,8,300,80000,300,true,true));
     // Lower map/spice targets remain authoritative, including exhausted fields.
     CHECK_FALSE(openingWorkersNeeded(2,2));
     CHECK_FALSE(openingWorkersNeeded(0,0));
@@ -1403,19 +1410,29 @@ TEST_CASE("Air coverage uses combat diagonal distance and clears with removed de
         CHECK_FALSE(AirStrikePolicy::antiAir(item));
 }
 
-TEST_CASE("Brutal compounds an eight-worker opening while lower difficulties keep four", "[quantbot][city]") {
+TEST_CASE("Opening fleet follows the field size and keeps the Brutal premium", "[quantbot][city]") {
     using namespace CityEconomyInvestmentPolicy;
+    // A rich field (target 120) doubles both openings: twelve Brutal, eight otherwise.
+    CHECK(openingWorkerFloor(120,true) == 12);
+    CHECK(openingWorkerFloor(120,false) == 8);
     for (int workers = 4; workers < 8; ++workers) {
         CHECK(openingWorkersNeeded(workers,120,true));
         CHECK(preferFactoryHarvester(workers,120,300,80000,300,true,true,true));
-        CHECK_FALSE(openingWorkersNeeded(workers,120));
-        CHECK_FALSE(preferFactoryHarvester(workers,120,300,80000,300,true,true));
+        CHECK(openingWorkersNeeded(workers,120));
+        CHECK(preferFactoryHarvester(workers,120,300,80000,300,true,true));
     }
-    CHECK_FALSE(openingWorkersNeeded(8,120,true));
-    CHECK(preferFactoryHarvester(8,120,2400,80000,300,true,true,true));
-    CHECK_FALSE(preferFactoryHarvester(9,120,2400,80000,300,true,true,true));
+    CHECK(openingWorkersNeeded(8,120,true));
+    CHECK_FALSE(openingWorkersNeeded(8,120));
+    CHECK_FALSE(openingWorkersNeeded(12,120,true));
+    CHECK(preferFactoryHarvester(12,120,3600,80000,300,true,true,true));
+    CHECK_FALSE(preferFactoryHarvester(13,120,2400,80000,300,true,true,true));
     CHECK(preferFactoryHarvester(40,120,12000,80000,300,true,true,true));
+    // A modest field keeps the established four/eight openings, and an
+    // exhausted one never demands workers it cannot sustain.
+    CHECK(openingWorkerFloor(8,false) == 4);
+    CHECK(openingWorkerFloor(16,true) == 8);
     for (int target : {0,1,2,5}) {
+        CHECK(openingWorkerFloor(target,true) == target);
         CHECK_FALSE(openingWorkersNeeded(target,target,true));
         CHECK_FALSE(preferFactoryHarvester(target,target,80000,80000,300,true,true,true));
     }
@@ -1432,8 +1449,9 @@ TEST_CASE("Brutal can choose a profitable third refinery with a worker-capable f
     CHECK(preferRefinery(refinery,zone,considerRefinery(false,true,true,
         openingRefineryInvestment(true,4,120,2)),false));
     CHECK_FALSE(preferRefinery(refinery,zone,true,true)); // Keep first residential hedge.
-    CHECK_FALSE(openingRefineryInvestment(false,4,120,2));
-    CHECK_FALSE(openingRefineryInvestment(true,8,120,2));
+    CHECK(openingRefineryInvestment(false,4,120,2));
+    CHECK(openingRefineryInvestment(true,8,120,2));
+    CHECK_FALSE(openingRefineryInvestment(true,12,120,2));
     CHECK_FALSE(openingRefineryInvestment(true,4,120,3)); // No unlimited spare bays.
     CHECK_FALSE(openingRefineryInvestment(true,2,2,2));
     refinery.projectedProceeds=300;
@@ -1488,8 +1506,8 @@ TEST_CASE("Expansion chooses safe reachable new rock rather than adjacent yards"
     CHECK_FALSE(choose(w,h,tiles,{23*w+12},{23*w+0},{}).valid());
 }
 
-TEST_CASE("Air raids prefer buildings and only intercept defensive ground contacts", "[quantbot][air]") {
-    CHECK(AirStrikePolicy::targetRank(true,false)>AirStrikePolicy::targetRank(false,true));
+TEST_CASE("Air defence preempts building raids without hunting unrelated ground units", "[quantbot][air]") {
+    CHECK(AirStrikePolicy::targetRank(false,true)>AirStrikePolicy::targetRank(true,false));
     CHECK(AirStrikePolicy::targetRank(false,false)==0);
     CHECK(AirStrikePolicy::targetRank(false,true)>0);
     CHECK(AirStrikePolicy::safetyRange(7)==12);

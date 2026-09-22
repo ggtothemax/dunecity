@@ -14,6 +14,12 @@ void runOpeningEconomyProbe(Game& game) {
         if(structure->getOwner()==house && structure->getItemID()==Structure_ConstructionYard)
             yard=static_cast<BuilderBase*>(structure);
     require(bot && yard,"Missing opening controller/yard");
+    // This fixture compares economic tech routes in isolation; proactive
+    // rocket technology/coverage is exercised by the defence fixtures.
+    if(game.isCitySimEnabled()) {
+        game.objectData.data[Structure_RocketTurret][HOUSE_ATREIDES].enabled=false;
+        yard->updateBuildList();
+    }
     game.gameCycleCount=123;bot->update();
     require(house->getNumItems(Structure_HeavyFactory)==0,"Opening must start without heavy production");
     for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x)

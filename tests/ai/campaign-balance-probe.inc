@@ -17,8 +17,10 @@
 #include "sourceforge-regressions-probe.inc"
 #include "harvester-safety-probe.inc"
 #include "shared-spending-probe.inc"
+#include "police-placement-probe.inc"
 #include "opening-economy-probe.inc"
 #include "army-movement-probe.inc"
+#include "air-defense-probe.inc"
 #include "custom-attack-probe.inc"
 #include "custom-city-cap-probe.inc"
 #include "factory-recovery-probe.inc"
@@ -128,8 +130,16 @@ int runCampaignBalanceProbe() {
         runOpeningEconomyProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
+    if (std::getenv("BALANCE_POLICE_PLACEMENT_PROBE")) {
+        runPolicePlacementProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
     if (std::getenv("BALANCE_SHARED_SPENDING_PROBE")) {
         runSharedSpendingProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_AIR_DEFENSE_PROBE")) {
+        runAirDefenseProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_ARMY_PROBE")) {
