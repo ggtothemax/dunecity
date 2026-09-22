@@ -1,3 +1,25 @@
+## 2026-09-22 — Projectile comparison (audit only, app remains758)
+
+Compared standard rocket/missile types against Dynasty4469449c. Current launcher/
+gas18.75tiles/s vs15, turret18.75vs11.25, MiniRocket22.5vs13.75, DeathHand31.25vs18.75.
+Current homing395.508deg/s vs Dynasty168.75 launcher/gas,675turret,421.875mini;
+current mini/deathhand do not steer. Arming counters/air tracking and impact
+coordinates differ; turret60/120cycle constructor override becomes0.96/1.92s
+forced expiry, not Dynasty3/6s steering/arming counter. Dynasty does not have a
+universal timeout explosion. Rocket scatter is~4x too small in current world units.
+
+Controlled actual-code tests reproduced a turret missile snapping an explosion
+onto an ornithopter8tiles away (25HP killed in16ms); Dynasty inflicted0. Our
+orni-only full splash damage also differs:8damage at0.375tile vs4Dynasty, but
+current0 at0.625tile vs2Dynasty. Gas effect radius and close turret AA handling
+also differ. See docs/projectile-comparison.md for complete rules and boundaries.
+
+171 current cases across3modes identical;48 original-source reference cases pass
+ASan/UBSan. Fixtures measure projectile mechanics, not natural combat hit rates;
+scatter is fixed in trajectory tests. Repro scripts committed; artifacts under
+../outputs/projectile-audit/. No gameplay changes, push, release or installation.
+Claude Max static-table audit followed by Codex runtime investigation/testing.
+
 ## 2026-09-22 — Ground route timing aligned (local 758)
 
 Completed issue67 follow-up: standard ground routes use Dynasty's15/60-second
