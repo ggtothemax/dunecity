@@ -1,3 +1,28 @@
+## 2026-09-22 — Production 1.0.760 published
+
+User authorized production/website publication. PR #69 merged at 952bbbd6,
+tag v1.0.760. CI caught lowercase definitions.h in CarryallFlight.h on
+case-sensitive Linux/Emscripten; corrected to Definitions.h (12384f1d).
+Mac rebuild/dependency audits and carryall probe passed after that include-only fix.
+PR CI 35716132681 passed; stable release 35717278503 passed all platform/test,
+Apple signing/notarization, signed update feed and publication jobs.
+
+GitHub release has 13 assets (8 packages, 3 signed manifests, 2 appcasts).
+Downloaded release and independently verified all manifest signatures, archive
+sizes/hashes and both native appcast archive signatures against the checked-in key.
+SourceForge 35718535053 verified all uploaded checksums, source branch/tag and
+Windows/Mac/Linux defaults. No source archive uploaded.
+
+Website a9ed96e (deploy 35718632273) publishes tagged CI browser artifact,
+matching signaling package and current release prose on both download pages.
+All 7 public browser files match live 1.0.760 manifest hashes/source 952bbbd6;
+both public download pages point to 1.0.760. Redundant automatic browser build
+35718535065 cancelled after packaging the exact tagged artifact.
+Fresh Chrome startup reached the rendered main menu showing App v1.0.760;
+verification tab closed afterward. This was a startup smoke check, not a new
+multiplayer match. Evidence: ../outputs/release-760/. MBA remains locally
+installed 1.0.760.
+
 ## 2026-09-22 — Combined local test build 1.0.760 installed on MBA
 
 Merged helper population-cap commits b8d78daf and b9266479 with the local
