@@ -73,7 +73,8 @@
 // Version 14: Carryall approach, docking and turning change lockstep movement.
 // Version 17: Dynasty projectile motion, detonation and splash rules.
 // Version 18: Combined shared-helper population admission and projectile build.
-#define NETWORK_PROTOCOL_VERSION            18
+// Version 19: All-difficulty emergency Starport MCV recovery changes AI orders.
+#define NETWORK_PROTOCOL_VERSION            19
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

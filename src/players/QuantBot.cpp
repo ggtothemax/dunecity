@@ -5311,6 +5311,36 @@ void QuantBot::build(int militaryValue) {
 					return accepted;
 				};
 
+                // Recover construction on every difficulty before withholding
+                // optional economy/civic/capital reserves. Count paid cargo and
+                // factory queues as MCVs so another port cannot duplicate it.
+                // A sold-out catalogue entry can restock; save rather than spend
+                // the recovery cash on workers or military in the meantime.
+                const bool starportRecovery = itemCount[Structure_ConstructionYard] == 0
+                    && itemCount[Unit_MCV] == 0 && itemCount[Structure_StarPort] > 0
+                    && data[Unit_MCV][houseID].enabled
+                    && getHouse()->getChoam().getNumAvailable(Unit_MCV) >= 0;
+                if (starportRecovery) {
+                    if (pBuilder->getItemID() == Structure_StarPort) {
+                        const auto* port = static_cast<const StarPort*>(pBuilder);
+                        if (port->okToOrder() && port->isAvailableToBuild(Unit_MCV)
+                            && getHouse()->getChoam().getNumAvailable(Unit_MCV) > 0) {
+                            // Existing factory queues pay gradually. Recovery may
+                            // use that still-unspent cash, but never actual money
+                            // already charged by another order in this pass.
+                            const int heldCash = std::max(0, getHouse()->getCredits() - money);
+                            money += heldCash;
+                            const bool accepted = produceItemWithLogging(Unit_MCV, __LINE__, "starport_construction_recovery");
+                            money -= heldCash;
+                            if (accepted) {
+                                ++itemCount[Unit_MCV];
+                                doPlaceOrder(port);
+                            }
+                        }
+                    }
+                    continue;
+                }
+
                 auto upgradeWithLogging = [&](int sourceLine) {
                     const int price=pBuilder->getUpgradeCost();
                     const bool affordable=money>=price;
@@ -5817,14 +5847,6 @@ void QuantBot::build(int militaryValue) {
 					const StarPort* pStarPort = static_cast<const StarPort*>(pBuilder);
 					if (pStarPort->okToOrder()) {
 						const Choam& choam = getHouse()->getChoam();
-
-						// We need a construction yard!!
-						if ((difficulty == Difficulty::Hard || difficulty == Difficulty::Brutal)
-							&& pStarPort->isAvailableToBuild(Unit_MCV)
-							&& choam.getNumAvailable(Unit_MCV) > 0
-							&& itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV] < 1) {
-							if (produceItemWithLogging(Unit_MCV, __LINE__)) itemCount[Unit_MCV]++;
-						}
 
                         // Economic imports may use the cash held for the economy,
                         // just as factory-built harvesters do. Market discounts are

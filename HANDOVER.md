@@ -1,3 +1,26 @@
+## 2026-09-23 — Emergency Starport MCV recovery (local 1.0.761)
+
+QuantBot now recovers a missing construction yard through an available Starport
+on Easy, Medium, Hard and Brutal. Previously Easy/Medium were excluded outright;
+Hard/Brutal attempted the purchase only after optional spending reserves were
+withheld. Recovery now runs before those reserves and optional builder orders,
+uses actual unspent cash even when committed to gradual factory production,
+and saves while the MCV is unaffordable or temporarily sold out. Existing units,
+factory queues and paid Starport cargo prevent duplicate replacement orders.
+This is missing-yard recovery, not a change to normal expansion policy.
+
+Version 1.0.761, network protocol 19 (AI lockstep orders changed), save schema
+unchanged. Native app is built at build/bin/dunecity.app in the isolated checkout
+/Users/stefan/Documents/projects/dunecity-ai-mcv. All 16 existing CTest targets
+pass, including the updated protocol expectation. Both newly registered Starport
+CTest probes pass (classic and city mode, campaign level 9 setup): all four
+difficulties, one credit short, exact price, sold-out/restock, two-port and
+pending-delivery deduplication, plus actual cash reserved by an unpaid light
+factory queue. All 18 targets verified across the full and focused runs.
+Claude Max supplied the bounded recovery fixture; Codex reviewed, added the
+queued-cash case and ran verification. No push, public release or install onto
+the MacBook Air has been performed. Logs: ../outputs/ai-mcv/.
+
 ## 2026-09-22 — Combined local test build 1.0.760 installed on MBA
 
 Merged helper population-cap commits b8d78daf and b9266479 with the local

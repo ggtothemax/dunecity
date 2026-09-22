@@ -252,5 +252,114 @@ void runStarportEconomyProbe(Game& game) {
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();
         SDL_Log("STARPORT_FIRST_TRANSPORT_PASS: sold-out workers, first carryall before repair yard, two ports, mode=%d",int(gameType));
     }
+    // Reported emergency: the base is reduced to a Starport with cash and
+    // stock — no construction yard, no heavy factory and no MCV anywhere.
+    // Recovery is not expansion: every difficulty must convert that cash into
+    // exactly one MCV, using the cash the other queues normally hold back, and
+    // must keep saving while it is short or the market is sold out.
+    game.gameType=GameType::CustomGame;bot->gameMode=QuantBot::GameMode::Custom;
+    std::vector<ObjectBase*> stranded;
+    for(auto* building:structureList)
+        if(building->getOwner()==house && (building->getItemID()==Structure_ConstructionYard
+            || building->getItemID()==Structure_HeavyFactory)) stranded.push_back(building);
+    for(auto* unit:unitList)
+        if(unit->getOwner()==house && unit->getItemID()==Unit_MCV) stranded.push_back(unit);
+    for(auto* object:stranded) object->destroy();
+    bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
+    if(house->getNumItems(Structure_ConstructionYard) || house->getNumItems(Structure_HeavyFactory)
+        || house->getNumItems(Unit_MCV))
+        throw std::runtime_error("Recovery fixture still owns a yard, heavy factory or MCV");
+    const int mcvPrice=900;
+    auto setOffer=[&](Uint32 item,int stock,int price) {
+        for(auto& offer:market.availableItems) if(offer.itemID==item) {offer.num=stock;offer.price=price;return;}
+        market.addItem(item,stock);market.availableItems.back().price=price;
+    };
+    // Cheap workers, transports and troops stay on sale throughout: saving for
+    // the MCV must beat all of them, not merely an empty market.
+    auto stockRecoveryMarket=[&](int mcvStock) {
+        for(auto& offer:market.availableItems) {offer.num=0;offer.price=100;}
+        setOffer(Unit_MCV,mcvStock,mcvPrice);setOffer(Unit_Harvester,5,180);
+        setOffer(Unit_Carryall,5,200);setOffer(Unit_Tank,5,100);
+    };
+    auto planRecovery=[&](std::initializer_list<StructureBase*> ports) {
+        savedStructures=structureList;structureList.clear();
+        for(auto* member:ports) structureList.push_back(member);
+        try {bot->build(4000);}catch(...){structureList=savedStructures;throw;}
+        structureList=savedStructures;
+    };
+    auto ordered=[](const StarPort* seller,Uint32 item) {
+        int count=0;
+        for(const auto& order:seller->currentProductionQueue) count+=order.itemID==item;
+        return count;
+    };
+    bot->harvesterLimit=15;bot->lastCalculatedSpice=200000;
+    for(auto tier:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                   QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+        bot->difficulty=tier;
+        auto* recoveryPort=dynamic_cast<StarPort*>(place(Structure_StarPort));
+        if(!recoveryPort) throw std::runtime_error("Recovery Starport fixture failed");
+        stockRecoveryMarket(1);recoveryPort->updateBuildList();
+        if(!recoveryPort->isAvailableToBuild(Unit_MCV))
+            throw std::runtime_error("Recovery fixture Starport cannot offer an MCV");
+        house->takeCredits(house->getCredits());house->addCredits(mcvPrice-1);
+        planRecovery({recoveryPort});
+        if(recoveryPort->getProductionQueueSize() || house->getCredits()!=mcvPrice-1 || !recoveryPort->okToOrder())
+            throw std::runtime_error("Recovery savings were spent one credit short of the MCV");
+        house->addCredits(1);
+        planRecovery({recoveryPort});
+        if(ordered(recoveryPort,Unit_MCV)!=1 || recoveryPort->getProductionQueueSize()!=1
+            || house->getCredits()!=0 || recoveryPort->okToOrder())
+            throw std::runtime_error("Starport did not buy the recovery MCV at its exact market price");
+        SDL_Log("STARPORT_RECOVERY_MCV_PASS: difficulty=%d bought one MCV at %d with no yard, factory or MCV",
+            int(tier),mcvPrice);
+    }
+    // Sold out: hold that cash rather than convert it, and buy on restock.
+    auto* restockRecovery=dynamic_cast<StarPort*>(place(Structure_StarPort));
+    if(!restockRecovery) throw std::runtime_error("Restock recovery Starport fixture failed");
+    stockRecoveryMarket(0);restockRecovery->updateBuildList();
+    house->takeCredits(house->getCredits());house->addCredits(mcvPrice);
+    planRecovery({restockRecovery});
+    if(restockRecovery->getProductionQueueSize() || house->getCredits()!=mcvPrice || !restockRecovery->okToOrder())
+        throw std::runtime_error("Sold-out MCV reserve was spent on other imports");
+    stockRecoveryMarket(1);restockRecovery->updateBuildList();
+    planRecovery({restockRecovery});
+    if(ordered(restockRecovery,Unit_MCV)!=1 || house->getCredits()!=0 || restockRecovery->okToOrder())
+        throw std::runtime_error("Restocked MCV was not bought with the saved cash");
+    SDL_Log("STARPORT_RECOVERY_RESTOCK_PASS: %d saved while the MCV was sold out, spent on restock",mcvPrice);
+    // One MCV recovers the base: two funded ports must not both order one, and
+    // an idle port must not duplicate cargo another port is already awaiting.
+    auto* firstRecovery=dynamic_cast<StarPort*>(place(Structure_StarPort));
+    auto* secondRecovery=dynamic_cast<StarPort*>(place(Structure_StarPort));
+    if(!firstRecovery || !secondRecovery) throw std::runtime_error("Duplicate recovery Starport fixture failed");
+    stockRecoveryMarket(2);
+    for(auto& offer:market.availableItems) if(offer.itemID!=Unit_MCV) offer.num=0;
+    firstRecovery->updateBuildList();secondRecovery->updateBuildList();
+    house->takeCredits(house->getCredits());house->addCredits(2*mcvPrice);
+    planRecovery({firstRecovery,secondRecovery});
+    if(ordered(firstRecovery,Unit_MCV)+ordered(secondRecovery,Unit_MCV)!=1 || house->getCredits()!=mcvPrice)
+        throw std::runtime_error("Recovery MCV was duplicated across idle Starports");
+    auto* deliveringPort=firstRecovery->getProductionQueueSize() ? firstRecovery : secondRecovery;
+    auto* idleRecovery=deliveringPort==firstRecovery ? secondRecovery : firstRecovery;
+    if(deliveringPort->okToOrder() || !idleRecovery->okToOrder() || idleRecovery->getProductionQueueSize())
+        throw std::runtime_error("Recovery order was not dispatched from a single Starport");
+    planRecovery({deliveringPort,idleRecovery});
+    if(idleRecovery->getProductionQueueSize() || house->getCredits()!=mcvPrice)
+        throw std::runtime_error("Idle Starport duplicated the MCV awaiting delivery");
+    SDL_Log("STARPORT_RECOVERY_SINGLE_ORDER_PASS: one MCV from two funded ports, none added while delivery is pending");
+    // An unpaid optional factory queue must not hide money that can already
+    // buy the emergency MCV. Process that factory alongside the port too.
+    auto* optionalFactory=dynamic_cast<BuilderBase*>(place(Structure_LightFactory));
+    auto* queuedCashPort=dynamic_cast<StarPort*>(place(Structure_StarPort));
+    if(!optionalFactory || !queuedCashPort) throw std::runtime_error("Queued-cash recovery fixture failed");
+    optionalFactory->updateBuildList();optionalFactory->doProduceItem(Unit_Quad);
+    if(optionalFactory->getProductionQueueSize()!=1)
+        throw std::runtime_error("Optional factory queue was not established");
+    stockRecoveryMarket(1);queuedCashPort->updateBuildList();
+    house->takeCredits(house->getCredits());house->addCredits(mcvPrice);
+    planRecovery({optionalFactory,queuedCashPort});
+    if(ordered(queuedCashPort,Unit_MCV)!=1 || house->getCredits()!=0
+        || optionalFactory->getProductionQueueSize()!=1 || queuedCashPort->okToOrder())
+        throw std::runtime_error("Optional factory spending blocked emergency MCV recovery");
+    SDL_Log("STARPORT_RECOVERY_QUEUED_CASH_PASS: unspent factory queue budget buys the emergency MCV");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: probe=starport outcome=passed");
 }

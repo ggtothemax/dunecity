@@ -446,6 +446,13 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --mod dunecity --build-dir ${CMAKE_BINARY_DIR}
             --output-dir ${CMAKE_BINARY_DIR}/police-placement-probe)
         set_tests_properties(quantbot_police_placement PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        foreach(starport_mod IN ITEMS vanilla dunecity)
+            add_test(NAME quantbot_starport_${starport_mod} COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --starport-probe --level 9 --repeatable
+                --mod ${starport_mod} --build-dir ${CMAKE_BINARY_DIR}
+                --output-dir ${CMAKE_BINARY_DIR}/starport-${starport_mod}-probe)
+            set_tests_properties(quantbot_starport_${starport_mod} PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        endforeach()
         add_test(NAME quantbot_custom_attack COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --custom-attack-probe --repeatable
             --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/custom-attack-probe)
