@@ -54,7 +54,12 @@ Packaged runtime initialization, hidden rendering and signature checks passed.
 Archive: ../outputs/ai-opening-regression/install-763/dunecity-1.0.763.zip
 SHA256: 3dd48147b5d2a8149e1223dd71e7b1046d97dd7bdc5a59c8e574ae24c061ca09
 Binary SHA256: a5fd5650f0959b2a54aac7d20f66b93e670809a3c593956b13df871e19688e42
-Installation pending: the Air became unreachable during final verification.
+Installed on Stefans-MacBook-Air.local at /Applications/dunecity.app after the
+user requested installation with the game closed. Transfer and installed binary
+hashes match the verified package above; signature and packaged SDL startup /
+hidden rendering passed on the Air. All 511 checked profile INIs are unchanged.
+Previous app retained at /Applications/.dunecity-763-w5PQF9/dunecity-previous.app.
+Receipt: ../outputs/ai-opening-regression/install-763/mba-receipt.json.
 
 ## 2026-09-23 — Proactive city defence and opening economy (local 1.0.762)
 
