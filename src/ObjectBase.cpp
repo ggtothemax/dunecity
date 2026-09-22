@@ -17,6 +17,7 @@
  */
 
 #include <ObjectBase.h>
+#include <DynastyProjectile.h>
 
 #include <globals.h>
 
@@ -1063,6 +1064,11 @@ ObjectBase* ObjectBase::loadObject(InputStream& stream, int itemID, Uint32 objec
 }
 
 bool ObjectBase::targetInWeaponRange() const {
+    const auto* object = target.getObjPointer();
+    if(!object) return false;
+    if(itemID == Structure_RocketTurret && object->getItemID() == Unit_Ornithopter)
+        return DynastyProjectile::distance(getCenterPoint()*4, object->getCenterPoint()*4)
+            <= getWeaponRange()*3*TILESIZE*4;
     Coord coord = (target.getObjPointer())->getClosestPoint(location);
     FixPoint dist = blockDistance(location,coord);
 

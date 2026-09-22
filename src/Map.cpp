@@ -16,6 +16,7 @@
  */
 
 #include <Map.h>
+#include <DynastyProjectile.h>
 #include <dunecity/CityConstants.h>
 
 #include <globals.h>
@@ -126,7 +127,13 @@ void Map::createSandRegions() {
     }
 }
 
-void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Uint32 bulletID, FixPoint damage, int damageRadius, bool air, bool affectTerrain) {
+void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Uint32 bulletID, FixPoint damage, int damageRadius, bool air, bool affectTerrain, Uint32 interceptedAirUnit) {
+    const bool dynastyBlast = DynastyProjectile::parameters(bulletID).step != 0
+        || (bulletID == Bullet_ShellTurret && air);
+    const auto blastDistance = [&](Coord point) {
+        return dynastyBlast ? DynastyProjectile::distance(point*4, realPos*4)/4
+                            : lround(distanceFrom(point, realPos));
+    };
     const auto location = Coord(realPos.x/TILESIZE, realPos.y/TILESIZE);
 
     std::set<Uint32>    affectedAirUnits;
@@ -159,18 +166,21 @@ void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Ui
             }
         }
     } else {
-        if(air) {
+        if(air || dynastyBlast) {
             // air damage
-            if((bulletID == Bullet_DRocket) || (bulletID == Bullet_Rocket) || (bulletID == Bullet_TurretRocket)|| (bulletID == Bullet_SmallRocket)) {
+            if(dynastyBlast || bulletID == Bullet_DRocket || bulletID == Bullet_Rocket || bulletID == Bullet_TurretRocket || bulletID == Bullet_SmallRocket) {
                 for(auto objectID : affectedAirUnits) {
                     auto pAirUnit = dynamic_cast<AirUnit*>(currentGame->getObjectManager().getObject(objectID));
-                    if(pAirUnit == nullptr)
+                    if(pAirUnit == nullptr || (dynastyBlast && pAirUnit->getItemID() == Unit_Frigate))
                         continue;
 
                     const auto centerPoint = pAirUnit->getCenterPoint();
-                    const auto distance = lround(distanceFrom(centerPoint, realPos));
+                    // A swept missile collision occurred earlier within this movement
+                    // interval. The aircraft has already advanced to the frame endpoint;
+                    // use direct-hit damage for that proven contact only.
+                    const auto distance = objectID == interceptedAirUnit ? 0 : blastDistance(centerPoint);
 
-                    if(distance > damageRadius)
+                    if(dynastyBlast ? distance >= damageRadius : distance > damageRadius)
                         continue;
 
                     if(bulletID == Bullet_DRocket) {
@@ -181,16 +191,7 @@ void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Ui
                             }
                         }
                     } else {
-                        // Apply damage based on unit type:
-                        // - Ornithopters: Full damage (fast, fragile, need to be easy to hit)
-                        // - Carryalls: Distance-based falloff (like ground units, 0.96.4 behavior)
-                        int scaledDamage;
-                        if(pAirUnit->getItemID() == Unit_Ornithopter) {
-                            scaledDamage = lround(damage);
-                        } else {
-                            // Carryalls use same formula as ground units
-                            scaledDamage = lround(damage) >> (distance/16 + 1);
-                        }
+                        const int scaledDamage = lround(damage) >> (distance/(TILESIZE/4));
                         const auto healthBefore = pAirUnit->getHealth();
                         pAirUnit->handleDamage(scaledDamage, damagerID, damagerOwner);
                         
@@ -211,8 +212,9 @@ void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Ui
                     }
                 }
             }
-        } else {
-            // non air damage
+        }
+        if(!air || dynastyBlast) {
+            // Dynasty explosions affect nearby units irrespective of the aimed layer.
             for(auto objectID : affectedGroundAndUndergroundUnits) {
                 const auto pObject = currentGame->getObjectManager().getObject(objectID);
 
@@ -222,7 +224,7 @@ void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Ui
                     const auto topLeftCorner = pStructure->getLocation()*TILESIZE;
                     const auto bottomRightCorner = topLeftCorner + pStructure->getStructureSize()*TILESIZE;
 
-                    if(realPos.x >= topLeftCorner.x && realPos.y >= topLeftCorner.y && realPos.x < bottomRightCorner.x && realPos.y < bottomRightCorner.y) {
+                    if(bulletID != Bullet_DRocket && realPos.x >= topLeftCorner.x && realPos.y >= topLeftCorner.y && realPos.x < bottomRightCorner.x && realPos.y < bottomRightCorner.y) {
                         pStructure->handleDamage(lround(damage), damagerID, damagerOwner);
 
                         if( (bulletID == Bullet_LargeRocket || bulletID == Bullet_Rocket || bulletID == Bullet_TurretRocket || bulletID == Bullet_SmallRocket || bulletID == Bullet_Flame)
@@ -236,9 +238,9 @@ void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Ui
                     const auto pUnit = static_cast<UnitBase*>(pObject);
 
                     const auto centerPoint = pUnit->getCenterPoint();
-                    const auto distance = lround(distanceFrom(centerPoint, realPos));
+                    const auto distance = blastDistance(centerPoint);
 
-                    if(distance <= damageRadius) {
+                    if(dynastyBlast ? distance < damageRadius : distance <= damageRadius) {
                         // MULTIPLAYER-SAFE: Track rocket hits on ornithopters (before damage)
                         const bool isOrni = (pUnit->getItemID() == Unit_Ornithopter);
                         const FixPoint healthBefore = isOrni ? pUnit->getHealth() : 0;
@@ -259,7 +261,7 @@ void Map::damage(Uint32 damagerID, House* damagerOwner, const Coord& realPos, Ui
                             }
                             pUnit->handleDamage(scaledDamage, damagerID, damagerOwner);
                         } else {
-                            const auto scaledDamage = lround(damage) >> (distance/16 + 1);
+                            const auto scaledDamage = lround(damage) >> (distance/(TILESIZE/4) + (dynastyBlast ? 0 : 1));
                             pUnit->handleDamage(scaledDamage, damagerID, damagerOwner);
                         }
                         

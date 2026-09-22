@@ -1,3 +1,7 @@
+# Standard rockets share Dynasty motion/steering/fuse rules in the engine.
+# WeaponDamage and WeaponReloadTime below still configure the shooter.
+# Rocket-turret WeaponRange is the ground range; ornithopters use 3x that range.
+# Turret missiles also detect physical aircraft crossings within 1/8 tile.
 # ============================================================================
 # DUNE LEGACY - UNIT & STRUCTURE DATA CONFIGURATION
 # ============================================================================

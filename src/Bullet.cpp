@@ -16,6 +16,7 @@
  */
 
 #include <Bullet.h>
+#include <DynastyProjectile.h>
 
 #include <globals.h>
 
@@ -60,22 +61,11 @@ Bullet::Bullet(Uint32 shooterID, Coord* newRealLocation, Coord* newRealDestinati
         detonationTimer = 0;
     }
 
-    if(bulletID == Bullet_TurretRocket) {
-        const ObjectBase* pInitialTarget = target.getObjPointer();
-        if(pInitialTarget && pInitialTarget->isAFlyingUnit()) {
-            detonationTimer = 120;
-        } else {
-            detonationTimer = 60;
-        }
-    } else if((bulletID == Bullet_Rocket || bulletID == Bullet_DRocket || bulletID == Bullet_SmallRocket || bulletID == Bullet_Flame)
-              && detonationTimer > 0) {
-        const ObjectBase* pInitialTarget = target.getObjPointer();
-        if(pInitialTarget && pInitialTarget->isAFlyingUnit()) {
-            // Air targets: Dynasty uses 120 frames @ 20Hz movement = 0.8 seconds
-            // (120 frames ÷ 3 ticks/frame ÷ 60Hz = 0.8s)
-            // Legacy: 50 cycles @ 62.5Hz = 0.8 seconds (50 × 16ms = 800ms)
-            detonationTimer = 50;
-        }
+    if(DynastyProjectile::parameters(bulletID).step) {
+        if(pTarget && pTarget->isAFlyingUnit()) detonationTimer *= 2;
+    } else if(bulletID == Bullet_Flame && detonationTimer > 0
+              && pTarget && pTarget->isAFlyingUnit()) {
+        detonationTimer = 50;
     }
 
     destination = *newRealDestination;
@@ -95,34 +85,29 @@ Bullet::Bullet(Uint32 shooterID, Coord* newRealLocation, Coord* newRealDestinati
         FixPoint ratio = (weaponrange*TILESIZE)/square_root;
         destination.x = newRealLocation->x + floor(diffX*ratio);
         destination.y = newRealLocation->y + floor(diffY*ratio);
-    } else if((bulletID == Bullet_Rocket || bulletID == Bullet_DRocket || bulletID == Bullet_Flame)
-              && !usesPreciseFlameTrajectory) {
-        // Dynasty scatter algorithm - applies to both ground AND air targets
-        FixPoint distance = distanceFrom(*newRealLocation, *newRealDestination);
-        const int distanceInTiles = std::max(0, lround(distance / TILESIZE));
-
-        // Pick scatter limit: 15/16 chance → (tiles + 8), 1/16 chance → rand(255) + 8
-        int scatterLimit;
-        if((currentGame->randomGen.rand(0, 15)) != 0) {
-            scatterLimit = distanceInTiles + 8;
-        } else {
-            scatterLimit = currentGame->randomGen.rand(0, 255) + 8;
-        }
-
-        // Pick radius and repeatedly halve until under limit (biases toward large values)
+    } else if(bulletID == Bullet_Rocket || bulletID == Bullet_DRocket) {
+        const int tiles = DynastyProjectile::distance(*newRealLocation, *newRealDestination) / TILESIZE;
+        const int limit = currentGame->randomGen.rand(0, 15) != 0
+            ? tiles + 8 : currentGame->randomGen.rand(0, 255) + 8;
         int radius = currentGame->randomGen.rand(0, 255);
-        while(radius > scatterLimit) {
-            radius /= 2;
-        }
-
-        // Apply scatter in random direction
-        // Dynasty formula: offset = (k_stepX[angle] * radius) / 128
-        // where k_stepX ∈ [-128,128], so normalized = cos(angle)
-        const FixPoint randAngle = 2 * FixPt_PI * currentGame->randomGen.randFixPoint();
-
-        destination.x += lround(FixPoint::cos(randAngle) * radius);
-        destination.y -= lround(FixPoint::sin(randAngle) * radius);
-
+        while(radius > limit) radius /= 2;
+        const int direction = currentGame->randomGen.rand(0, 255);
+        const Coord scattered = destination + Coord(
+            (DynastyProjectile::k_stepX[direction] * radius / 128) * 4,
+            -(DynastyProjectile::k_stepY[direction] * radius / 128) * 4);
+        // Dynasty rejects scatter outside its map instead of wrapping it.
+        if(scattered.x >= 0 && scattered.y >= 0
+           && scattered.x < currentGameMap->getSizeX()*TILESIZE
+           && scattered.y < currentGameMap->getSizeY()*TILESIZE) destination = scattered;
+    } else if(bulletID == Bullet_Flame && !usesPreciseFlameTrajectory) {
+        // Mod-only flames retain their previous scatter and flight rules.
+        const int tiles = std::max(0, lround(distanceFrom(*newRealLocation, *newRealDestination)/TILESIZE));
+        const int limit = currentGame->randomGen.rand(0, 15) != 0 ? tiles+8 : currentGame->randomGen.rand(0, 255)+8;
+        int radius = currentGame->randomGen.rand(0, 255);
+        while(radius > limit) radius /= 2;
+        const auto theta = 2 * FixPt_PI * currentGame->randomGen.randFixPoint();
+        destination.x += lround(FixPoint::cos(theta)*radius);
+        destination.y -= lround(FixPoint::sin(theta)*radius);
     }
 
     realX = newRealLocation->x;
@@ -139,6 +124,14 @@ Bullet::Bullet(Uint32 shooterID, Coord* newRealLocation, Coord* newRealDestinati
 
     xSpeed = speed * FixPoint::cos(angleRad);
     ySpeed = speed * -FixPoint::sin(angleRad);
+    if(DynastyProjectile::parameters(bulletID).step) {
+        projectileHeading = DynastyProjectile::direction(*newRealLocation * 4, *newRealDestination * 4) & 255;
+        projectileAim = projectileHeading;
+        projectileTargetPosition = pTarget ? pTarget->getCenterPoint()*4 : *newRealDestination*4;
+        projectileClock = (currentGame->getGameCycleCount()*48ULL) % 600;
+        angle = (64-projectileHeading+256)&255;
+        drawnAngle = lround(numFrames*angle/256) % numFrames;
+    }
 }
 
 Bullet::Bullet(InputStream& stream)
@@ -174,7 +167,28 @@ Bullet::Bullet(InputStream& stream)
 
     Bullet::init();
 
-    detonationTimer = stream.readSint8();
+    if(currentGame->getLoadedSavegameVersion() >= 9845) {
+        detonationTimer = stream.readSint16();
+        projectileClock = stream.readUint16();
+        projectileHeading = stream.readUint8();
+        projectileAim = stream.readUint8();
+        projectileTurn = stream.readSint8();
+        projectileDistance = stream.readSint32();
+        projectileTargetPosition.x = stream.readSint32();
+        projectileTargetPosition.y = stream.readSint32();
+        if(projectileClock >= 600 || projectileDistance < 0) THROW(std::runtime_error, "Invalid projectile state");
+    } else {
+        detonationTimer = stream.readSint8();
+        if(DynastyProjectile::parameters(bulletID).step) {
+            // Old saves count 16ms cycles, new missiles count 50ms movement updates.
+            detonationTimer = std::max(0, (detonationTimer*16+49)/50);
+            projectileHeading = (64-lround(angle)+256)&255;
+            projectileAim = projectileHeading;
+            const auto* object = target.getObjPointer();
+            projectileTargetPosition = object ? object->getCenterPoint()*4 : destination*4;
+            projectileClock = (currentGame->getGameCycleCount()*48ULL) % 600;
+        }
+    }
 }
 
 void Bullet::init()
@@ -185,9 +199,6 @@ void Bullet::init()
 
     switch(bulletID) {
         case Bullet_DRocket: {
-            damageRadius = TILESIZE/2;
-            speed = 19.2_fix;  // Dynasty 240 px/s × 5.0 = 1,200 px/s ÷ 62.5Hz = 19.2
-            detonationTimer = 19;
             numFrames = 16;
             graphic = pGFXManager->getObjPic(ObjPic_Bullet_MediumRocket, houseID);
         } break;
@@ -200,28 +211,16 @@ void Bullet::init()
             graphic = pGFXManager->getObjPic(ObjPic_Bullet_MediumRocket, houseID);
         } break;
 case Bullet_LargeRocket: {
-            damageRadius = TILESIZE;
-            speed = 32.0_fix;
-            detonationTimer = -1;
             numFrames = 16;
             graphic = pGFXManager->getObjPic(ObjPic_Bullet_LargeRocket, houseID);
         } break;
 
         case Bullet_Rocket: {
-            damageRadius = TILESIZE/2;
-            speed = 19.2_fix;  // Dynasty 240 px/s × 5.0 = 1,200 px/s ÷ 62.5Hz = 19.2
-            detonationTimer = 22;
             numFrames = 16;
             graphic = pGFXManager->getObjPic(ObjPic_Bullet_MediumRocket, houseID);
         } break;
 
         case Bullet_TurretRocket: {
-            damageRadius = TILESIZE/2;
-            speed = 19.2_fix;  // Match launcher: Dynasty 240 px/s × 5.0 = 1,200 px/s ÷ 62.5Hz = 19.2
-            // Dynasty: fireDistance 60, doubled to 120 for air targets
-            // Dynasty fireDelay decrements every 3 ticks @ 60Hz = 120 * 3/60 = 6.0 seconds
-            // Legacy: 6000ms / 16ms per cycle = 375 cycles (at default game speed)
-            detonationTimer = MILLI2CYCLES(6000);  // 6 seconds max flight time
             numFrames = 16;
             graphic = pGFXManager->getObjPic(ObjPic_Bullet_MediumRocket, houseID);
         } break;
@@ -263,9 +262,6 @@ case Bullet_LargeRocket: {
         } break;
 
         case Bullet_SmallRocket: {
-            damageRadius = TILESIZE/2;
-            speed = 23.04_fix;
-            detonationTimer = 7;
             numFrames = 16;
             graphic = pGFXManager->getObjPic(ObjPic_Bullet_SmallRocket, houseID);
         } break;
@@ -294,6 +290,11 @@ case Bullet_LargeRocket: {
         default: {
             THROW(std::domain_error, "Unknown Bullet type %d!", bulletID);
         } break;
+    }
+    if(const auto p = DynastyProjectile::parameters(bulletID); p.step) {
+        speed = FixPoint(p.step)*0.08_fix; // quarter-world units/step, 20Hz -> 62.5Hz
+        detonationTimer = p.delay;
+        damageRadius = (bulletID == Bullet_DRocket || bulletID == Bullet_LargeRocket) ? 2*TILESIZE : TILESIZE;
     }
 }
 
@@ -326,7 +327,14 @@ void Bullet::save(OutputStream& stream) const
     stream.writeSint8(drawnAngle);
     stream.writeFixPoint(angle);
 
-    stream.writeSint8(detonationTimer);
+    stream.writeSint16(detonationTimer);
+    stream.writeUint16(projectileClock);
+    stream.writeUint8(projectileHeading);
+    stream.writeUint8(projectileAim);
+    stream.writeSint8(projectileTurn);
+    stream.writeSint32(projectileDistance);
+    stream.writeSint32(projectileTargetPosition.x);
+    stream.writeSint32(projectileTargetPosition.y);
 }
 
 
@@ -386,12 +394,103 @@ void Bullet::blitToScreen() const
 }
 
 
+// Preserve Dynasty's movement-before-aim-before-rotation order. The clocks are
+// independent of rendering and game-speed preferences, like the unit clocks.
+void Bullet::updateDynastyProjectile()
+{
+    const auto parameters = DynastyProjectile::parameters(bulletID);
+    for(int elapsed=0; elapsed<48; ++elapsed) {
+        if(projectileClock % 150 == 0) {
+            const Coord previous(lround(realX*4), lround(realY*4));
+            const Coord goal = destination*4;
+            const auto step = std::min(parameters.step, DynastyProjectile::distance(previous, goal)+16);
+            const auto position = DynastyProjectile::move(previous, projectileHeading, step);
+            xSpeed = FixPoint(position.x-previous.x)*0.08_fix;
+            ySpeed = FixPoint(position.y-previous.y)*0.08_fix;
+            realX = FixPoint(position.x)/4;
+            realY = FixPoint(position.y)/4;
+            location = Coord(floor(realX/TILESIZE), floor(realY/TILESIZE));
+            if(!currentGameMap->tileExists(location)) {
+                bulletList.remove(this);
+                delete this;
+                return;
+            }
+            const auto* liveTarget = target.getObjPointer();
+            if(bulletID == Bullet_TurretRocket && liveTarget && liveTarget->getHealth() > 0
+               && liveTarget->isAFlyingUnit()) {
+                const Coord targetNow = liveTarget->getCenterPoint()*4;
+                // A narrow physical intercept compensates for 20Hz missiles crossing
+                // 62.5Hz aircraft between samples. Work in relative motion, so crossing
+                // the same place at different times does not count as a collision.
+                // This is an intentional anti-air extension to Dynasty, not its
+                // old destination snap or full-radius ornithopter damage bonus.
+                const Coord a = previous-projectileTargetPosition;
+                const Coord d = (position-targetNow)-a;
+                const Sint64 length = Sint64(d.x)*d.x+Sint64(d.y)*d.y;
+                const Sint64 projection = -(Sint64(a.x)*d.x+Sint64(a.y)*d.y);
+                const Sint64 t = length ? std::clamp<Sint64>(projection*1024/length,0,1024) : 0;
+                const Sint64 dx = Sint64(a.x)*1024+Sint64(d.x)*t;
+                const Sint64 dy = Sint64(a.y)*1024+Sint64(d.y)*t;
+                projectileTargetPosition = targetNow;
+                if(dx*dx+dy*dy <= Sint64(32*1024)*(32*1024)) { // one eighth of a tile
+                    realX = FixPoint(previous.x+int((position.x-previous.x)*t/1024))/4;
+                    realY = FixPoint(previous.y+int((position.y-previous.y)*t/1024))/4;
+                    currentGame->combatStats.turretRocketsProximityDetonated++;
+                    destroy(liveTarget->getObjectID());
+                    return;
+                }
+            }
+            const int distance = DynastyProjectile::distance(position, goal);
+            if((distance < 16 || distance > projectileDistance)
+               && (detonationTimer == 0 || bulletID == Bullet_TurretRocket)) {
+                if(bulletID == Bullet_TurretRocket && target.getObjPointer()
+                   && target.getObjPointer()->getItemID() == Unit_Ornithopter)
+                    currentGame->combatStats.turretRocketsProximityDetonated++;
+                // Always explode at the actual missile position. Never snap to a target.
+                destroy();
+                return;
+            }
+            projectileDistance = distance;
+            if(detonationTimer > 0) {
+                Coord aim = goal;
+                const auto* object = target.getObjPointer();
+                if(object && object->getHealth() > 0 && object->isAFlyingUnit())
+                    aim = object->getCenterPoint()*4;
+                projectileAim = DynastyProjectile::direction(position, aim) & 255;
+                // Signed orientation arithmetic matches Unit_SetOrientation,
+                // including its exact half-turn tie choice.
+                int difference = static_cast<Sint8>(projectileAim) - static_cast<Sint8>(projectileHeading);
+                projectileTurn = projectileAim == projectileHeading ? 0 :
+                    (((difference > -128 && difference < 0) || difference > 128) ? -parameters.turn : parameters.turn);
+                --detonationTimer;
+            }
+        }
+        if(projectileClock % 200 == 0 && projectileTurn != 0) {
+            int difference = int(projectileAim)-int(projectileHeading);
+            if(difference > 128) difference -= 256;
+            if(difference < -128) difference += 256;
+            if(std::abs(projectileTurn) >= std::abs(difference)) {
+                projectileHeading = projectileAim;
+                projectileTurn = 0;
+            } else {
+                projectileHeading = (projectileHeading+projectileTurn+256)&255;
+            }
+        }
+        projectileClock = (projectileClock+1)%600;
+    }
+    angle = (64-projectileHeading+256)&255;
+    drawnAngle = lround(numFrames*angle/256)%numFrames;
+}
+
 void Bullet::update()
 {
-    if(bulletID == Bullet_Rocket || bulletID == Bullet_DRocket || bulletID == Bullet_Flame) {
+    if(DynastyProjectile::parameters(bulletID).step) {
+        updateDynastyProjectile();
+        return;
+    }
+    if(bulletID == Bullet_Flame) {
 
-        // Dynasty: Launcher/Deviator rockets track ornithopters (small, fast targets)
-        // Carryalls are NOT tracked - they use static scattered destination
+        // Mod flame compatibility: track ornithopters while retaining the old fuse.
         ObjectBase* pTarget = target.getObjPointer();
         
         if(pTarget != nullptr && pTarget->getItemID() == Unit_Ornithopter) {
@@ -410,7 +509,7 @@ void Bullet::update()
             angleDifference += 256;
         }
 
-        // v0.96.4: FixPt(4,5) = 4.5°/tick
+        // Legacy mod rate: 4.5 angle units (256 per revolution) per cycle.
         static const FixPoint turnSpeed = 4.5_fix;
 
         if(angleDifference >= turnSpeed) {
@@ -431,9 +530,9 @@ void Bullet::update()
         ySpeed = speed * -FixPoint::sin(Deg256ToRad(angle));
 
         drawnAngle = lround(numFrames*angle/256) % numFrames;
-    } else if(bulletID == Bullet_TurretRocket || bulletID == Bullet_Heal) {
+    } else if(bulletID == Bullet_Heal) {
 
-        // Dynasty: Turret rockets actively track their moving target
+        // Mod healing projectiles follow their live target.
         ObjectBase* pTarget = target.getObjPointer();
         
         if(pTarget != nullptr) {
@@ -452,7 +551,7 @@ void Bullet::update()
             angleDifference += 256;
         }
 
-        // v0.96.4: FixPt(4,5) = 4.5°/tick (same as launcher/deviator rockets)
+        // Legacy mod rate: 4.5 angle units (256 per revolution) per cycle.
         static const FixPoint turnSpeed = 4.5_fix;
 
         if(angleDifference >= turnSpeed) {
@@ -495,12 +594,6 @@ void Bullet::update()
             detonationTimer--;
         }
 
-        // Dynasty: All rockets with expired timers detonate mid-flight
-        if((bulletID == Bullet_TurretRocket) && detonationTimer == 0) {
-            destroy();
-            return;
-        }
-
         if(bulletID == Bullet_Sonic || bulletID == Bullet_SonicTrike) {
 
             if(detonationTimer == 0) {
@@ -539,13 +632,13 @@ void Bullet::update()
 
         if(oldDistanceToDestination < newDistanceToDestination || newDistanceToDestination < 4)  {
 
-            if(bulletID == Bullet_Rocket || bulletID == Bullet_DRocket || bulletID == Bullet_Flame) {
+            if(bulletID == Bullet_Flame) {
                 // Check if targeting a flying unit
                 ObjectBase* pTarget = target.getObjPointer();
                 bool isAirTarget = (pTarget != nullptr && pTarget->isAFlyingUnit());
                 
                 if(isAirTarget) {
-                    // Dynasty-style: Air targets detonate immediately on proximity (no timer check)
+                    // Preserve the mod flame air-impact behavior.
                     // Scatter was already applied at launch, tracking during flight
                     destroy();
                     return;
@@ -557,18 +650,6 @@ void Bullet::update()
                 return;
                     }
                 }
-            } else if(bulletID == Bullet_TurretRocket) {
-                // Dynasty/v0.96.4: Turret rockets (anti-air) detonate IMMEDIATELY upon reaching destination
-                // No timer check needed - they should always hit their target on proximity
-                // MULTIPLAYER-SAFE: Track proximity detonation
-                ObjectBase* pTarget = target.getObjPointer();
-                if(pTarget && pTarget->getItemID() == Unit_Ornithopter) {
-                    currentGame->combatStats.turretRocketsProximityDetonated++;
-                }
-                realX = destination.x;
-                realY = destination.y;
-                destroy();
-                return;
             } else {
                 realX = destination.x;
                 realY = destination.y;
@@ -577,13 +658,11 @@ void Bullet::update()
             }
         }
 
-        // v0.96.4: Launcher rockets do NOT explode when timer expires mid-flight
-        // They only explode when reaching destination AND timer == 0 (checked above)
     }
 }
 
 
-void Bullet::destroy()
+void Bullet::destroy(Uint32 interceptedAirUnit)
 {
     Coord position = Coord(lround(realX), lround(realY));
 
@@ -609,26 +688,24 @@ void Bullet::destroy()
 case Bullet_LargeRocket: {
             soundPlayer->playSoundAt(Sound_ExplosionLarge, position);
 
-            for(int i = 0; i < 5; i++) {
-                for(int j = 0; j < 5; j++) {
-                    if (((i != 0) && (i != 4)) || ((j != 0) && (j != 4))) {
-                        position.x = lround(realX) + (i - 2)*TILESIZE;
-                        position.y = lround(realY) + (j - 2)*TILESIZE;
-
-                        currentGameMap->damage(shooterID, owner, position, bulletID, damage, damageRadius, airAttack);
-
-                        Uint32 explosionID = currentGame->randomGen.getRandOf({Explosion_Large1,Explosion_Large2});
-                        currentGame->getExplosionList().push_back(new Explosion(explosionID,position,houseID));
-                        screenborder->shakeScreen(22);
-                    }
-                }
+            // Dynasty's seventeen Death Hand blast centres (256 -> 64 coordinates).
+            static constexpr int dx[] = {0,0,50,64,50,0,-50,-64,-50,0,100,128,100,0,-100,-128,-100};
+            static constexpr int dy[] = {0,-64,-50,0,50,64,50,0,-50,-128,-100,0,100,128,100,0,-100};
+            for(int i=0; i<17; ++i) {
+                position = Coord(lround(realX)+dx[i], lround(realY)+dy[i]);
+                if(position.x < 0 || position.y < 0 || position.x >= currentGameMap->getSizeX()*TILESIZE
+                   || position.y >= currentGameMap->getSizeY()*TILESIZE) continue;
+                currentGameMap->damage(shooterID, owner, position, bulletID, damage, damageRadius, airAttack);
+                const auto explosionID = currentGame->randomGen.getRandOf({Explosion_Large1,Explosion_Large2});
+                currentGame->getExplosionList().push_back(new Explosion(explosionID,position,houseID));
+                screenborder->shakeScreen(22);
             }
         } break;
 
         case Bullet_Rocket:
         case Bullet_TurretRocket:
         case Bullet_SmallRocket: {
-            currentGameMap->damage(shooterID, owner, position, bulletID, damage, damageRadius, airAttack);
+            currentGameMap->damage(shooterID, owner, position, bulletID, damage, damageRadius, airAttack, true, interceptedAirUnit);
             currentGame->getExplosionList().push_back(new Explosion(Explosion_Small,position,houseID));
         } break;
 

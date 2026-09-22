@@ -17,6 +17,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--build-dir', type=Path, default=root / 'build')
 parser.add_argument('--output-dir', type=Path)
 parser.add_argument('--record-baseline', action='store_true')
+parser.add_argument('--projectile-trace', action='store_true', help='Trace missiles for comparison to original Dynasty')
+parser.add_argument('--projectile-continuation', action='store_true', help='Check in-flight save and observer restoration')
+parser.add_argument('--projectile-combat', action='store_true', help='Run full anti-air attack passes')
 parser.add_argument('--projectiles', action='store_true', help='Audit projectile mechanics instead of ground routes')
 parser.add_argument('--continuation', action='store_true', help='Check exact mid-route save/observer continuation')
 args = parser.parse_args()
@@ -33,7 +36,7 @@ if main.count(needle) != 1:
 main = main.replace(needle, 'int menuResult = runUnitSpeedProbe();')
 main = main.replace('if(shouldPlayIntro && (bFirstInit==true))', 'if(false && shouldPlayIntro && (bFirstInit==true))')
 pos = main.index('int main(')
-include = root / ('tests/units/projectile-audit.inc' if args.projectiles else 'tests/units/unit-route-continuation.inc' if args.continuation else 'tests/units/unit-route-probe.inc')
+include = root / ('tests/units/projectile-trace.inc' if args.projectile_trace else 'tests/units/projectile-continuation.inc' if args.projectile_continuation else 'tests/units/projectile-combat.inc' if args.projectile_combat else 'tests/units/projectile-audit.inc' if args.projectiles else 'tests/units/unit-route-continuation.inc' if args.continuation else 'tests/units/unit-route-probe.inc')
 main = main[:pos] + '#include "' + str(include) + '"\n' + main[pos:]
 source = out / 'unit-speed-probe-main.cpp'
 source.write_text(main)

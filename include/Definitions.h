@@ -77,7 +77,8 @@
 // 9842: QuantBot original campaign economy, building permissions and depletion state.
 // 9843: MOD5 setup extension stores the construction-yard limit.
 // 9844: Ground route cadence and interpolated tile-step continuation.
-#define SAVEGAMEVERSION     9844
+// 9845: Dynasty projectile clock, steering and arming state.
+#define SAVEGAMEVERSION     9845
 
 // v1.0.0–v1.0.7 shipped SAVEGAMEVERSION 9810 with Num_ItemID=48.
 // v1.0.8–v1.0.10 also used 9810 but with Num_ItemID=52 (4 items added

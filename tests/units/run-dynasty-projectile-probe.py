@@ -35,4 +35,7 @@ with (out/'build.log').open('w') as log:
 with (out/'projectiles.csv').open('w') as csvout, (out/'run.log').open('w') as log:
     subprocess.run([str(binary), str(r/'UNIT.EMC')], stdout=csvout, stderr=log, check=True, timeout=120,
                    env=dict(os.environ, ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='halt_on_error=1'))
+with (out/'trace.log').open('w') as log:
+    subprocess.run([str(binary), str(r/'UNIT.EMC'), str(out/'trace.csv')], stdout=log, stderr=log, check=True, timeout=120,
+                   env=dict(os.environ, ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='halt_on_error=1'))
 print('Original Dynasty projectile audit passed ASan/UBSan:', out/'projectiles.csv')

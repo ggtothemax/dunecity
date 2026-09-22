@@ -49,18 +49,27 @@ public:
     void blitToScreen() const;
 
     void update();
-    void destroy();
+    void destroy(Uint32 interceptedAirUnit = NONE_ID);
 
     inline int getBulletID() const { return bulletID; }
     inline FixPoint getRealX() const { return realX; }
     inline FixPoint getRealY() const { return realY; }
 
 private:
+    void updateDynastyProjectile();
+    // A 3000Hz rational clock: 16ms=48, Dynasty movement=150, rotation=200.
+    Uint16 projectileClock = 0;
+    Uint8 projectileHeading = 0; // Dynasty: north=0, clockwise positive
+    Uint8 projectileAim = 0;
+    Sint8 projectileTurn = 0;
+    Coord projectileTargetPosition{0, 0}; // Last movement sample, in 256/tile coordinates.
+    Sint32 projectileDistance = 32767; // Previous movement's distance, not this frame's.
+
     // constants for each bullet type
     int      damageRadius;               ///< The radius of the bullet
     bool     explodesAtGroundObjects;    ///< false = bullet goes through objects, true = bullet explodes at ground objects
     FixPoint speed;                      ///< The speed of this bullet
-    Sint16   detonationTimer;            ///< How long is this bullet alive before it explodes (changed from Sint8 to support longer timers)
+    Sint16   detonationTimer;            ///< Dynasty missiles: remaining 20Hz arming/steering updates; other types: cycles
 
     // bullet state
     Uint32   bulletID;                   ///< The ID of the bullet

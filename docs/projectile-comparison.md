@@ -1,3 +1,126 @@
+# Projectile alignment in local 1.0.759
+
+Standard rockets now share Dynasty 4469449c movement, steering, arming and
+arrival rules across Vanilla, Dune City and Dune2R. The earlier audit below is
+a historical comparison against 1.0.758, not a description of the fixed build.
+
+| Projectile | Tiles/second | Maximum steering degrees/second | Ground / air arming counter at 20Hz |
+|---|---:|---:|---:|
+| Launcher | 15 | 168.75 | 8 / 16 |
+| Deviator | 15 | 168.75 | 7 / 14 |
+| Turret | 11.25 | 675 | 60 / 120 (arrival bypasses arming) |
+| Trooper / ornithopter mini-rocket | 13.75 | 421.875 | 3 / 6 |
+| Death Hand | 18.75 | 168.75 | 15 for its normal ground target |
+
+The port uses the original integer direction tables and distance metric, 20Hz
+movement, 15Hz rotation, movement-before-aim-before-rotation order, and the
+previous movement sample for arrival detection. A rational clock maps these
+onto the host's 16ms updates without accumulating a timing error. Missile movement
+is no longer dependent on the rendering tick. Explosions use actual missile
+positions; expiry alone does not detonate a rocket. Launcher/gas scatter now uses
+the correct coordinate scaling and rejects off-map scatter.
+
+## Launcher versus aircraft
+
+Dynasty uses the same Rocket projectile against ground and air, with an air-specific
+firing/guidance rule, rather than switching to the turret's ARocket:
+
+- A launcher/deviator can fire at a flying target without facing it, after an
+  already-started body turn finishes (`Script_Unit_Fire`, script/unit.c:616-636).
+- Flying targets double the arming/steering counter. Launcher rockets remain
+  unarmed for 0.8 seconds; the previous immediate-air-impact bypass is removed.
+- Steering follows the live position of any flying target while the counter is
+  positive. The scattered impact destination remains fixed. An existing turn
+  can finish after guidance expires. Target loss falls back to the stored goal.
+
+## Intentional turret anti-air extension
+
+Strict Dynasty arrival rules left the rocket turret with zero kills in the
+64 isolated attacking-ornithopter encounters tested here, even after restoring
+Dynasty's extended targeting range. It damaged the aircraft in seven encounters.
+
+The final build adds a **one-eighth-tile physical intercept** for turret missiles
+against flying targets. It sweeps the relative missile/aircraft motion between
+movement samples. Crossing the same place at different times is not a collision.
+A confirmed intercept detonates on the missile's own segment and deals normal
+direct-hit damage to the intercepted aircraft; other splash uses normal falloff.
+The target's later frame position cannot turn a proven direct hit into a miss.
+This does not teleport explosions onto remote targets, increase missile speed or
+turn rate, or give ornithopters a general splash-damage bonus. Launcher arming
+and guidance remain Dynasty-style; they do not get this turret intercept rule.
+
+Rocket turrets also regain Dynasty's triple acquisition/range against ornithopters
+(including its special visibility exception), and fire their cannon inside three
+tiles instead of becoming unable to fire at aircraft. The multiplier applies to
+the configured ground WeaponRange; other aircraft retain normal targeting range.
+Turret body rotation, reload and general target-selection scheduling remain the
+host game's, so these are not claims of identical complete combat AI.
+
+## Explosion and weapon corrections
+
+- Standard missile blasts affect both ground and air. Radius is strictly below
+  one tile, with damage halving each quarter tile using Dynasty's distance metric.
+  Frigates retain Dynasty's explosion immunity. Structure damage uses the occupied
+  tile/footprint. Non-rocket shells, sonic waves and mod-only flames/healing retain
+  their existing flight rules, apart from enabling close turret shells to hurt air.
+- Gas uses a radius strictly below two tiles and no longer damages structures as
+  ordinary explosives. Existing house/mod deviation probabilities are retained;
+  this change does not claim exact Dynasty deviation probability parity.
+- Death Hand uses seventeen original offset blast centres, two-tile reaction
+  radius and 200 damage per centre. Palace launch scatter is corrected to the
+  original scale and resolves to the selected tile centre. Nuclear-plant damage
+  remains based on its historical balance constants, independent of Palace missiles.
+- Troopers reduce mini-rocket damage by a quarter at long range; the previous
+  reduction on the close-range shell was reversed.
+- INI template notes document the shared projectile rules and turret range
+  multiplier. No unused projectile INI properties were invented. Existing shooter
+  WeaponDamage/WeaponReloadTime and movement configuration remain active.
+
+## Verification and reproduction
+
+Headless production game code, isolated profiles, no user profile edits:
+
+- 64 mechanic cases per mode: wrong-way launches, moving/static targets, splash,
+  true/false physical crossings, target loss, mixed air/ground damage, close turret
+  weapon selection and an actual Palace launch/17-centre explosion.
+- 128 full Game::updateGameState combat encounters per mode: four seeds, four
+  starting distances (4/8/12/18 tiles), four headings, launcher or turret against
+  an attacking ornithopter. Final results are identical across modes: launcher
+  15/64 kills (29 damaged), turret 16/64 kills (19 damaged). These prove killability
+  and continued aircraft attacks, not a general game-balance win-rate estimate.
+- 180 scenarios per mode exactly match 10,942 original-Dynasty sampled position,
+  heading, counter and lifetime states. The additional 20 turret/air scenarios
+  intentionally diverge at physical interception and have dedicated regression
+  checks. Original Dynasty reference runs pass ASan/UBSan. Before adding that
+  extension all 200 cases matched 11,744 states.
+- 21 mid-flight save/observer scenarios per mode, 160 exact continuation frames
+  each (10,080 across modes), including mod flame/healing. Previous save-byte
+  layouts are also read and their old cycle timers migrated.
+- Save format 9845 persists missile clock, aim, rotation, previous distance and
+  previous aircraft position. Network protocol 17 prevents mixed simulation rules.
+- Unit-speed/real ornithopter attack-pass probe passes all three modes. All 13
+  existing CTest targets and all three newly registered projectile probes pass
+  (16 total).
+
+```sh
+python3 tests/units/run-dynasty-projectile-probe.py --dynasty-dir ../dunedynasty \
+  --reference-build-dir ../outputs/route-speed-alignment/extended3 \
+  --output-dir ../outputs/projectile-fix/dynasty
+python3 tests/units/run-unit-route-probe.py --projectile-trace --output-dir /tmp/projectile-trace
+python3 tests/units/check-projectile-traces.py --dynasty ../outputs/projectile-fix/dynasty/trace.csv \
+  --current-dir /tmp/projectile-trace
+python3 tests/units/run-unit-route-probe.py --projectiles --output-dir /tmp/projectile-regressions
+python3 tests/units/run-unit-route-probe.py --projectile-combat --output-dir /tmp/projectile-combat
+python3 tests/units/run-unit-route-probe.py --projectile-continuation --output-dir /tmp/projectile-saves
+```
+
+Receipts: `../outputs/projectile-fix/` (`regression`, `combat4`, `trace2`,
+`continuation3`, `dynasty`, `unit-speed`). Claude supplied the focused launcher
+and explosion-layer review; Codex implemented and tested the corrections.
+No push, PR, public release or MBA installation in this change.
+
+---
+
 # Rocket and missile audit: Dynasty versus current Legacy-based build
 
 Audit of DuneCity 1.0.758 (32f92531) against Dynasty 4469449c. The older local

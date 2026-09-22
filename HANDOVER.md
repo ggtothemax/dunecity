@@ -1,3 +1,29 @@
+## 2026-09-22 — Projectile alignment and physical turret intercept (local 759)
+
+Implemented Dynasty 4469449c missile speed/steering, exact 20Hz movement/15Hz
+rotation, integer geometry, arming, scatter and actual-position explosions in
+all three modes. Launcher anti-air fire skips the facing gate, doubles arming to
+0.8s and guides at the live aircraft while retaining its scattered destination.
+Restored turret triple range/visibility exception for ornithopters and close
+cannon fire. Rocket splash affects both layers with quarter-tile falloff; removed
+orni-only full splash. Gas radius/no structure HP damage corrected; house/mod
+deviation chances retained. Trooper damage reduction moved to long-range rockets.
+Palace uses corrected scatter and 17 Death Hand blasts at 200 damage; nuclear
+plant balance remains independent. INI template notes updated; no invented keys.
+
+Intentional deviation: strict Dynasty turret arrival gave 0/64 isolated AA kills.
+Added a 1/8-tile swept relative-motion physical intercept, never a destination
+snap. Final full-game encounters: launcher15/64, turret16/64 kills; same all modes,
+384 encounters total. Mechanics192 cases, original-source trace32,826 exact
+samples in540 standard scenarios (turret-air extension tested separately),
+10,080 exact save/observer continuation frames and old byte migration pass.
+Source reference ASan/UBSan and unit-speed/real aircraft attack-pass probe pass.
+Existing13 CTest targets pass, including carryall, ground continuation, commands
+and menu. All three newly registered projectile CTest probes also pass (16 total).
+Save9845, protocol17. Local759 rebuilt; no push/PR/MBA install. Full results and
+reproduction: docs/projectile-comparison.md; receipts ../outputs/projectile-fix/.
+Claude Max supplied the bounded launcher/air review; Codex integrated and tested.
+
 ## 2026-09-22 — Protect crime-service construction from growth starvation
 
 Diagnosed live MBA 1.0.758 session1790068138510777-0 (Alkozeltser4).

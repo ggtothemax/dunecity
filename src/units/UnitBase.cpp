@@ -274,11 +274,12 @@ bool UnitBase::attack() {
                 FixPoint distance = distanceFrom(centerPoint, targetCenterPoint);
                 if(distance <= 2*TILESIZE) {
                     currentBulletType = Bullet_ShellSmall;
+                } else {
                     currentWeaponDamage -= currentWeaponDamage/4;
                 }
             } 
             // Dynasty: Launchers and Deviators use same rocket type for both ground and air
-            // Air targets get scatter + tracking + immediate detonation (no timer check) 
+            // Air targets double the arming/steering counter; the impact destination stays fixed.
 
             if(primaryWeaponTimer == 0) {
                 // MULTIPLAYER-SAFE: Track launcher unit firing at ornithopters
@@ -714,7 +715,11 @@ void UnitBase::engageTarget() {
             }
         }
 
-        // we are in attack range
+        // Dynasty launchers/deviators need no facing check for flying targets.
+        // Finish an existing body turn, but do not chase the aircraft with the hull.
+        const bool airMissile = (itemID == Unit_Launcher || itemID == Unit_Deviator)
+            && target.getObjPointer()->isAFlyingUnit();
+        const bool bodyTurnComplete = targetAngle == INVALID || angle == FixPoint(targetAngle);
 
         if(targetFriendly && !forced) {
             // the target is friendly and we only attack these if were forced to do so
@@ -736,10 +741,11 @@ void UnitBase::engageTarget() {
         } else if(!isAFlyingUnit()) {
             // we decide to fire on the target thus we can stop moving
             setDestination(location);
-            targetAngle = newTargetAngle;
+            if(!airMissile) targetAngle = newTargetAngle;
+            else if(bodyTurnComplete) targetAngle = INVALID;
         }
 
-        if(getCurrentAttackAngle() == newTargetAngle) {
+        if(airMissile ? !moving && bodyTurnComplete : getCurrentAttackAngle() == newTargetAngle) {
             attack();
         }
 
