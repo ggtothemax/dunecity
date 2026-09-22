@@ -67,12 +67,18 @@ subprocess.run(['python3',str(ROOT/'tests/units/run-unit-route-probe.py'),'--bui
 def results(path):
  groups=collections.defaultdict(list)
  with path.open() as f:
-  for r in csv.DictReader(f):groups[(r['unit'],int(r['tiles']),int(r['start_heading']))].append(float(r['seconds']))
+  for r in csv.DictReader(f):groups[(r['unit'],int(r['tiles']),int(r['start_heading']),r['scenario'])].append(float(r['seconds']))
  return groups
 city=results(out/'city/vanilla.csv');dynasty=results(out/'dynasty-1.csv')
 with (out/'comparison.csv').open('w') as f:
- w=csv.writer(f);w.writerow(['unit','tiles','initial_turn_degrees','dynasty_seconds','city_seconds','time_difference_percent'])
+ w=csv.writer(f);w.writerow(['unit','tiles','initial_turn_degrees','scenario','dynasty_seconds','city_seconds','time_difference_percent'])
  for key,values in city.items():
   d=statistics.mean(dynasty[key]);c=statistics.mean(values)
   w.writerow([*key,d,c,(c/d-1)*100])
-print('Comparison written to',out/'comparison.csv')
+errors=[]
+for key,values in city.items():
+ d=statistics.mean(dynasty[key]);c=statistics.mean(values)
+ if abs(c/d-1)>0.02: errors.append((key,d,c,(c/d-1)*100))
+if set(city)!=set(dynasty): raise RuntimeError('Reference and production scenario sets differ')
+if errors: raise RuntimeError('Routes outside the 2% timing target: '+repr(errors))
+print('All',len(city),'route groups within 2% of Dynasty. Comparison written to',out/'comparison.csv')

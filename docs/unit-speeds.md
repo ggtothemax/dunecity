@@ -1,6 +1,6 @@
 # Unit movement reference
 
-Shared standard-unit rules for Vanilla, Dune City and Dune2R, local 1.0.757.
+Shared standard-unit rules for Vanilla, Dune City and Dune2R, local 1.0.758.
 Reference: gameflorist/dunedynasty commit `4469449c75f51388ad2725297a95f09a6c601905`.
 
 ## Normal-speed rates
@@ -70,19 +70,18 @@ individual Soldiers/Troopers in DuneCity; this existing representation remains.
 
 ## Boundaries
 
-This aligns nominal movement and angular rates, terrain throttle, load and damage.
-It does not replace DuneCity's pathfinder, tile-entry pauses, infantry-slot movement,
-flight combat AI or smooth trigonometry with Dynasty's script VM and integer heading
-tables. Full-route durations and diagonal rounding can therefore differ. Ornithopter
-attack passes and the frigate's existing approach slowdown remain engine behaviors;
-frigate cruise/turn caps are corrected. Optional Dynasty enhanced unquantized speed
-and its alternative game-speed settings are outside this reference.
+The 1.0.757 change aligned nominal rates and modifiers. Version 1.0.758 also
+aligns ground tile and turning cadence: the [complete route comparison](unit-route-comparison.md)
+now measures a worst-case difference below 0.6% across 260 tested route groups.
+Ground positions remain smoothly interpolated, with existing infantry slots and
+rock wobble. Flight AI, sandworm continuous movement and pathfinding are retained;
+Dynasty's optional unquantized speed is outside this reference.
 
 New games receive the corrected data. Existing saves retain serialized speed/turn
-caps but use the new engine modifiers. No save fields were added. Network protocol15
-prevents mixing these simulation rules with1.0.756/protocol14 or earlier peers.
-Managed Vanilla/Dune City/Dune2R rules refresh through the existing ObjectData
-reseed mechanism; independent Workshop revisions are not overwritten.
+caps. Save version 9844 preserves the new ground timing state; network protocol 16
+prevents mixing incompatible simulation rules. Managed Vanilla/DuneCity/Dune2R
+rules use the existing ObjectData refresh; independent Workshop revisions remain
+separate. The existing INI caps did not require further numeric changes for 758.
 
 ## Verification
 

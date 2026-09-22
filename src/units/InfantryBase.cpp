@@ -408,7 +408,14 @@ void InfantryBase::destroy() {
     GroundUnit::destroy();
 }
 
+Coord InfantryBase::movementEndpoint() const {
+    Coord end = GroundUnit::movementEndpoint();
+    if(tilePosition != INVALID_POS) end += tilePositionOffset[tilePosition];
+    return end;
+}
+
 void InfantryBase::move() {
+    if(moveDynastyStep()) return;
     if(!moving && !justStoppedMoving && (((currentGame->getGameCycleCount() + getObjectID()) % 512) == 0)) {
         currentGameMap->viewMap(owner->getHouseID(), location, getViewRange());
     }

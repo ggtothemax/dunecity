@@ -31,8 +31,11 @@
 # WeaponDamage     - How much damage does the weapon of this unit/turret have?
 # WeaponRange      - How far can this unit/turret shoot?
 # WeaponReloadTime - How many frames does it take to reload the weapon?
-# MaxSpeed         - How fast can this unit move?
-# TurnSpeed        - How fast can this unit/turret turn around?
+# MaxSpeed         - Nominal movement cap in world units per 16 ms cycle.
+#                    Standard ground units also use Dynasty tile/turn timing;
+#                    see docs/unit-route-comparison.md. Custom caps scale travel.
+# TurnSpeed        - Eighth-turns per 16 ms cycle. Ground route turns finish
+#                    the exact heading on Dynasty rotation ticks before moving.
 # BuildTime        - How much time does the production of this structure/unit take?
 # InfSpawnProp     - What is the probability (in percent) that an infantry soldier
 #                    is spawned on destruction?

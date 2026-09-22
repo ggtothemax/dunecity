@@ -1,4 +1,4 @@
-/* Production Dynasty GameLoop_Unit + actual UNIT.EMC, isolated flat-sand routes. */
+/* Production Dynasty GameLoop_Unit + actual UNIT.EMC, isolated route matrix. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,24 +64,39 @@ int main(int argc,char **argv) {
  enhancement_true_game_speed_adjustment=true;enhancement_true_unit_movement_speed=false;
  int types[]={UNIT_TANK,UNIT_TRIKE,UNIT_RAIDER_TRIKE,UNIT_QUAD,UNIT_HARVESTER,UNIT_SOLDIER,UNIT_TROOPER,
               UNIT_DEVASTATOR,UNIT_LAUNCHER,UNIT_SIEGE_TANK,UNIT_MCV,UNIT_DEVIATOR,UNIT_SONIC_TANK,UNIT_SABOTEUR};
- puts("unit,tiles,start_heading,phase,seconds,ticks,moving_ticks,stationary_ticks");
- for(unsigned a=0;a<sizeof(types)/sizeof(types[0]);a++) for(int length=8;length<=16;length+=8)
+ const char* cases[]={"sand","diagonal","rock","dunes","spice","damaged","loaded","mountain","corner","slab"};
+ puts("unit,tiles,start_heading,phase,seconds,ticks,moving_ticks,stationary_ticks,scenario");
+ for(int scenario=0;scenario<10;scenario++) for(unsigned a=0;a<sizeof(types)/sizeof(types[0]);a++) for(int length=8;length<=16;length+=8)
  for(int heading=0;heading<=90;heading+=90) for(int phase=0;phase<60;phase++) {
+  if(scenario!=0 && length!=8) continue;
+  if(scenario==6 && types[a]!=UNIT_HARVESTER) continue;
+  if(scenario==7 && types[a]!=UNIT_SOLDIER && types[a]!=UNIT_TROOPER && types[a]!=UNIT_SABOTEUR) continue;
   reset();
+  const unsigned sprite=scenario==2?143:scenario==3?159:scenario==4?176:scenario==7?160:scenario==9?126:127;
+  for(int i=0;i<4096;i++) {g_map[i].groundSpriteID=sprite;g_mapVisible[i].groundSpriteID=sprite;}
   for(;g_timerGame<phase;g_timerGame++)GameLoop_Unit();
-  tile32 start=Tile_UnpackTile(10+10*64),end=Tile_UnpackTile(10+length+10*64);
-  Unit *u=Unit_Create(UNIT_INDEX_INVALID,types[a],HOUSE_ATREIDES,start,heading==0?64:0);assert(u);
+  const int endPacked=10+length+(10+(scenario==1?length:0))*64;
+  const int cornerPacked=14+14*64;
+  tile32 start=Tile_UnpackTile(10+10*64),end=Tile_UnpackTile(endPacked);
+  bool cornerPending=scenario==8;
+  if(cornerPending) end=Tile_UnpackTile(14+10*64);
+  Unit *u=Unit_Create(UNIT_INDEX_INVALID,types[a],HOUSE_ATREIDES,start,(heading==0?64:0)+(scenario==1?32:0));assert(u);
   u->o.flags.s.byScenario=argc<3 || atoi(argv[2])!=0;u->o.flags.s.degrades=false;
-  Unit_Server_SetAction(u,ACTION_MOVE);Unit_SetDestination(u,Tools_Index_Encode(10+length+10*64,IT_TILE));
+  if(scenario==5) u->o.hitpoints=g_table_unitInfo[types[a]].o.hitpoints/3;
+  if(scenario==6) u->amount=100;
+  Unit_Server_SetAction(u,ACTION_MOVE);Unit_SetDestination(u,Tools_Index_Encode(cornerPending?14+10*64:endPacked,IT_TILE));
   unsigned frames=0,movingFrames=0;
   for(;frames<20000;frames++) {
    tile32 old=u->o.position;
    GameLoop_Unit();g_timerGame++;
    if(old.x!=u->o.position.x || old.y!=u->o.position.y)movingFrames++;
-   if(u->o.position.x==end.x && u->o.position.y==end.y && !Unit_IsMoving(u)) {frames++;break;}
+   if(u->o.position.x==end.x && u->o.position.y==end.y && !Unit_IsMoving(u)) {
+    if(cornerPending) {cornerPending=false;end=Tile_UnpackTile(cornerPacked);Unit_Server_SetAction(u,ACTION_MOVE);Unit_SetDestination(u,Tools_Index_Encode(cornerPacked,IT_TILE));}
+    else {frames++;break;}
+   }
   }
   if(frames>=20000) {fprintf(stderr,"FAILED %s %d phase%d pos%u,%u speed%u target%u action%u script%td delay%u\n",g_table_unitInfo[types[a]].o.name,length,phase,u->o.position.x,u->o.position.y,u->speed,u->targetMove,u->actionID,u->o.script.script-u->o.script.scriptInfo->start,u->o.script.delay);return 2;}
-  printf("%s,%d,%d,%d,%.9f,%u,%u,%u\n",g_table_unitInfo[types[a]].o.name,length,heading,phase,frames/60.0,frames,movingFrames,frames-movingFrames);
+  printf("%s,%d,%d,%d,%.9f,%u,%u,%u,%s\n",g_table_unitInfo[types[a]].o.name,length,heading,phase,frames/60.0,frames,movingFrames,frames-movingFrames,cases[scenario]);
  }
  return 0;
 }

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cstdlib>
 #include <data.h>
 #include <DataTypes.h>
 
@@ -41,5 +43,27 @@ inline int step(int item, int throttleValue, bool damaged, int cargoPercent) {
     if(item == Unit_Harvester) throttleValue = (255-cargoPercent)*throttleValue/256;
     int speed = factor(item)*throttleValue/256;
     return speed >= 16 ? (speed/16)*16 : speed;
+}
+// Unit_MovementTick/Tile_MoveByDirection/Unit_Move for one adjacent tile.
+// Each tile resets the accumulator; diagonal direction-table entry is 89.
+inline int movementTicks(int speed, bool diagonal) {
+    if(speed <= 0) return 0;
+    const int stride = speed < 16 ? 16 : speed;
+    const int increment = speed < 16 ? speed*16 : 256;
+    int remainder=0, position=0, previousDistance=32767;
+    for(int ticks=1; ticks<=4096; ++ticks) {
+        remainder += increment;
+        if(remainder < 256) continue;
+        remainder &= 255;
+        const int remaining = std::abs(256-position);
+        const int distance = diagonal ? remaining+remaining/2 : remaining;
+        const int step = std::min(stride, distance+16);
+        position += ((diagonal ? 89 : 127)*step+64)/128;
+        const int residual = std::abs(256-position);
+        const int newDistance = diagonal ? residual+residual/2 : residual;
+        if(newDistance < 16 || newDistance > previousDistance) return ticks;
+        previousDistance = newDistance;
+    }
+    return 0;
 }
 }

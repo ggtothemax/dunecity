@@ -284,6 +284,18 @@ protected:
     virtual void bumpyMovementOnRock(FixPoint fromDistanceX, FixPoint fromDistanceY, FixPoint toDistanceX, FixPoint toDistanceY);
 
     virtual void navigate();
+    bool usesDynastyGroundTiming() const;
+    bool turnDynastyBody(int wantedAngle);
+    bool beginDynastyStep(Uint64 routeTick);
+    bool moveDynastyStep();
+    virtual Coord movementEndpoint() const;
+    // Clock units are 1/3000 second: a legacy cycle is48, a Dynasty tick50.
+    // Persisted so saves and observer checkpoints continue mid-step exactly.
+    Uint64 dynastyRouteTick = 0;
+    Uint64 dynastyStepStart = 0, dynastyStepEnd = 0;
+    FixPoint dynastyStartX = 0, dynastyStartY = 0;
+    Coord dynastyEndpoint = Coord::Invalid();
+
 
     /**
         When the unit is currently idling this method is called about every 5 seconds.

@@ -174,8 +174,8 @@ void TankBase::turn() {
     FixPoint angleLeft = 0;
     FixPoint angleRight = 0;
 
-    if(!moving && !justStoppedMoving) {
-        if(nextSpotAngle != INVALID) {
+    if(!moving && (usesDynastyGroundTiming() || !justStoppedMoving)) {
+        if(nextSpotAngle != INVALID && !turnDynastyBody(nextSpotAngle)) {
             if(angle > nextSpotAngle) {
                 angleRight = angle - nextSpotAngle;
                 angleLeft = FixPoint::abs(8-angle) + nextSpotAngle;
@@ -184,7 +184,10 @@ void TankBase::turn() {
                 angleLeft = nextSpotAngle - angle;
             }
 
-            if(angleLeft <= angleRight) {
+            const FixPoint speed=currentGame->objectData.data[itemID][originalHouseID].turnspeed;
+            if(usesDynastyGroundTiming() && std::min(angleLeft,angleRight)<=speed) {
+                angle=nextSpotAngle; drawnAngle=nextSpotAngle;
+            } else if(angleLeft <= angleRight) {
                 turnLeft();
             } else {
                 turnRight();

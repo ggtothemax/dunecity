@@ -42,20 +42,30 @@ int runUnitSpeedProbe() {
     game->initializeGameLoop();
     const Coord site(25,15);
     std::ofstream csv(std::string(std::getenv("UNIT_SPEED_PROBE_OUT"))+"/"+mod+".csv");
-    csv << "unit,tiles,start_heading,phase,seconds,ticks,moving_ticks,stationary_ticks\n";
+    csv << "unit,tiles,start_heading,phase,seconds,ticks,moving_ticks,stationary_ticks,scenario\n";
     const std::pair<int,const char*> units[]={{Unit_Tank,"Tank"},{Unit_Trike,"Trike"},{Unit_RaiderTrike,"Raider Trike"},
         {Unit_Quad,"Quad"},{Unit_Harvester,"Harvester"},{Unit_Soldier,"Soldier"},{Unit_Trooper,"Trooper"},
         {Unit_Devastator,"Devastator"},{Unit_Launcher,"Launcher"},{Unit_SiegeTank,"Siege Tank"},
         {Unit_MCV,"MCV"},{Unit_Deviator,"Deviator"},{Unit_SonicTank,"Sonic Tank"},{Unit_Saboteur,"Saboteur"}};
-    for(const auto& entry : units) for(int tiles : {8,16}) for(int heading : {RIGHT,UP}) for(int phase=0;phase<5;++phase) {
-        for(int y=site.y-2;y<=site.y+2;++y) for(int x=site.x-2;x<=site.x+17;++x) {
-            auto* tile=currentGameMap->getTile(x,y); tile->setType(Terrain_Sand); tile->setRoad(false);
+    for(const std::string scenario : {"sand","diagonal","rock","dunes","spice","damaged","loaded","mountain","corner","slab"})
+    for(const auto& entry : units) for(int tiles : {8,16}) for(int heading : {RIGHT,UP}) for(int phase=0;phase<125;++phase) {
+        if(scenario!="sand" && tiles!=8) continue;
+        if(scenario=="loaded" && entry.first!=Unit_Harvester) continue;
+        if(scenario=="mountain" && entry.first!=Unit_Soldier && entry.first!=Unit_Trooper && entry.first!=Unit_Saboteur) continue;
+        const auto terrain=scenario=="rock"?Terrain_Rock:scenario=="dunes"?Terrain_Dunes:scenario=="spice"?Terrain_Spice:scenario=="mountain"?Terrain_Mountain:scenario=="slab"?Terrain_Slab:Terrain_Sand;
+        for(int y=site.y-2;y<=site.y+9;++y) for(int x=site.x-2;x<=site.x+17;++x) {
+            auto* tile=currentGameMap->getTile(x,y); tile->setType(terrain); tile->setRoad(false);
             require(!tile->hasAGroundObject(),"Route corridor is occupied");
         }
-        while(game->getGameCycleCount()%5 != static_cast<unsigned>(phase)) game->updateGameState();
+        while(game->getGameCycleCount()%125 != static_cast<unsigned>(phase)) game->updateGameState();
         auto* unit=owner->createUnit(entry.first,true);
-        unit->deploy(site); unit->angle=heading; unit->drawnAngle=heading;
-        const Coord end=site+Coord(tiles,0);
+        unit->deploy(site);
+        const int facing=scenario=="diagonal" ? (heading==RIGHT?RIGHTDOWN:RIGHTUP) : heading;
+        unit->angle=facing; unit->drawnAngle=facing;
+        if(scenario=="damaged") unit->setHealth(unit->getMaxHealth()/3);
+        if(scenario=="loaded") static_cast<Harvester*>(unit)->setAmountOfSpice(HARVESTERMAXSPICE);
+        bool cornerPending=scenario=="corner";
+        Coord end=site+Coord(cornerPending?4:tiles,scenario=="diagonal"?tiles:0);
         unit->doMove2Pos(end.x,end.y,true);
         int ticks=0,movingTicks=0;
         while((unit->location!=end || unit->moving) && ticks<20000) {
@@ -63,10 +73,14 @@ int runUnitSpeedProbe() {
             game->updateGameState();
             if(x!=unit->realX-unit->bumpyOffsetX || y!=unit->realY-unit->bumpyOffsetY) ++movingTicks;
             ++ticks;
+            if(cornerPending && unit->location==end && !unit->moving) {
+                cornerPending=false; end=site+Coord(4,4);
+                unit->doMove2Pos(end.x,end.y,true);
+            }
         }
         require(ticks<20000,"Route did not complete");
         csv << entry.second << ',' << tiles << ',' << (heading==RIGHT?0:90) << ',' << phase << ','
-            << ticks*0.016 << ',' << ticks << ',' << movingTicks << ',' << ticks-movingTicks << '\n';
+            << ticks*0.016 << ',' << ticks << ',' << movingTicks << ',' << ticks-movingTicks << ',' << scenario << '\n';
         unit->cancelDeployment();
     }
     csv.close();

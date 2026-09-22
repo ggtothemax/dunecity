@@ -1,3 +1,41 @@
+## 2026-09-22 — Ground route timing aligned (local 758)
+
+Completed issue67 follow-up: standard ground routes use Dynasty's15/60-second
+script retry cadence, movement-before-routing order, reset accumulator/arrival
+and diagonal-table timing, and exact heading completion on4/60-second rotation
+ticks. Positions interpolate smoothly, retaining infantry slots and rock wobble.
+Custom INI caps and city roads scale movement; nominal INI numbers remain correct.
+Zero-speed units do not reserve tiles. Mod-only units and flight handling retained.
+Source defaults document the new timing. Save9844 persists phase/deadlines/start/
+endpoint; old saves finish the current Legacy step. Protocol16 gates new behavior.
+
+Original Dynasty4469449c core plus UNIT.EMC reference:15,600 scenarios under
+ASan/UBSan, repeated for produced/scenario units identically. Production game
+loops run32,500 routes per mode (97,500 total), identical Vanilla/DuneCity/Dune2R.
+260 groups:8/16tile sand; diagonals; rock/dunes/spice/slabs/mountain foot units;
+damage; loaded harvesters;90degree starts; two-leg corner orders. Worst mean
+error0.593%, within2% acceptance. Details: docs/unit-route-comparison.md.
+
+CTest unit suite, menu, command, carryall and unit-speed probes pass. New route
+continuation probe checks4,320 exact post-save/observer frames, custom caps/roads,
+zero-speed occupancy and replacement commands. Reused command-probe profile had
+a stale Workshop selection after default-template refresh; fresh isolated profile
+passed. No user-profile reset. Full receipts: ../outputs/route-speed-alignment/.
+
+Built758; dependency/version audits and portable packaged runtime pass. Installed
+on MBA at /Applications/dunecity.app; all18 speed/turn INI values verified locally
+and remotely, with Dune2R inheriting shared rules. Saved game-speed preferences
+are unchanged (Vanilla4ms, city18ms, Dune2R16ms); compare at equal game speed.
+Prior757 preserved at /Applications/.dunecity-758-4ove7wuf/dunecity-previous.app.
+No push, PR or public release.
+
+Claude Max review completed after fixing the worker invocation: --project expects
+canonical slug dunecity, not checkout path. Memory service was healthy. Launcher
+now validates the slug and distinguishes invalid requests from connection failure
+(hermes-orchestration commit9ce8319). Claude flagged the zero-speed reservation
+edge, which was fixed and regression-tested. Other conditional concerns were
+checked against current caps, initialized save fields and complete observer loads.
+
 ## 2026-09-22 — Full-route timing comparison (no app change)
 
 Compared757 ground travel with Dynasty4469449c using unmodified production
