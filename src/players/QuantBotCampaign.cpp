@@ -21,11 +21,10 @@
 #include <dunecity/CityStructurePopulation.h>
 
 int QuantBot::getCityPopulationLimit(int mapArea) const {
-    if(!currentGame || !currentGame->isCitySimEnabled() || supportMode
+    if(!currentGame || !currentGame->isCitySimEnabled()
        || gameMode != GameMode::Custom || isCampaignGameType(currentGame->gameType)) return 0;
-    // A co-op helper cannot impose an AI limit on a human-controlled house.
-    for(const auto& player : getHouse()->getPlayerList())
-        if(dynamic_cast<const HumanPlayer*>(player.get())) return 0;
+    // All custom-game QuantBots share the same difficulty ceiling, including
+    // helpers in a human-controlled house and support-mode controllers.
     return std::max(0, QuantBotCityPolicy::populationLimit(static_cast<int>(difficulty),mapArea));
 }
 

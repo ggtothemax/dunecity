@@ -1,3 +1,30 @@
+## 2026-09-22 — Restore missing shared-helper population ceiling on758
+
+Fresh ai-audit.dls from the running MBA758 game has Fremen238440 population,
+Neutral120000 and Rebels118840. Detailed telemetry had reached its capture
+limit at19:22, so current statistics were recovered from the19:35 save using
+matching758 source and its pinned mod, without advancing simulation cycles.
+Full per-unit statistics: ../outputs/live-game-20260922/report.md.
+
+The758 branch omitted the earlier fbbc3ce1 fix: getCityPopulationLimit returned
+zero for every human-shared or support-mode QuantBot. Ported only its population
+policy, comments and regression probe; preserved758 version/network metadata.
+Shared helpers now apply their difficulty ceiling to their own construction;
+human commands and natural shared-city growth remain unrestricted. Campaign
+and unlimited difficulties preserve existing policy. Existing orders may finish.
+
+Expanded actual build/growth tests to Hard as well as Easy/Medium. CTest unit
+suite and quantbot_custom_attack pass; the latter checks helper refusal, actual
+human orders and natural growth, with Brutal positive control. A separate load
+of Stefan's actual save confirms the Hard Fremen helper reports120000 and adds
+no population-bearing orders at238440. Receipts: /tmp/dunecity-live-audit/
+cap-ctest.log and fixed-save-test.log (SAVED_FREMEN_CAP_PASS).
+
+Source fix only on fix/helper-population-cap-758; no publish/install. Include
+this change alongside the other pending fixes before the next release, bumping
+app/network compatibility for changed lockstep AI decisions. Never copy754's
+old version/protocol metadata over the newer758 branch.
+
 ## 2026-09-22 — Ground route timing aligned (local 758)
 
 Completed issue67 follow-up: standard ground routes use Dynasty's15/60-second
