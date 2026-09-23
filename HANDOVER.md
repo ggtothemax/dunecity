@@ -1,3 +1,34 @@
+## 2026-09-24 — Compact city scenarios (local, unreleased)
+
+Branch `feat/compact-city-scenarios`, worktree `dunecity-city-scenarios`.
+Three standalone single-player Atreides maps: Sihaya Basin (60-minute conquest),
+Ash Quarter (damaged city recovery), Coriolis Gap (contested mountain corridor).
+Micropolis Dullsville, Detroit/Hamburg and Bern inspired the mission problems;
+existing DuneCity scenarios/campaign formats supplied supported mechanics.
+Briefings and proposed campaign order: `docs/city-scenarios.md`. Not wired into
+the campaign menu. SimCity is repacked into compact mixed neighbourhoods.
+
+Dune infrastructure contributes its actual R/C/I role. Silos, construction yards
+and starports provide industrial destinations without industrial pollution.
+Local trade works on both sides of Coriolis's tactical blockade. Removed the
+fixed 500-population win condition after real-engine probes showed it winning
+these prebuilt cities within seconds. No engine/protocol/version changes.
+
+Both generators reproduce byte-identical maps; structural validation passes.
+Native build, dependency audit, core CTest and signed-bundle verification pass.
+Real-engine initial traffic routes: Sihaya 237/237, Ash 315/315, Coriolis 432/432,
+SimCity 1222/1222 (original SimCity 487/1087). All three new maps ran 12 simulated
+minutes with no human/helper orders against Medium QuantBots; SimCity ran five.
+No map-loader warnings. These are one-seed opening smoke checks, not full human
+balance or victory playtests. Ash's missing police coverage is intentional.
+
+Installed copies in this host's Dune City `maps/singleplayer` user directory and
+in `build/bin/dunecity.app`. Evidence and downloadable map pack live in
+`../outputs/city-scenarios/`. Claude Max supplied generators/maps/validator;
+Codex reviewed real mechanics, corrected objectives and Coriolis local supply,
+unified the player house, verified the maps and integrated locally. No push,
+PR, campaign registration or release performed.
+
 ## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
 
 Follow-up to the live 763 budget complaint. Version 1.0.764, protocol 22;
