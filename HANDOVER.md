@@ -8656,3 +8656,36 @@ The 2026-09-18 all-assets test deployment synchronized 20 packages (16 zones and
 Android builds completed from that package tree; the Android APK assembled as
 version 0.2.26 with DuneCity payload 1.0.708. ADB had no authorized device at the
 end of the run, so installation was skipped without invalidating either build.
+
+## 2026-09-23 — Metaserver map library (local 1.0.765)
+
+Adds a Metaserver Maps tab to the custom-game chooser, combined mod/size/player
+filters for local and remote maps, preview/download and version/mod details.
+Workshop list retains its old wire response; catalogue=maps adds validated map
+metadata and latest-revision/file deduplication. The private service maps folder
+holds immutable INIs plus JSON metadata for later release curation. Map names
+and installed filenames remain stable; revision numbers live in metadata.
+Editor saves write BASIC.Mod and BASIC.MapVersion without repurposing format
+BASIC.Version. Standard approved mods no longer bypass background map collection;
+online hosted maps, including room sessions, use the durable publication outbox.
+The map seeder inventories bundled/custom profile maps and reuses verified mod
+snapshots. No saves or replay command streams are seeded.
+
+Implementation/check evidence lives in ../outputs/metaserver-maps. Claude supplied
+the bounded server catalogue patch; Codex reviewed it, completed sidecars and tests,
+and implemented/reviewed client metadata, filters, uploads and seed preparation.
+
+Follow-up: the user-facing Workshop hub is removed. Editors opens the map, mod
+and asset editors directly; maps/mods have metaserver loaders, and editor saves
+can upload the exact saved revision. The internal immutable content wire/cache
+format stays compatible. Map editor loading confirms unsaved edits before changing
+the active mod, then rebuilds the editor palette after input callbacks return.
+Its unit palette scrolls to fit the metaserver controls at 640x480.
+
+The website service source is deployed from dunelegacy.com commit 157d8f9;
+map metadata cache schema 2 includes Rebels, custom houses and Player7-12.
+Live verification found all 127 seeded distinct maps in a 139-map catalogue.
+Alkozeltser 4 Cities matches DuneCity / 256x256 / 6 players. Its local Air copy
+now has explicit Mod/MapVersion metadata, with the original backed up beside it.
+Native menu probes pass 640x480, 854x480 and 1280x720; the content service has
+25 passing integration tests including cached player-count migration.

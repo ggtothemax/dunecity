@@ -13,6 +13,7 @@ public:
     void publish(const Revision& revision, bool promoted = true);
     void download(const std::string& hash);
     void browse(const std::string& kind = {}, unsigned cursor = 0);
+    void browseMaps(unsigned cursor = 0);
     void update();
     void cancel();
     Status status() const;

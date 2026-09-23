@@ -159,6 +159,9 @@ public:
         return players;
     }
 
+    void requestInterfaceRefresh() { refreshInterface = true; }
+    void refreshInterfaceIfNeeded();
+
     void informPlayersChanged() { pInterface->onHouseChanges(); };
 
     void setMirrorMode(MirrorMode newMirrorMode);
@@ -290,6 +293,7 @@ private:
     void saveMapshot();
 
 private:
+    bool refreshInterface = false;
     std::unique_ptr<MapEditorInterface> pInterface;     ///< This is the whole interface (top bar and side bar)
 
     CursorManager                   cursorManager;      ///< This manages all hardware cursors

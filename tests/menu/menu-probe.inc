@@ -24,7 +24,7 @@
 #include <FileClasses/LoadSavePNG.h>
 #include <players/PlayerFactory.h>
 
-namespace Workshop { std::unique_ptr<MenuBase> createCommunityMenu(bool online); }
+namespace Workshop { std::unique_ptr<MenuBase> createMetaserverMenu(const std::string& kind, bool online); }
 std::unique_ptr<MenuBase> createExtrasMenu(bool workshop);
 
 void menuRequire(bool value, const char* message) {
@@ -41,7 +41,42 @@ void menuCapture(Window& menu, const std::string& name) {
     const auto path = std::string(std::getenv("MENU_PROBE_OUT"))+"/"+std::getenv("MENU_PROBE_WIDTH")+"-"+name+".bmp";
     menuRequire(SDL_SaveBMP(surface.get(),path.c_str())==0,"Screenshot write failed");
 }
+int runLiveMapCatalogueProbe() {
+    settings.network.relayUseDevelopmentEndpoint=false;
+    settings.general.playerName="Map catalogue tester";
+    ModManager::instance().setActiveMod("dunecity");
+    effectiveGameOptions=ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+    CustomPlaySetup setup;setup.mods=ModManager::instance().listModChoices();setup.rules=effectiveGameOptions;
+    CustomGameMenu browser(false,false,&setup);
+    browser.onMapTypeChange(5);
+    const auto deadline=SDL_GetTicks()+60000;
+    while(browser.loadingMaps && static_cast<Sint32>(deadline-SDL_GetTicks())>0){browser.update();SDL_Delay(10);}
+    menuRequire(!browser.loadingMaps && browser.mapEntries.size()>=127,"Live catalogue did not load seeded maps");
+    browser.mapModFilter.setSelectedItem(2);browser.mapSizeFilter.setSelectedItem(4);browser.mapPlayersFilter.setSelectedItem(6);browser.rebuildMapList();
+    int selected=-1;
+    for(int i=0;i<browser.mapList.getNumEntries();++i)if(browser.mapList.getEntry(i)=="Alkozeltser 4 Cities")selected=i;
+    menuRequire(selected>=0,"DuneCity/256/6-player filters lost Alkozeltser 4 Cities");
+    browser.mapList.setSelectedItem(selected);menuCapture(browser,"live-metaserver-maps");
+    auto& entry=browser.mapEntries[browser.visibleMaps[selected]];
+    Workshop::Client download;download.download(entry.revision.hash);
+    const auto downloadDeadline=SDL_GetTicks()+600000;
+    while(download.status()==Workshop::Client::Status::Busy && static_cast<Sint32>(downloadDeadline-SDL_GetTicks())>0){download.update();SDL_Delay(5);}
+    SDL_Log("LIVE_MAP_DOWNLOAD: %s",download.message().c_str());
+    menuRequire(download.status()==Workshop::Client::Status::Succeeded,"Live map/dependency download failed");
+    menuRequire(browser.prepareSelectedMap(),"Downloaded map could not be selected");
+    browser.onMapListSelectionChange(true);menuCapture(browser,"live-metaserver-preview");
+    menuRequire(std::filesystem::path(browser.getSelectedMapPath()).filename()=="Alkozeltser 4 Cities.ini","Map download changed the name");
+    browser.onNext();menuRequire(browser.retVal==MENU_SETUP_PLAYERS,"Metaserver selection did not reach player setup");
+    auto path=setup.maps[setup.map];
+    GameInitSettings init(getBasename(path,true),readCompleteFile(path),false,setup.rules);
+    menuRequire(WorkshopGameContent::applyMapDependency(path,init),"Downloaded map lost its mod dependency");
+    menuRequire(ModManager::instance().getContentBase(ModManager::instance().getActiveModName())=="dunecity","Downloaded city map activated the wrong mod");
+    SDL_Log("MENU_PROBE_PASS: live catalogue, combined filters, verified map/mod download, stable name, preview and player setup");
+    return MENU_QUIT_DEFAULT;
+}
+
 int runMenuProbe() {
+    if(std::getenv("MENU_LIVE_MAPS"))return runLiveMapCatalogueProbe();
     menuRequire(getRendererWidth()==std::atoi(std::getenv("MENU_PROBE_WIDTH"))
                 && getRendererHeight()==std::atoi(std::getenv("MENU_PROBE_HEIGHT")),
                 "Probe did not render at the requested dimensions");
@@ -292,7 +327,7 @@ int runMenuProbe() {
         MainMenu menu;
         menuRequire(menu.campaignButton.isVisible() && menu.customButton.isVisible() && menu.onlineButton.isVisible(), "Home play actions missing");
         menuRequire(!menu.displayButton.isVisible(),"Duplicate Display entry remains");
-        menuRequire(menu.workshopButton.isVisible() && menu.workshopButton.getText()=="Workshop"
+        menuRequire(menu.editorsButton.isVisible() && menu.editorsButton.getText()=="Editors"
             && menu.modesButton.getText()=="Extras", "Workshop and Extras destinations are not distinct");
         menuRequire(!menu.campaignButton.keyboardFocusVisible,"Home shows unsolicited keyboard focus");
         menuCapture(menu,"home");
@@ -300,7 +335,7 @@ int runMenuProbe() {
         menuCapture(menu,"home-continue");
         menu.canContinue=false; menu.refreshContextButtons();
         SDL_Event tab{}; tab.type=SDL_KEYDOWN; tab.key.keysym.sym=SDLK_TAB;
-        std::vector<TextButton*> tabOrder{&menu.campaignButton,&menu.customButton,&menu.loadButton,&menu.optionsButton,&menu.workshopButton,&menu.modesButton,&menu.quitButton};
+        std::vector<TextButton*> tabOrder{&menu.campaignButton,&menu.customButton,&menu.loadButton,&menu.optionsButton,&menu.editorsButton,&menu.modesButton,&menu.quitButton};
 #if defined(DUNECITY_DESKTOP_UPDATER)
         tabOrder.push_back(&menu.updateButton);
 #endif
@@ -401,6 +436,38 @@ int runMenuProbe() {
         menuRequire(browser.retVal == MENU_SETUP_PLAYERS, "Map selection did not proceed to players");
         menuRequire(!mapSetup.allowJoinAfterStart,"Late join opt-out was lost");
         menuRequire(mapSetup.online == online && mapSetup.map == setup.map, "Map browser changed mode or map");
+    }
+    {
+        CustomGameMenu browser(false,false,&setup);
+        browser.onMapTypeChange(5);browser.mapClient.cancel();browser.loadingMaps=false;
+        browser.mapEntries.clear();
+        CustomGameMenu::MapEntry city;city.metadata.name="Alkozeltser 4 Cities";
+        city.metadata.mod="dunecity";city.metadata.width=city.metadata.height=256;city.metadata.players=6;city.metadata.version=3;
+        CustomGameMenu::MapEntry legacy;legacy.metadata.name="Small dunes";
+        legacy.metadata.mod="vanilla";legacy.metadata.width=legacy.metadata.height=64;legacy.metadata.players=2;legacy.metadata.version=1;
+        browser.mapEntries={city,legacy};browser.rebuildMapList();
+        menuRequire(browser.mapList.getNumEntries()==2,"Metaserver maps were not listed");
+        menuRequire(browser.mapList.getEntry(0)=="Alkozeltser 4 Cities","Map name contains revision suffix");
+        menuRequire(browser.mapPropertyVersion.getText()=="3","Map revision metadata missing");
+        browser.mapModFilter.setSelectedItem(2);browser.mapSizeFilter.setSelectedItem(4);browser.mapPlayersFilter.setSelectedItem(6);browser.rebuildMapList();
+        menuRequire(browser.mapList.getNumEntries()==1,"Combined map filters dropped a matching map");
+        menuCapture(browser,"metaserver-maps");
+        browser.mapPlayersFilter.setSelectedItem(2);browser.rebuildMapList();
+        menuRequire(browser.mapList.getNumEntries()==0&&!browser.nextButton.isEnabled(),"Empty filter result can start a stale map");
+    }
+    {
+        const auto file=setup.maps.front();
+        ModManager::instance().setActiveMod("vanilla");
+        GameInitSettings hosted(getBasename(file,true),readCompleteFile(file),"Map collection test",false,setup.rules);
+        WorkshopGameContent::pin(hosted,false,true);
+        menuRequire(!hosted.getMapRevisionHash().empty(),"Approved hosted map was not captured");
+        menuRequire(std::filesystem::exists(Workshop::store().root()/"outbox"/hosted.getMapRevisionHash()),"Approved online map was not queued for collection");
+        auto r=Workshop::store().get(hosted.getMapRevisionHash());
+        auto installed=Workshop::installMap(r);
+        menuRequire(std::filesystem::path(installed).stem().string()==r.name,"Downloaded map name gained a version suffix");
+        INIFile pointer(installed+".workshop.ini");
+        menuRequire(pointer.getIntValue("Workshop","Version",0)==static_cast<int>(r.version),"Downloaded map revision is not metadata");
+        menuRequire(pointer.getStringValue("Workshop","Mod","")=="vanilla","Downloaded map has no mod flag");
     }
     const auto map = setup.maps.front();
     GameInitSettings init(getBasename(map,true),readCompleteFile(map),false,setup.rules);
@@ -783,21 +850,21 @@ int runMenuProbe() {
         std::vector<std::string> buttons, descriptions;
         for(const auto& data : layout->containedWidgets) {
             menuRequire(data.position.x>=0 && data.position.y>=0 && data.position.x+data.size.x<=menu->getSize().x
-                && data.position.y+data.size.y<=menu->getSize().y, "Workshop/Extras control extends outside the screen");
+                && data.position.y+data.size.y<=menu->getSize().y, "Editors/Extras control extends outside the screen");
             if(auto* button = dynamic_cast<TextButton*>(data.pWidget)) buttons.push_back(button->getText());
             if(auto* label = dynamic_cast<Label*>(data.pWidget)) {
-                menuRequire(label->isVisible(), "Workshop supporting text is hidden");
-                if(label->getText() != "Workshop" && label->getText() != "Extras") descriptions.push_back(label->getText());
+                menuRequire(label->isVisible(), "Editors supporting text is hidden");
+                if(label->getText() != "Editors" && label->getText() != "Extras") descriptions.push_back(label->getText());
             }
         }
         if(workshop) {
-            menuRequire(buttons==std::vector<std::string>{"Map Editor","Mod Editor","Asset Editors","Community Maps & Mods","Back"},
-                        "Workshop destinations changed or a mod activation destination remains");
-            menuRequire(descriptions.size()==4 && descriptions.back()=="Browse, download and share maps and mods with other players.",
-                        "Workshop supporting descriptions are missing");
+            menuRequire(buttons==std::vector<std::string>{"Map Editor","Mod Editor","Asset Editors","Back"},
+                        "Editor destinations changed or a mod activation destination remains");
+            menuRequire(descriptions.size()==3,
+                        "Editors supporting descriptions are missing");
         } else menuRequire(buttons==std::vector<std::string>{"Replays","How to Play","About & Credits","Back"},
                            "Extras contains editor or mod activation destinations");
-        menuCapture(*menu,workshop ? "workshop" : "extras");
+        menuCapture(*menu,workshop ? "editors" : "extras");
     }
     { AboutMenu menu;menuCapture(menu,"about"); }
     { HowToPlayMenu menu;menuCapture(menu,"help"); }
@@ -816,6 +883,15 @@ int runMenuProbe() {
         auto& ui = *editor.pInterface;
         while(ui.hasChildWindow()) { ui.closeChildWindow(); ui.processChildWindowOpenCloses(); }
         editor.setMap(MapData(64,64,Terrain_Rock), MapInfo());
+        for(auto* button:{&ui.metaserverSaveButton,&ui.metaserverLoadButton}) {
+            const auto pos=ui.windowWidget.getWidgetPosition(button);
+            menuRequire(pos.x>=0 && pos.x+button->getSize().x<=getRendererWidth(),"Editor metaserver action exceeds screen width");
+            menuRequire(button->getSize().x>=button->getMinimumSize().x,"Editor metaserver action label is clipped");
+        }
+        ui.onModeButton(3);
+        ui.editorModeUnits_ScrollView.scrollbar.setCurrentValue(10000);
+        menuRequire(ui.editorModeUnits_ScrollView.getSize().y>0,"Unit palette lost its scroll viewport");
+        menuCapture(ui,"editor-units-"+mod);
         ui.onModeButton(2);
         menuRequire(ui.cityStructsVisible_ == (mod == "dunecity"), "City palette has wrong mod gating");
         menuRequire((ui.editorModeStructs_HBoxCityCivic.getParent() != nullptr) == (mod == "dunecity"),
@@ -864,6 +940,11 @@ int runMenuProbe() {
         SDL_ClearError();
         editor.drawMap(screenborder, false);
         menuRequire(SDL_GetError()[0] == '\0', "Editor city map rendering failed");
+        ui.loadMetaserverMap(path);
+        menuRequire(editor.refreshInterface,"Loading a map did not request its mod palette");
+        editor.refreshInterfaceIfNeeded();
+        menuRequire(editor.pInterface->cityStructsVisible_ && editor.getStructureList().size()==8,
+                    "Loading a map lost city palette or structures");
     }
     ModManager::instance().setActiveMod("vanilla");
     { ModMenu menu(ModMenu::Purpose::MapEditor); menuCapture(menu,"map-working-mod"); }
@@ -1033,48 +1114,20 @@ int runMenuProbe() {
                     "Rejected LAN replacement damaged the verified local revision");
         SDL_Log("MENU_PROBE_LAN_REVISION_PASS: offline full-package import and asset tamper rejection");
     }
-    {
-        char mapPath[FILENAME_MAX];
-        menuRequire(fnkdat("maps/multiplayer/Workshop-legacy-probe.ini", mapPath, sizeof(mapPath), FNKDAT_USER|FNKDAT_CREAT)==0,
-                    "Cannot prepare local-map browser fixture");
-        { std::ofstream map(mapPath); map << "[BASIC]\nVersion=2\nAuthor=Menu probe\n"; }
-        auto menu = Workshop::createCommunityMenu(false);
-        auto* layout = dynamic_cast<StaticContainer*>(menu->getWindowWidget());
-        menuRequire(layout != nullptr, "Community library has no inspectable layout");
-        DropDownBox *source = nullptr, *requiredMod = nullptr;
-        TextButton* action = nullptr;
-        ListBox* maps = nullptr;
-        for(const auto& data : layout->containedWidgets) {
+    for(const std::string kind : {"map", "mod"}) {
+        auto menu=Workshop::createMetaserverMenu(kind,false);
+        auto* layout=dynamic_cast<StaticContainer*>(menu->getWindowWidget());
+        menuRequire(layout!=nullptr,"Metaserver loader has no layout");
+        bool load=false;
+        for(const auto& data:layout->containedWidgets) {
             menuRequire(data.position.x>=0 && data.position.y>=0 && data.position.x+data.size.x<=menu->getSize().x
-                && data.position.y+data.size.y<=menu->getSize().y, "Community control extends outside the screen");
-            if(auto* dropdown = dynamic_cast<DropDownBox*>(data.pWidget)) {
-                if(dropdown->getNumEntries()>0 && dropdown->getEntry(0)=="Community downloads") source=dropdown;
-                if(dropdown->getNumEntries()>0 && dropdown->getEntry(0)=="Choose required mod...") requiredMod=dropdown;
-            }
-            if(auto* button = dynamic_cast<TextButton*>(data.pWidget))
-                if(button->getText()=="Share Version") action=button;
-            if(auto* list = dynamic_cast<ListBox*>(data.pWidget)) maps=list;
-        }
-        menuRequire(source && requiredMod && action && maps, "Community browser controls are missing");
-        menuCapture(*menu,"community-saved-versions");
-        source->setSelectedItem(3,true);
-        bool found=false;
-        for(int i=0; i<maps->getNumEntries(); ++i) {
-            if(maps->getEntry(i).find("Workshop-legacy-probe")!=std::string::npos) {
-                maps->setSelectedItem(i); found=true; break;
+                && data.position.y+data.size.y<=menu->getSize().y,"Metaserver control outside screen");
+            if(auto* button=dynamic_cast<TextButton*>(data.pWidget)) if(button->getText()=="Load") {
+                load=true; menuRequire(!button->isEnabled(),"Empty catalogue allows loading");
             }
         }
-        menuRequire(found && requiredMod->isVisible() && requiredMod->isEnabled(), "Legacy map has no required-mod selector");
-        menuRequire(requiredMod->getSelectedIndex()==0 && !action->isEnabled(), "Legacy map silently inherited the last active game mod");
-        menuCapture(*menu,"community-local-maps");
-        requiredMod->setSelectedItem(1);
-        menuRequire(action->isEnabled(), "Explicit required-mod choice did not enable sharing");
-        requiredMod->onOpenListBoxButton();
-        menuCapture(*menu,"community-map-mod-choice");
-        requiredMod->onOpenListBoxButton();
-        source->setSelectedItem(2,true); menuCapture(*menu,"community-installed-mods");
-        source->setSelectedItem(0,true); menuCapture(*menu,"community-offline");
-        std::filesystem::remove(mapPath);
+        menuRequire(load,"Metaserver load button missing");
+        menuCapture(*menu,"metaserver-"+kind+"-loader");
     }
     {
         // Receiving the first map must work before any editor or map browser has

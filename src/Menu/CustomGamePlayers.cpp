@@ -176,7 +176,7 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         publishBeforeSetup = pNetworkManager && !pNetworkManager->isRoomSession();
 #endif
         if(bServer) WorkshopGameContent::pin(gameInitSettings, publishBeforeSetup,
-            !publishBeforeSetup && (!pNetworkManager || !pNetworkManager->isRoomSession()));
+            !bLANServer);
         else if(pNetworkManager && pNetworkManager->supportsModTransfer()) {
             try { WorkshopGameContent::resolveMod(gameInitSettings, false); }
             catch(const std::exception&) {

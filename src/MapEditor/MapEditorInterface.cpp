@@ -51,6 +51,20 @@
 #include <misc/draw_util.h>
 #include <misc/SDL2pp.h>
 
+namespace {
+// Sidebar rows below the 132px radar. The mode chooser and the house drop down
+// are packed directly under the radar so the two metaserver buttons get a
+// full-width row each; the object pickers still start well above the bottom
+// bar at the minimum 640x480 resolution.
+constexpr int SidebarModeChooserY      = 134;
+constexpr int SidebarModeChooserHeight = 22;
+constexpr int SidebarHouseY            = 157;
+constexpr int SidebarHouseHeight       = 20;
+constexpr int SidebarMetaserverSaveY   = 178;
+constexpr int SidebarMetaserverLoadY   = 199;
+constexpr int SidebarMetaserverHeight  = 20;
+constexpr int SidebarPickerY           = 221;
+}
 
 MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
  : Window(0,0,0,0), pMapEditor(pMapEditor), radarView(pMapEditor) {
@@ -122,11 +136,6 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
     saveButton.setTooltipText(_("Save Map"));
     saveButton.setOnClick([this]() { onSave(); });
     topBarHBox.addWidget(&saveButton,24);
-    topBarHBox.addWidget(HSpacer::create(1));
-    shareButton.setText(_("Share"));
-    shareButton.setTooltipText(_("Save a map version and share it with the community"));
-    shareButton.setOnClick([this]() { onSave(true); });
-    topBarHBox.addWidget(&shareButton,48);
 
     topBarHBox.addWidget(HSpacer::create(3));
 
@@ -228,8 +237,8 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
 
     // add editor mode buttons
     windowWidget.addWidget( &editorModeChooserHBox,
-                            Point(getRendererWidth() - sideBar.getSize().x + 14, 148),
-                            Point(sideBar.getSize().x - 15,30));
+                            Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarModeChooserY),
+                            Point(sideBar.getSize().x - 15,SidebarModeChooserHeight));
 
     terrainButton.setText("T");
     terrainButton.setToggleButton(true);
@@ -253,8 +262,31 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
     // house choice
     houseDropDownBox.setOnSelectionChange(std::bind(&MapEditorInterface::onHouseDropDownChanged, this, std::placeholders::_1));
     windowWidget.addWidget( &houseDropDownBox,
-                            Point(getRendererWidth() - sideBar.getSize().x + 14, 179),
-                            Point(sideBar.getSize().x - 15,20));
+                            Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarHouseY),
+                            Point(sideBar.getSize().x - 15,SidebarHouseHeight));
+
+    // metaserver actions
+    const int sidebarButtonWidth = sideBar.getSize().x - 15;
+    // A clipped label is worse than a shorter one, so fall back when the sidebar
+    // column (or a translation) is too narrow for the full wording.
+    const auto setFittingText = [sidebarButtonWidth](TextButton& button, const std::string& text, const std::string& shortText) {
+        button.setText(text);
+        if(button.getMinimumSize().x > sidebarButtonWidth) button.setText(shortText);
+    };
+
+    setFittingText(metaserverSaveButton, _("Save to metaserver"), _("Save online"));
+    metaserverSaveButton.setTooltipText(_("Save a map version and publish that exact version to the metaserver"));
+    metaserverSaveButton.setOnClick([this]() { onSave(true); });
+    windowWidget.addWidget( &metaserverSaveButton,
+                            Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarMetaserverSaveY),
+                            Point(sidebarButtonWidth,SidebarMetaserverHeight));
+
+    setFittingText(metaserverLoadButton, _("Load from metaserver"), _("Load online"));
+    metaserverLoadButton.setTooltipText(_("Download a map published on the metaserver and open it here"));
+    metaserverLoadButton.setOnClick([this]() { onLoadFromMetaserver(); });
+    windowWidget.addWidget( &metaserverLoadButton,
+                            Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarMetaserverLoadY),
+                            Point(sidebarButtonWidth,SidebarMetaserverHeight));
 
     // setup terrain mode
 
@@ -671,7 +703,8 @@ MapEditorInterface::MapEditorInterface(MapEditor* pMapEditor)
     }
 
     // setup units mode
-    editorModeUnits_MainVBox.addWidget(&editorModeUnits_VBox, 0.01);
+    editorModeUnits_ScrollView.setContent(&editorModeUnits_VBox);
+    editorModeUnits_MainVBox.addWidget(&editorModeUnits_ScrollView, 1.0);
 
     editorModeUnits_VBox.addWidget(&editorModeUnits_HBox1, 2*D2_TILESIZE);
 
@@ -1084,14 +1117,24 @@ void MapEditorInterface::onChildWindowClose(Window* pChildWindow) {
                 if(share) Workshop::shareRevision(revision);
                 else openWindow(MsgBox::create(_("Saved map version ") + std::to_string(revision.version)));
             } catch(const std::exception& error) {
-                openWindow(MsgBox::create(std::string(saved ? _("Map saved, but sharing failed: ") : _("Map save failed: ")) + error.what()));
+                openWindow(MsgBox::create(std::string(saved ? _("Map saved, but uploading to the metaserver failed: ") : _("Map save failed: ")) + error.what()));
             }
         }
     }
 
     QstBox* pQstBox = dynamic_cast<QstBox*>(pChildWindow);
-    if(pQstBox != nullptr && pQstBox->getPressedButtonID() == QSTBOX_BUTTON1) {
-        pMapEditor->onQuit();
+    if(pQstBox != nullptr) {
+        // A pending metaserver map means this box asked about discarding unsaved
+        // changes before loading it, not about quitting the editor.
+        const std::string metaserverMap = pendingMetaserverMapPath;
+        pendingMetaserverMapPath.clear();
+        if(pQstBox->getPressedButtonID() == QSTBOX_BUTTON1) {
+            if(metaserverMap.empty()) {
+                pMapEditor->onQuit();
+            } else {
+                loadMetaserverMap(metaserverMap);
+            }
+        }
     }
 }
 
@@ -1155,6 +1198,45 @@ void MapEditorInterface::onSave(bool share) {
 
 void MapEditorInterface::onLoad() {
     openWindow(LoadMapWindow::create(color));
+}
+
+void MapEditorInterface::onLoadFromMetaserver() {
+    std::string mapPath;
+    try {
+        mapPath = Workshop::loadMapFromMetaserver();
+    } catch(const std::exception& error) {
+        openWindow(MsgBox::create(std::string(_("Could not load a map from the metaserver: ")) + error.what()));
+        return;
+    }
+
+    if(mapPath.empty()) {
+        // Nothing was chosen; the current map is untouched.
+        return;
+    }
+
+    if(pMapEditor->hasChangeSinceLastSave()) {
+        pendingMetaserverMapPath = mapPath;
+        QstBox* pQstBox = QstBox::create(_("Do you really want to load this map and lose unsaved changes to the current map?"), _("Yes"), _("No"));
+        pQstBox->setTextColor(color);
+        openWindow(pQstBox);
+        return;
+    }
+
+    loadMetaserverMap(mapPath);
+}
+
+void MapEditorInterface::loadMetaserverMap(const std::string& path) {
+    try {
+        const INIFile metadata(path + ".workshop.ini");
+        const auto revision=Workshop::store().get(metadata.getStringValue("Workshop", "Hash"));
+        if(!revision.modHash.empty() && !Workshop::activateModRevision(revision.modHash))
+            throw std::runtime_error("Could not load the required mod.");
+        effectiveGameOptions=ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+        pMapEditor->loadMap(path);
+        pMapEditor->requestInterfaceRefresh();
+    } catch(const std::exception& error) {
+        openWindow(MsgBox::create(std::string(_("Could not open the map: ")) + error.what()));
+    }
 }
 
 void MapEditorInterface::onPlayers() {
@@ -1225,28 +1307,28 @@ void MapEditorInterface::onModeButton(int button) {
             // add terrain mode
             if(pMapEditor->getMapVersion() < 2) {
                 windowWidget.addWidget( &editorModeClassicTerrain_MainVBox,
-                                        Point(getRendererWidth() - sideBar.getSize().x + 14, 200),
-                                        Point(sideBar.getSize().x - 14,getRendererHeight() - 200));
+                                        Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarPickerY),
+                                        Point(sideBar.getSize().x - 14,getRendererHeight() - SidebarPickerY));
             } else {
                 windowWidget.addWidget( &editorModeTerrainVBox,
-                                        Point(getRendererWidth() - sideBar.getSize().x + 14, 200),
-                                        Point(sideBar.getSize().x - 14,getRendererHeight() - 200));
+                                        Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarPickerY),
+                                        Point(sideBar.getSize().x - 14,getRendererHeight() - SidebarPickerY));
             }
         } break;
 
         case 2: {
             // add structs mode
             windowWidget.addWidget( &editorModeStructs_MainVBox,
-                                    Point(getRendererWidth() - sideBar.getSize().x + 14, 200),
-                                    Point(sideBar.getSize().x - 14,getRendererHeight() - 200));
+                                    Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarPickerY),
+                                    Point(sideBar.getSize().x - 14,getRendererHeight() - SidebarPickerY));
         } break;
 
 
         case 3: {
             // add units mode
             windowWidget.addWidget( &editorModeUnits_MainVBox,
-                                    Point(getRendererWidth() - sideBar.getSize().x + 14, 200),
-                                    Point(sideBar.getSize().x - 14,getRendererHeight() - 200));
+                                    Point(getRendererWidth() - sideBar.getSize().x + 14, SidebarPickerY),
+                                    Point(sideBar.getSize().x - 14,getRendererHeight() - SidebarPickerY));
         } break;
 
         default: {

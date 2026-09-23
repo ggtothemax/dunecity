@@ -43,7 +43,6 @@
 #include <misc/fnkdat.h>
 #include <mod/ModManager.h>
 #include <mod/ModInfo.h>
-#include <mod/Workshop.h>
 #include <config.h>
 
 #include <cstdio>
@@ -81,42 +80,40 @@ void writeFirstLaunchMarker() {
 
 class ModesMenu final : public MenuBase {
 public:
-    explicit ModesMenu(bool workshop = false) {
+    explicit ModesMenu(bool editors = false) {
         setBackground(pGFXManager->getUIGraphic(UI_MenuBackground));
         resize(getTextureSize(pGFXManager->getUIGraphic(UI_MenuBackground)));
         setWindowWidget(&content);
-        title.setText(workshop ? _("Workshop") : _("Extras"));
+        title.setText(editors ? _("Editors") : _("Extras"));
         title.setTextFontSize(22);
         title.setAlignment(Alignment_HCenter);
         const int width = std::min(560, getSize().x - 48);
         const int x = (getSize().x - width) / 2;
-        const int top = std::max(20, (getSize().y - (workshop ? 400 : 280)) / 2);
+        const int top = std::max(20, (getSize().y - (editors ? 330 : 280)) / 2);
         content.addWidget(&title, Point(x, top), Point(width, 36));
-        const char* workshopLabels[] = {"Map Editor", "Mod Editor", "Asset Editors", "Community Maps & Mods", "Back"};
+        const char* editorLabels[] = {"Map Editor", "Mod Editor", "Asset Editors", "Back"};
         const char* extraLabels[] = {"Replays", "How to Play", "About & Credits", "Back"};
         const char* descriptions[] = {
             "Create and edit maps using your chosen mod.",
             "Create mods and change units, buildings, rules and AI.",
-            "Preview Dune2R sprites and choose animation settings.",
-            "Browse, download and share maps and mods with other players."
+            "Preview Dune2R sprites and choose animation settings."
         };
-        const int count = workshop ? 5 : 4;
+        constexpr int count = 4;
         for(int i = 0; i < count; ++i) {
-            buttons[i].setText(_(workshop ? workshopLabels[i] : extraLabels[i]));
-            const int y = top + 48 + i * (workshop ? 69 : 48);
+            buttons[i].setText(_(editors ? editorLabels[i] : extraLabels[i]));
+            const int y = top + 48 + i * (editors ? 69 : 48);
             content.addWidget(&buttons[i], Point(x, y), Point(width, 32));
-            if(workshop && i < 4) {
+            if(editors && i < count - 1) {
                 descriptionsLabels[i].setText(_(descriptions[i]));
                 descriptionsLabels[i].setTextFontSize(12);
                 descriptionsLabels[i].setAlignment(Alignment_HCenter);
                 content.addWidget(&descriptionsLabels[i], Point(x, y + 34), Point(width, 28));
             }
         }
-        if(workshop) {
+        if(editors) {
             buttons[0].setOnClick([]() { ModMenu(ModMenu::Purpose::MapEditor).showMenu(); });
             buttons[1].setOnClick([]() { ModMenu().showMenu(); });
             buttons[2].setOnClick([]() { ModMenu(ModMenu::Purpose::AssetEditors).showMenu(); });
-            buttons[3].setOnClick([]() { Workshop::openCommunityMenu(); });
         } else {
             buttons[0].setOnClick([]() { showGameLibrary(true); });
             buttons[1].setOnClick([]() { HowToPlayMenu().showMenu(); });
@@ -128,13 +125,13 @@ public:
 private:
     StaticContainer content;
     Label title;
-    Label descriptionsLabels[4];
-    TextButton buttons[5];
+    Label descriptionsLabels[3];
+    TextButton buttons[4];
 };
 } // namespace
 
-std::unique_ptr<MenuBase> createExtrasMenu(bool workshop) {
-    return std::make_unique<ModesMenu>(workshop);
+std::unique_ptr<MenuBase> createExtrasMenu(bool editors) {
+    return std::make_unique<ModesMenu>(editors);
 }
 
 MainMenu::MainMenu()
@@ -161,8 +158,8 @@ MainMenu::MainMenu()
     loadButton.setOnClick([this]() { showGameLibrary(); canContinue = hasRecentGame(); });
     campaignButton.setText(_("Campaign"));
     campaignButton.setOnClick([this]() { SinglePlayerMenu::playCampaign(); canContinue = hasRecentGame(); });
-    workshopButton.setText(_("Workshop"));
-    workshopButton.setOnClick([]() { createExtrasMenu(true)->showMenu(); });
+    editorsButton.setText(_("Editors"));
+    editorsButton.setOnClick([]() { createExtrasMenu(true)->showMenu(); });
     modesButton.setText(_("Extras"));
     modesButton.setOnClick(std::bind(&MainMenu::onModes, this));
     dune2rEditorButton.setText("DUNE2R ASSETS");
@@ -211,7 +208,7 @@ MainMenu::MainMenu()
     }
     // Only visible destinations participate in keyboard navigation, in screen order.
     TextButton* allButtons[] = {&continueButton, &onlineButton, &campaignButton, &customButton,
-                                &loadButton, &optionsButton, &workshopButton, &modesButton, &quitButton};
+                                &loadButton, &optionsButton, &editorsButton, &modesButton, &quitButton};
     for(TextButton* button : allButtons) {
         button->setKeyboardFocusVisible(false);
         windowWidget.addWidget(button, Point(0, 0), Point(1, 1));
@@ -253,7 +250,7 @@ void MainMenu::handleInput(SDL_Event& event)
                        || event.type == SDL_MOUSEBUTTONDOWN)) {
         const bool keyboard = event.type == SDL_KEYDOWN;
         for(auto* button : {&continueButton, &onlineButton, &campaignButton, &customButton,
-                            &loadButton, &optionsButton, &workshopButton, &modesButton, &quitButton, &updateButton}) {
+                            &loadButton, &optionsButton, &editorsButton, &modesButton, &quitButton, &updateButton}) {
             button->setKeyboardFocusVisible(keyboard);
             if(keyboard) button->handleMouseMovement(-1,-1,false);
         }
@@ -354,7 +351,7 @@ void MainMenu::update()
     // Native updater dialogs run their own event loop. Keep all game-entry
     // actions disabled for that entire session, including keyboard activation.
     for (auto* button : {&continueButton, &onlineButton, &campaignButton, &customButton,
-                         &loadButton, &optionsButton, &workshopButton, &modesButton}) {
+                         &loadButton, &optionsButton, &editorsButton, &modesButton}) {
         button->setEnabled(!updater.busy() && (button != &continueButton || canContinue));
     }
     if (state == State::Restart) { quit(); return; }
@@ -450,7 +447,7 @@ void MainMenu::refreshContextButtons()
     continueButton.setEnabled(canContinue);
     std::vector<TextButton*> buttons;
     if(canContinue) buttons.push_back(&continueButton);
-    for(auto* button : {&onlineButton,&campaignButton,&customButton,&loadButton,&optionsButton,&workshopButton,&modesButton,&quitButton}) buttons.push_back(button);
+    for(auto* button : {&onlineButton,&campaignButton,&customButton,&loadButton,&optionsButton,&editorsButton,&modesButton,&quitButton}) buttons.push_back(button);
     const int width = enlargedStartMenus ? 320 : 280;
     const int x = (getSize().x-width)/2;
     const int top = std::max(132, (getSize().y-340)/2);

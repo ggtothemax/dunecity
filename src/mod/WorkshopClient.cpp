@@ -16,16 +16,16 @@ using Fields=std::map<std::string,std::string>;
 Fields fields(const std::string& body,std::vector<std::string>* items=nullptr) {
     Fields out;std::istringstream in(body);std::string line;
     while(std::getline(in,line)) {
-        const auto at=line.find('=');if(at==std::string::npos) throw std::runtime_error("The community service sent an invalid response.");
+        const auto at=line.find('=');if(at==std::string::npos) throw std::runtime_error("The metaserver sent an invalid response.");
         auto key=line.substr(0,at),value=line.substr(at+1);
         if(key=="item"&&items)items->push_back(value);
-        else if(!out.emplace(key,value).second)throw std::runtime_error("The community service repeated a response field.");
+        else if(!out.emplace(key,value).second)throw std::runtime_error("The metaserver repeated a response field.");
     }
     return out;
 }
 unsigned integer(const std::string& s) {
     if(s.empty()||s.size()>9||s.find_first_not_of("0123456789")!=std::string::npos)
-        throw std::runtime_error("The community service sent an invalid version.");
+        throw std::runtime_error("The metaserver sent an invalid version.");
     return static_cast<unsigned>(std::stoul(s));
 }
 bool digest(const std::string& s) { return s.size()==64&&s.find_first_not_of("0123456789abcdef")==std::string::npos; }
@@ -49,13 +49,13 @@ public:
     unsigned nextPage=0;
     size_t fileIndex=0;
     uint64_t offset=0,lastChunk=0;
-    bool promoted=true;
+    bool promoted=true, mapCatalogue=false;
     unsigned retries=0;
     Uint32 retryAt=0;
     BoundedHttpClient::Request lastRequest;
     ~Impl(){cancel();}
     void cancel(){http->cancel();if(!stage.empty()){std::error_code e;fs::remove_all(stage,e);stage.clear();}status=Status::Idle;}
-    void reset(){cancel();retries=0;retryAt=0;items.clear();publishQueue.clear();downloadQueue.clear();result={};current={};message.clear();nextPage=0;}
+    void reset(){cancel();retries=0;retryAt=0;items.clear();publishQueue.clear();downloadQueue.clear();result={};current={};message.clear();nextPage=0;mapCatalogue=false;}
     void send(Phase p,const std::string& route,const std::string& body) {
         phase=p;BoundedHttpClient::Request request;
         auto base=settings.network.activeDirectEndpoint();
@@ -64,7 +64,7 @@ public:
         else if(base.rfind("http://",0)==0)mapped="ws://"+base.substr(7);
         if(!mapped.empty()&&mapped.back()=='/')mapped.pop_back();
         if(!isAcceptableRelayUrl(mapped,settings.network.relayUseDevelopmentEndpoint,error))
-            throw std::runtime_error("The community server must use a secure HTTPS address.");
+            throw std::runtime_error("The metaserver must use a secure HTTPS address.");
         if(!base.empty()&&base.back()=='/')base.pop_back();
         request.url=base+"/v1/content/"+route;
         request.body=body;request.maxResponseBytes=BoundedHttpClient::kMaxResponseBytes;request.timeoutSeconds=60;
@@ -72,15 +72,15 @@ public:
     }
     void beginPublish() {
         current=publishQueue.front();publishQueue.pop_front();fileIndex=0;offset=0;
-        message="Sharing "+current.name+" v"+std::to_string(current.version)+"...";
+        message="Saving to metaserver: "+current.name+" (version "+std::to_string(current.version)+")"+"...";
         send(Phase::Begin,"begin","hash="+current.hash+"&manifest="+hex(current.manifest)+"&owner="+store().owner()
              +"&source="+(promoted?"manual":"host")+"&promoted="+(promoted?"1":"0"));
     }
     void published(unsigned version) {
-        if(!version)throw std::runtime_error("The community service did not assign a version.");
+        if(!version)throw std::runtime_error("The metaserver did not assign a version.");
         store().setSharedVersion(current.hash,version);current.version=version;result=current;
         if(!publishQueue.empty())beginPublish();
-        else {status=Status::Succeeded;message="Shared "+result.name+" v"+std::to_string(result.version)+".";WebRuntime::syncPersistentFiles();}
+        else {status=Status::Succeeded;message="Saved to metaserver: "+result.name+" (version "+std::to_string(result.version)+")"+".";WebRuntime::syncPersistentFiles();}
     }
     void sendChunk() {
         if(fileIndex==current.files.size()){send(Phase::Commit,"commit","upload="+upload);return;}
@@ -90,7 +90,7 @@ public:
         std::string data(n,'\0');in.read(data.data(),n);
         if(!in || static_cast<size_t>(in.gcount())!=n)throw std::runtime_error("The saved content could not be read.");
         lastChunk=n;
-        message="Sharing "+current.name+": file "+std::to_string(fileIndex+1)+"/"+std::to_string(current.files.size())
+        message="Saving to metaserver: "+current.name+": file "+std::to_string(fileIndex+1)+"/"+std::to_string(current.files.size())
                +" ("+std::to_string(offset/1024)+"/"+std::to_string(f.size/1024)+" KB)";
         send(Phase::Chunk,"chunk","upload="+upload+"&file="+f.hash+"&offset="+std::to_string(offset)+"&data="+hex(data));
     }
@@ -121,7 +121,7 @@ public:
             try {store().get(current.modHash);}catch(...) {downloadQueue.push_back(current.modHash);}
         }
         if(!downloadQueue.empty())beginDownload();
-        else{status=Status::Succeeded;message="Downloaded and verified "+result.name+" v"+std::to_string(result.version)+".";WebRuntime::syncPersistentFiles();}
+        else{status=Status::Succeeded;message="Downloaded and verified "+result.name+" (version "+std::to_string(result.version)+")"+".";WebRuntime::syncPersistentFiles();}
     }
     void update() {
         if(status!=Status::Busy)return;
@@ -132,15 +132,15 @@ public:
         http->update();BoundedHttpClient::Result response;if(!http->poll(response))return;
         if(response.httpStatus==429 && retries++<3) {
             retryAt=SDL_GetTicks()+61000;
-            message="The community server is busy. Resuming this transfer in a minute...";
+            message="The metaserver is busy. Resuming this transfer in a minute...";
             return;
         }
         retries=0;
         try {
-            if(!response.transportError.empty())throw std::runtime_error("Could not reach the community server. Saved versions are still available locally.");
+            if(!response.transportError.empty())throw std::runtime_error("Could not reach the metaserver. Saved versions are still available locally.");
             std::vector<std::string> rows;auto f=fields(response.body,&rows);
             if(response.httpStatus!=200||f["status"]!="ok") {
-                std::string error="The community server could not complete this request.";
+                std::string error="The metaserver could not complete this request.";
                 if(f.count("message")){try{error=unhex(f["message"]);}catch(...) {}}
                 throw std::runtime_error(error);
             }
@@ -170,9 +170,11 @@ public:
                 offset+=data.size();if(offset==current.files[fileIndex].size){++fileIndex;offset=0;}receiveBlob();break;
             }
             case Phase::List:
-                for(const auto& row:rows){auto p=split(row);if(p.size()!=7)throw std::runtime_error("Invalid community listing.");
+                for(const auto& row:rows){auto p=split(row);if((mapCatalogue && p.size()!=11)||(!mapCatalogue && p.size()!=7))throw std::runtime_error("Invalid metaserver listing.");
                     Revision r;r.kind=p[0];r.id=p[1];r.version=integer(p[2]);r.hash=p[3];r.name=unhex(p[4]);r.base=unhex(p[5]);r.modHash=p[6];
-                    if((r.kind!="map"&&r.kind!="mod")||!digest(r.hash)||r.name.size()>128)throw std::runtime_error("Invalid community item.");items.push_back(r);}
+                    if(p.size()==11){r.mapMod=unhex(p[7]);r.mapWidth=integer(p[8]);r.mapHeight=integer(p[9]);r.mapPlayers=integer(p[10]);
+                        if(r.mapMod.size()>128||r.mapWidth>2048||r.mapHeight>2048||r.mapPlayers>12)throw std::runtime_error("Invalid map metadata.");}
+                    if((r.kind!="map"&&r.kind!="mod")||!digest(r.hash)||r.name.size()>128)throw std::runtime_error("Invalid metaserver item.");items.push_back(r);}
                 nextPage=integer(f["next"]);status=Status::Succeeded;message=items.empty()?"No shared content yet.":"Select a version to download.";break;
             default:break;
             }
@@ -188,9 +190,13 @@ void Client::download(const std::string& hash){impl_->reset();impl_->wanted=hash
     if(!digest(hash)){impl_->status=Status::Failed;impl_->message="Invalid content checksum.";return;}
     try{impl_->downloadQueue.push_back(hash);impl_->beginDownload();}
     catch(const std::exception& e){impl_->status=Status::Failed;impl_->message=e.what();}}
+void Client::browseMaps(unsigned cursor){impl_->reset();impl_->mapCatalogue=true;
+    impl_->message="Loading metaserver maps...";
+    try{impl_->send(Impl::Phase::List,"list","catalogue=maps&kind=map&cursor="+std::to_string(cursor));}
+    catch(const std::exception& e){impl_->status=Status::Failed;impl_->message=e.what();}}
 void Client::browse(const std::string& kind,unsigned cursor){impl_->reset();
     if(!kind.empty()&&kind!="map"&&kind!="mod")return;
-    impl_->message="Loading community content...";
+    impl_->message="Loading from metaserver...";
     try{impl_->send(Impl::Phase::List,"list","kind="+kind+"&cursor="+std::to_string(cursor));}
     catch(const std::exception& e){impl_->status=Status::Failed;impl_->message=e.what();}}
 void Client::update(){impl_->update();}

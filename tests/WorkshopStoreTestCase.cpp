@@ -79,3 +79,27 @@ TEST_CASE("Workshop publication assigns server numbers without duplicate local v
     auto same=f.save();REQUIRE(same.hash==b.hash);REQUIRE(same.version==3);
     REQUIRE(f.store.owner()==f.store.owner());REQUIRE(f.store.owner().size()==64);
 }
+
+#include <INIMap/MapMetadata.h>
+TEST_CASE("Map catalogue separates format version from map revision and counts every slot", "[workshop][map-catalogue]") {
+    INIFile ini(false,std::string("metadata fixture"));
+    ini.setIntValue("BASIC","Version",2);
+    ini.setIntValue("BASIC","MapVersion",7);
+    ini.setStringValue("BASIC","Mod","DuneCity");
+    ini.setStringValue("BASIC","Name","Alkozeltser 4 Cities");
+    ini.setIntValue("MAP","SizeX",256);ini.setIntValue("MAP","SizeY",128);
+    ini.setIntValue("Rebels","Credits",1000);ini.setIntValue("Player12","Credits",1000);
+    auto m=MapMetadata::read(ini,"fallback");
+    REQUIRE(m.name=="Alkozeltser 4 Cities");REQUIRE(m.version==7);
+    REQUIRE(m.mod=="dunecity");REQUIRE(m.players==2);
+    REQUIRE(m.matches("dunecity",4,2));
+    REQUIRE_FALSE(m.matches("vanilla",4,2));REQUIRE_FALSE(m.matches("",3,2));REQUIRE_FALSE(m.matches("",0,6));
+}
+TEST_CASE("Untagged legacy maps retain their size without inventing revision or mod", "[workshop][map-catalogue]") {
+    INIFile ini(false,std::string("legacy fixture"));
+    ini.setIntValue("MAP","Seed",123);ini.setIntValue("BASIC","MapScale",0);
+    ini.setIntValue("BASIC","Version",1);
+    auto m=MapMetadata::read(ini,"Legacy map");
+    REQUIRE(m.width==62);REQUIRE(m.height==62);REQUIRE(m.version==0);REQUIRE(m.mod.empty());
+    REQUIRE(m.matches("unknown",1,0));REQUIRE_FALSE(m.matches("dunecity",0,0));
+}

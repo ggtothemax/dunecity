@@ -34,6 +34,8 @@ void atomicWrite(const fs::path& path,const std::string& data) {
 void pointer(const fs::path& path,const Revision& r,bool immutable=false) {
     INIFile ini(false, std::string("Workshop revision"));ini.setStringValue("Workshop","ID",r.id);
     ini.setIntValue("Workshop","Version",r.version);ini.setStringValue("Workshop","Hash",r.hash);
+    ini.setStringValue("Workshop","Name",r.name);
+    if(r.kind=="map"&&!r.modHash.empty()) ini.setStringValue("Workshop","Mod",store().get(r.modHash).base);
     ini.setStringValue("Workshop","Base",r.base);ini.setBoolValue("Workshop","Immutable",immutable);
     if(immutable && r.kind=="mod") ini.setStringValue("Workshop","Manifest",hex(r.manifest));
     const auto temp=path.string()+".tmp";
@@ -147,9 +149,19 @@ std::string installMap(const Revision& revision) {
     if(name.empty()||!ModTransferValidation::isPortablePathComponent(name)) name="Map";
     const auto directory=fs::path(userPath("maps/multiplayer"));
     fs::create_directories(directory); // fnkdat creates parents; a fresh profile has no final map folder.
-    const auto path=directory/(name.substr(0,60)+" - v"+std::to_string(r.version)+" - "+r.hash.substr(0,8)+".ini");
-    if(!fs::exists(path)) atomicWrite(path,readFile(fs::path(r.directory)/"map.ini"));
-    else if(Dune2RAssetManager::sha256File(path.string())!=r.files[0].hash) throw std::runtime_error("A different map occupies the download destination.");
+    auto path=directory/(name.substr(0,100)+".ini");
+    if(fs::exists(path)) {
+        INIFile meta(fs::exists(path.string()+".workshop.ini")?INIFile(path.string()+".workshop.ini"):INIFile(false,std::string("")));
+        if(meta.getStringValue("Workshop","ID","")!=r.id) path=directory/(name.substr(0,80)+" - "+r.id.substr(0,8)+".ini");
+    }
+    if(fs::exists(path) && Dune2RAssetManager::sha256File(path.string())!=r.files[0].hash) {
+        if(!fs::exists(path.string()+".workshop.ini")) throw std::runtime_error("A local map occupies the download destination.");
+        INIFile meta(path.string()+".workshop.ini");
+        auto old=store().get(meta.getStringValue("Workshop","Hash",""));
+        if(old.id!=r.id || Dune2RAssetManager::sha256File(path.string())!=old.files[0].hash)
+            throw std::runtime_error("The local map has edits. Save them under another name before downloading this revision.");
+    }
+    atomicWrite(path,readFile(fs::path(r.directory)/"map.ini"));
     pointer(path.string()+".workshop.ini",r,true);return path.string();
 }
 bool activateModRevision(const std::string& hash) {

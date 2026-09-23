@@ -206,11 +206,20 @@ void MapEditor::RunEditor() {
         int frameStart = SDL_GetTicks();
 
         processInput();
+        refreshInterfaceIfNeeded();
         drawScreen();
 
         // VSync is controlled via SDL_HINT_RENDER_VSYNC in main.cpp
         // No software frame limiting needed in map editor
     }
+}
+
+void MapEditor::refreshInterfaceIfNeeded() {
+    if(!refreshInterface) return;
+    refreshInterface=false;
+    // Defer destruction until the old interface's input callbacks have returned.
+    pInterface=std::make_unique<MapEditorInterface>(this);
+    pInterface->onNewMap();
 }
 
 void MapEditor::setMap(const MapData& mapdata, const MapInfo& newMapInfo) {
@@ -487,6 +496,8 @@ void MapEditor::saveMap(const std::string& filepath) {
         loadedINIFile = std::make_unique<INIFile>(false, comment);
     }
 
+    loadedINIFile->setStringValue("BASIC", "Mod", ModManager::instance().getContentBase(ModManager::instance().getActiveModName()));
+    loadedINIFile->setIntValue("BASIC", "MapVersion", loadedINIFile->getIntValue("BASIC", "MapVersion", 0)+1);
     int version = (mapInfo.mapSeed == INVALID) ? 2 : 1;
 
     if(version > 1) {
