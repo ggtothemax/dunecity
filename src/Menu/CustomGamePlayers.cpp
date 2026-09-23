@@ -223,9 +223,15 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         setupMapRow.addWidget(&setupBrowseMaps, 110);
         setupMapRow.addWidget(Label::create(_("Mod")), 40);
         for(size_t i = 0; i < setup->mods.size(); ++i) setupMod.addEntry(setup->mods[i].selectionLabel(), static_cast<int>(i));
-        setupMod.setEnabled(gameInitSettings.getMapRevisionHash().empty());
+        // A new custom game plays the mod the player picks, including for a downloaded map.
         setupMod.setSelectedItem(setup->mod);
-        setupMod.setOnSelectionChange([this](bool interactive) { if(interactive) { setup->mod = setupMod.getSelectedIndex(); rebuildSetup(false); } });
+        setupMod.setOnSelectionChange([this](bool interactive) {
+            if(!interactive) return;
+            setup->mod = setupMod.getSelectedIndex();
+            if(setup->mod >= 0 && setup->mod < static_cast<int>(setup->mods.size()))
+                rememberCustomGameMod(setup->mods[setup->mod].name);
+            rebuildSetup(false);
+        });
         setupMapRow.addWidget(&setupMod, 155);
         mainVBox.addWidget(&setupMapRow, 28);
         setupConnection.addEntry(_("Offline"), 0);

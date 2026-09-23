@@ -704,6 +704,7 @@ void OptionsMenu::saveConfiguration2File() {
     myINIFile.setBoolValue("General","Multiple Players Per House",settings.general.multiplePlayersPerHouse);
     myINIFile.setBoolValue("General","Campaign Online",settings.general.campaignOnline);
     myINIFile.setBoolValue("General","Custom Game Online",settings.general.customGameOnline);
+    myINIFile.setStringValue("General","Custom Game Mod",settings.general.customGameMod);
 
     myINIFile.setIntValue("Video","Physical Width",settings.video.physicalWidth);
     myINIFile.setIntValue("Video","Physical Height",settings.video.physicalHeight);

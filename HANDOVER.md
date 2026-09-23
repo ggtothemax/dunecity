@@ -1,3 +1,25 @@
+## 2026-09-24 — The selected mod owns a new custom game
+
+Same branch and worktree, on top of the connection-choice commit below.
+Picking a mod in custom-game setup is now the decision: choosing a map, browsing
+maps, pressing Next or backing out never changes it, and the choice is stored as
+`General/Custom Game Mod` so it survives reopening the setup and a restart. Mods
+activated automatically — by a save, a join or a campaign — do not overwrite it.
+`CustomGameMenu::prepareSelectedMap` no longer activates a map's authored mod;
+`playCustomGame` and `CustomGameMenu::onNext` use the new
+`WorkshopGameContent::applyMapRevisionForSelectedMod`, which reuses a downloaded
+map's authored revision only when it belongs to the selected mod and otherwise
+lets `pin()` capture the same bytes as a revision of that mod, leaving the
+authored revision immutable. The now-unused strict `applyMapDependency` was
+removed; saves and joins still resolve their exact pinned mod via `resolveMod`.
+The player-screen mod picker is enabled for downloaded maps too. This also fixes
+the report that starting a game with Dune City selected ran with MOD: VANILLA.
+The menu probe gained a regression for it (local and downloaded Vanilla map with
+Dune City selected: identity, city flag, setup mod, pin/resolve, reopen and the
+saved configuration). No gameplay, protocol, save-format or version changes.
+Unit suite and menu navigation probe passed; logs in
+`/tmp/dunecity-remember-play-mode/`. Browser runtime not exercised.
+
 ## 2026-09-24 — Remember campaign and custom-game connection choices
 
 Local branch `fix/remember-play-mode`, based on `224b4342` (1.0.769).
