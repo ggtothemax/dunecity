@@ -1,3 +1,33 @@
+## 2026-09-24 — Aircraft anti-air audit (tests only)
+
+Branch `investigate/aircraft-aa`, checkout `dunecity-aircraft-aa`, based on
+origin/main `224b4342`. No production combat change, version/protocol change,
+installation, push or release. User requested Dynasty comparison and simulations.
+
+Confirmed a cadence mismatch: shared rocket turret reload is 360 x 16 ms =
+5.76 s. Original Dynasty unit/structure loops with UNIT.EMC/BUILD.EMC measured
+2.667–2.750 s between stationary-target turret shots (30 damage in both).
+The existing 64-case attacking-ornithopter matrix yields 16 kills per mode;
+a test-only 170-cycle reload raises that to 24, with launchers unchanged at 15.
+All three modes agree. This suggests correcting cadence before changing HP or
+missile speed, but is not a validated balance change for ground combat.
+
+Original-engine reference: 91 cases with ASan/UBSan; actual attack scripts,
+controlled stationary/flyby aircraft, separate repeated-shot control. It also
+shows weak aircraft interception. Carryalls retain Dynasty's 100 HP and 15
+tiles/s versus 11.25 tiles/s turret missiles; no inflated-HP defect found.
+Native reference must not be presented as an exactly matched flight-controller
+benchmark. See `docs/dynasty-aircraft-reference.md` for measurements/reproduction.
+
+Claude Max prepared the additional powered-turret aircraft matrix; Codex reviewed
+fixture semantics, supplied original-engine reference/cadence sensitivity runs,
+and independently verified the existing mechanics/combat/continuation probes.
+The initial worker's run1/run2 mislabelled orbiting aircraft as stationary and
+failed to end flybys; those outputs are superseded and are not final evidence.
+See `docs/aircraft-aa-audit.md` for corrected motion/power/shot accounting.
+Artifacts: `../outputs/aircraft-aa/`. Native build, dependency audit, existing
+three projectile CTest probes and cadence experiment passed.
+
 ## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
 
 Follow-up to the live 763 budget complaint. Version 1.0.764, protocol 22;

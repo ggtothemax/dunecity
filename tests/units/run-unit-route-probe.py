@@ -20,9 +20,13 @@ parser.add_argument('--record-baseline', action='store_true')
 parser.add_argument('--projectile-trace', action='store_true', help='Trace missiles for comparison to original Dynasty')
 parser.add_argument('--projectile-continuation', action='store_true', help='Check in-flight save and observer restoration')
 parser.add_argument('--projectile-combat', action='store_true', help='Run full anti-air attack passes')
+parser.add_argument('--rocket-reload-cycles', type=int,
+                    help='Diagnostic combat-only turret reload override (shipped data is unchanged)')
 parser.add_argument('--projectiles', action='store_true', help='Audit projectile mechanics instead of ground routes')
 parser.add_argument('--continuation', action='store_true', help='Check exact mid-route save/observer continuation')
 args = parser.parse_args()
+if args.rocket_reload_cycles is not None and (not args.projectile_combat or not 1 <= args.rocket_reload_cycles <= 10000):
+    parser.error('--rocket-reload-cycles requires --projectile-combat and a value in 1..10000')
 build = args.build_dir.resolve()
 out = args.output_dir.resolve() if args.output_dir else Path(tempfile.mkdtemp(prefix='dunecity-unit-speed-probe-'))
 out.mkdir(parents=True, exist_ok=True)
@@ -74,6 +78,9 @@ for mod in ('vanilla', 'dunecity', 'Dune2R'):
                SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy',
                UNIT_SPEED_PROBE_MOD=mod, UNIT_SPEED_PROBE_OUT=str(out),
                UNIT_SPEED_PROBE_BASELINE='1' if args.record_baseline else '0')
+    env.pop('AA_RELOAD_CYCLES', None)
+    if args.rocket_reload_cycles is not None:
+        env['AA_RELOAD_CYCLES'] = str(args.rocket_reload_cycles)
     logfile = out / ('run-' + mod + '.log')
     with logfile.open('w') as log:
         subprocess.run([str(binary), '--window', '--showlog'], cwd=out, env=env,
