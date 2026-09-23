@@ -26,6 +26,48 @@ SYNC_SPEC.loader.exec_module(SYNC_MODULE)
 
 
 class DuneCitySkinPackagingTests(unittest.TestCase):
+    def test_industrial_powered_smoke_phases_are_packaged_as_active_animation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            asset_root = root / "dune2"
+            unit = asset_root / "units" / "dunecity_atreides_industrial_zone"
+            states = {}
+            for slot, color in [("d2_v1", 10)] + [(f"d2_v1_phase_{phase}", 10 + phase) for phase in range(1, 9)]:
+                compact = unit / "categories" / "building_idle" / "states" / slot / "processed.png"
+                compact.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGBA", (128, 128), (color, 20, 30, 255)).save(compact)
+                states[slot] = {"assets": {"processed": {"file": compact.relative_to(asset_root).as_posix()}}}
+            metadata = {
+                "target_game": "dunecity",
+                "slug": unit.name,
+                "asset_class": "industrial",
+                "dunecity": {
+                    "asset_class": "industrial",
+                    "compact_pixels_per_tile": 64,
+                    "zone_atlas": {"density_columns": 4, "value_tier_rows": 2},
+                },
+                "render_profile": {
+                    "logical_footprint_tiles": [2, 2],
+                    "compact_frame_pixels": [128, 128],
+                },
+                "categories": {"building_idle": {"states": states}},
+            }
+            (unit / "unit.json").write_text(json.dumps(metadata), encoding="utf-8")
+            output = root / "output"
+
+            self.assertEqual(MODULE.package(unit, output, 22, 1), 9)
+            manifest = configparser.ConfigParser()
+            manifest.optionxform = str
+            manifest.read(output / "zone.ini", encoding="ascii")
+            section = "Cell.2.1.Active"
+            self.assertEqual(manifest.getint(section, "Frames"), 8)
+            self.assertEqual(manifest.getint(section, "FrameMs"), 128)
+            self.assertTrue(manifest.getboolean(section, "Loop"))
+            self.assertEqual(manifest.get(section, "Atlas.7"), "atlases/active/d2_v1/07.png")
+            with Image.open(output / "atlases" / "active" / "d2_v1" / "07.png") as phase:
+                self.assertEqual(phase.size, (128, 128))
+                self.assertEqual(phase.getpixel((0, 0)), (18, 20, 30, 255))
+
     def test_high_detail_compact_keeps_pixels_and_logical_footprint(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

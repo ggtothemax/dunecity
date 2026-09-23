@@ -105,6 +105,47 @@ def package(source_unit: Path, output: Path, item_id: int, house_id: int) -> int
             }
             packaged += 1
 
+            # Industrial's native renderer advances eight powered smoke rows
+            # for every developed density/value cell.  Keep those authored
+            # frames separate from the static growth sprite so the engine can
+            # fall back to Idle until a complete, ordered phase chain exists.
+            if str(city.get("asset_class") or metadata.get("asset_class") or "").lower() == "industrial" and density > 0:
+                activity_states = [states.get(f"d{density}_v{value}_phase_{phase}", {}) for phase in range(1, 9)]
+                activity_paths = [
+                    _path
+                    for activity_state in activity_states
+                    if (_value := activity_state.get("assets", {}).get("processed", {}).get("file", ""))
+                    and (_path := asset_root / _value).is_file()
+                ]
+                if len(activity_paths) == 8:
+                    activity_section = f"Cell.{density}.{value}.Active"
+                    manifest[activity_section] = {
+                        "Frames": "8",
+                        "FrameMs": "128",
+                        "FrameWidth": str(target_size[0]),
+                        "FrameHeight": str(target_size[1]),
+                        "AnchorX": str(target_size[0] // 2),
+                        "AnchorY": str(target_size[1]),
+                        "Loop": "true",
+                        "AtlasCount": "8",
+                        "Fallback": "idle-growth-cell",
+                    }
+                    for phase_index, activity_path in enumerate(activity_paths):
+                        destination = Path("atlases") / "active" / slot / f"{phase_index:02d}.png"
+                        (output / destination).parent.mkdir(parents=True, exist_ok=True)
+                        with Image.open(activity_path) as source:
+                            compact = source.convert("RGBA")
+                            if compact.size != target_size:
+                                compact = compact.resize(target_size, Image.Resampling.LANCZOS)
+                            compact.save(output / destination, optimize=True)
+                        suffix = str(phase_index)
+                        manifest[activity_section][f"Atlas.{suffix}"] = destination.as_posix()
+                        manifest[activity_section][f"FirstFrame.{suffix}"] = str(phase_index)
+                        manifest[activity_section][f"ChunkFrames.{suffix}"] = "1"
+                        manifest[activity_section][f"Columns.{suffix}"] = "1"
+                        manifest[activity_section][f"Rows.{suffix}"] = "1"
+                        packaged += 1
+
     if packaged == 0:
         raise SystemExit("No accepted Compact density/value cells were eligible for packaging")
     text = io.StringIO()
