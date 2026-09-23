@@ -19,6 +19,7 @@ p.add_argument('--dynasty-dir', type=Path, required=True)
 p.add_argument('--reference-build-dir', type=Path, required=True)
 p.add_argument('--build-dir', type=Path, default=ROOT / 'build')
 p.add_argument('--output-dir', type=Path, required=True)
+p.add_argument('--reload', action='store_true', help='Measure turret and launcher firing intervals')
 a = p.parse_args()
 dd, ref, build, out = (x.resolve() for x in (a.dynasty_dir, a.reference_build_dir, a.build_dir, a.output_dir))
 out.mkdir(parents=True, exist_ok=True)
@@ -53,13 +54,17 @@ objects = sorted(str(x) for x in (ref / 'objects').glob('*.o') if x.name != 'dyn
 assert objects
 binary = out / 'dynasty-aircraft-reference'
 with (out / 'build.log').open('w') as log:
-    subprocess.run(['cc', *flags, str(ROOT / 'tests/units/dynasty-aircraft-reference.c'), *objects,
+    source = 'dynasty-reload-reference.c' if a.reload else 'dynasty-aircraft-reference.c'
+    subprocess.run(['cc', *flags, str(ROOT / 'tests/units' / source), *objects,
                     '-Wl,-dead_strip', '-lm', '-o', str(binary)], stdout=log, stderr=subprocess.STDOUT, check=True)
 with (out / 'encounters.csv').open('w') as results, (out / 'run.log').open('w') as log:
     subprocess.run([str(binary), str(out / 'UNIT.EMC'), str(out / 'BUILD.EMC'), str(out / 'shots.csv')],
                    stdout=results, stderr=log, check=True, timeout=120,
                    env=dict(os.environ, ASAN_OPTIONS='detect_leaks=0', UBSAN_OPTIONS='halt_on_error=1'))
 rows = list(csv.DictReader((out / 'encounters.csv').open()))
-assert len(rows) == 91
-assert all(r['outcome'] in ('escaped', 'killed') for r in rows if r['scenario'] == 'flyby')
+if a.reload:
+    assert len(rows) == 30 and all(int(r['shots']) >= 4 for r in rows)
+else:
+    assert len(rows) == 91
+    assert all(r['outcome'] in ('escaped', 'killed') for r in rows if r['scenario'] == 'flyby')
 print('Original Dynasty aircraft reference passed ASan/UBSan:', out / 'encounters.csv')

@@ -41,6 +41,13 @@ It does not prove that DuneCity's complete anti-air balance matches Dynasty.
 
 ## Measured firing cadence mismatch
 
+A subsequent [engine-aware reload recheck](weapon-reload-comparison.md) confirmed
+this turret interval over 120 seconds against both ground and air targets. It
+also found the opposite launcher discrepancy: DuneCity repeats a healthy pair
+every 5.76 s, Dynasty every 12.25–12.417 s. Do not generalize the turret result
+to all missile weapons.
+
+
 A separate stationary carryall control at eight tiles restores target health
 after each hit to measure repeated shots without ending the encounter.
 Original Dynasty turret shots occur at ticks 220, 380, 545, 710, 870 and 1035.

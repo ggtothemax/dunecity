@@ -1,3 +1,21 @@
+## 2026-09-24 — Reload timing rechecked across both engines
+
+Follow-up on aircraft audit. Confirmed actual steady turret missiles every
+5.760 s in DuneCity versus 2.667–2.750 s in original Dynasty. These include
+engine scheduling, not equal numeric counter assumptions. Launcher result is
+the opposite: healthy pairs every 5.760 s (0.240 s within pair) versus Dynasty
+12.250–12.417 s (0.250–0.333 s within pair). Damaged launchers fire singles;
+exact 50% HP boundary differs. See docs/weapon-reload-comparison.md.
+
+New timestamp controls run 30 cases × 120 seconds per engine (DuneCity replayed
+in all 3 modes); native ASan/UBSan and host shot/timer cross-checks passed.
+Both ground/air targets, three seeds, 100/50/33% launcher HP. Normal timebase
+verified in source: host 62.5 Hz, Dynasty 60 Hz with 20 Hz unit cooldown counters
+and 5-game-tick script scheduling. Shared gameplay values remain unchanged.
+Receipts: ../outputs/reload-doublecheck/. Claude's independent read-only source
+audit hit its 32-turn cap without a final report; Codex performed and verified
+the actual runtime measurements and timebase/source checks.
+
 ## 2026-09-24 — Aircraft anti-air audit (tests only)
 
 Branch `investigate/aircraft-aa`, checkout `dunecity-aircraft-aa`, based on

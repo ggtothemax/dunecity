@@ -39,6 +39,7 @@ static Structure *place_turret(int x, int y) {
     return s;
 }
 
+#ifndef DYNASTY_REFERENCE_HELPERS_ONLY
 int main(int argc, char **argv) {
     assert(argc == 4);
     load_emc(argv[1]);
@@ -134,3 +135,4 @@ int main(int argc, char **argv) {
     fclose(trace);
     return 0;
 }
+#endif
