@@ -8958,3 +8958,47 @@ Evidence: ../outputs/release-769/ (review.json, PR/release CI logs,
 published-verification.json, sourceforge.log, live-verification.json and website
 deployment log). This supersedes the prior local-only status. Existing clients
 need to install 1.0.769 before they gain the automatic update prompt.
+
+## 2026-09-23 — map copies, repair sidebar and silo priority (local 1.0.770)
+
+The custom-map chooser previously concatenated all four installed/user map
+directories without copy detection. Same-name, equivalent-content copies now
+collapse to the first stable path with the highest observed revision metadata.
+Files are untouched. BASIC gameplay rules (format, tech, win/loss flags, timeout,
+scale and unknown keys) remain part of identity; only explicit cosmetic/catalogue
+keys and Workshop bookkeeping are ignored. Effective map category/dependency
+also distinguish variants. Different terrain/units/buildings/rules remain listed.
+The actual MBA pair was not inspected; the duplicate mechanism was reproduced
+with real INI copies through the chooser on the mini.
+
+RepairYardInterface now stacks stats and a centred repair-unit progress portrait
+inside the sidebar. Shared city-stat text fits the actual font/column width using
+abbreviations and bounded fallback shortening. The live repair fixture checks
+both city and vanilla modes, including 640x480 and the normal 1024x768 profile;
+rendered portraits stay inside the right and bottom edges.
+
+QuantBot previously reached silos only after optional growth/defence choices, so
+a mature city could repeatedly fill its bank without increasing storage. Silos
+now receive early priority at 80 percent earned-storage usage, counting spice
+and tax income together. Preserve Stefan's correction: a heavy factory must
+exist first, and custom DuneCity also completes available high-tech/repair core
+buildings first. Queued silo/refinery capacity prevents duplicate yard orders.
+The 999999 ceiling stops further storage investment. Optional capital reserves
+cannot prevent an eligible yard from funding this storage purchase. Protocol25
+protects deterministic AI decisions; save format9846 is unchanged.
+
+Claude implemented the bounded UI patch/tests; Codex reviewed it, corrected BASIC
+rule/dependency identity, added minimum-window verification, and implemented the
+silo/protocol changes and real-order tests. Native build and dependency audits
+passed silently on claw.local. All31 CTest targets pass in aggregate: initial
+full run passed29; the two remaining fixture issues were corrected and passed
+a focused rerun. The 640-only repair check now exits before unrelated feedback
+button coordinates; policing fixtures use explicit starting funds instead of
+accidentally filling storage. Silo tests cover every difficulty in Vanilla and
+DuneCity, both income pools, core reconstruction priority, low usage, two yards
+and the hard ceiling. Menu probes pass640/854/1280. No MBA or audible tests.
+
+Source/local app1.0.770 is committed on fix/map-duplicates-repair-layout; not
+installed or deployed. Public release remains1.0.769. Evidence:
+../outputs/map-repair-770/ (Claude retry report, final-build.log, ai-tests.log,
+full-ctest.log and focused-rerun.log), build/command-probe/640/ and menu-probe/.

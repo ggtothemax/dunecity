@@ -47,6 +47,17 @@ void runOpeningEconomyProbe(Game& game) {
                 return order.itemID;
         return Uint32(NONE_ID);
     };
+    auto storageBuild=[&](int capacity,int stored,int city) {
+        clearOrders();
+        house->capacity=capacity;house->startingCredits=0;
+        house->storedCredits=stored;house->cityCredits=city;
+        house->producedPower=10000;bot->lastCalculatedSpice=1300000;
+        bot->build(5100);
+        for(const auto& order:yard->currentProductionQueue)
+            if(order.itemID!=Structure_Slab1 && order.itemID!=Structure_Slab4 && order.itemID!=Structure_Road)
+                return order.itemID;
+        return Uint32(NONE_ID);
+    };
     place(Structure_WindTrap);place(Structure_Refinery);
     require(build(100000)==Structure_LightFactory,"Rich empty-market opening failed to unlock factory before extra refineries");
     house->getChoam().addItem(Unit_Harvester,0); // Supported, temporarily sold out.
@@ -116,6 +127,49 @@ void runOpeningEconomyProbe(Game& game) {
     build(2000);game.gameCycleCount+=MILLI2CYCLES(11000);
     require(build(2000)==Structure_Refinery,"Distant blocked returners failed to fund additional unloading capacity");
     SDL_Log("REFINERY_QUEUE_PASS: full field returners trigger capacity before reaching the base");
+
+    // Mature bases must relieve a full earned-income bank before continuing
+    // optional expansion. Exercise the real order path at every difficulty.
+    const auto savedDifficulty=bot->difficulty;
+    for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+            QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal,QuantBot::Difficulty::Defend}) {
+        bot->difficulty=difficulty;
+        require(storageBuild(35025,35023,0)==Structure_Silo,"Near-full storage was starved by optional investment");
+        require(storageBuild(35025,10000,25023)==Structure_Silo,"City income was ignored by storage expansion");
+        require(storageBuild(35025,1000,0)!=Structure_Silo,"Low storage usage triggered a silo");
+        require(storageBuild(999999,999999,0)!=Structure_Silo,"Silos grew beyond the absolute credit ceiling");
+    }
+    bot->difficulty=savedDifficulty;
+    // A paid capacity order already in a second yard prevents duplicate silos.
+    clearOrders();
+    const auto secondSite=bot->findPlaceLocation(Structure_ConstructionYard);
+    require(secondSite.isValid(),"No second yard site");
+    auto* secondYard=dynamic_cast<BuilderBase*>(house->placeStructure(NONE_ID,
+        Structure_ConstructionYard,secondSite.x,secondSite.y,true,true));
+    require(secondYard,"Second yard placement failed");
+    clearOrders();house->capacity=35025;house->startingCredits=0;
+    house->storedCredits=35023;house->cityCredits=0;house->producedPower=10000;
+    bot->build(5100);
+    int silos=0;
+    for(auto* builder:{yard,secondYard})for(const auto& order:builder->currentProductionQueue)
+        if(order.itemID==Structure_Silo)++silos;
+    require(silos==1,"Parallel yards duplicated or omitted the storage order");
+    clearOrders();
+    // Losing core infrastructure re-establishes its priority over storage.
+    auto destroyCore=[&](Uint32 item) {
+        StructureBase* victim=nullptr;
+        for(auto* structure:structureList)
+            if(structure->getOwner()==house && structure->getItemID()==item) {victim=structure;break;}
+        require(victim,"Missing core fixture building");
+        victim->destroy();
+    };
+    if(game.isCitySimEnabled()) {
+        destroyCore(Structure_HighTechFactory);
+        require(storageBuild(35025,35023,0)!=Structure_Silo,"Storage displaced missing high-tech core");
+    }
+    destroyCore(Structure_HeavyFactory);
+    require(storageBuild(35025,35023,0)!=Structure_Silo,"Storage displaced missing heavy factory/core infrastructure");
+    SDL_Log("STORAGE_PRIORITY_PASS: core first, all difficulties, spice/tax capacity, pending orders and absolute ceiling");
     SDL_Log("OPENING_ECONOMY_PASS: rich factory opening, poor economy opening, absent/sold-out/disabled markets, default/100/unlimited caps");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: level=0 seed=0 attack_percent=0 partner=brutal enemy=hard cycle=%u outcome=opening_economy_pass",game.getGameCycleCount());
 }

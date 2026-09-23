@@ -56,6 +56,8 @@ public:
 private:
     void update() override;
     void rebuildMapList();
+    /// Collapse copies of the same map found in several map directories.
+    void dropDuplicateMapCopies();
     bool prepareSelectedMap();
     void onPreviewMap();
     void onNext();
@@ -98,7 +100,11 @@ private:
     TextButton      metaserverMapsButton, refreshMapsButton, previewMapButton;
     DropDownBox     mapModFilter, mapSizeFilter, mapPlayersFilter;
     Label           mapLibraryStatus, mapPropertyMod, mapPropertyVersion;
-    struct MapEntry { std::string path; MapMetadata metadata; Workshop::Revision revision; };
+    struct MapEntry {
+        std::string path; MapMetadata metadata; Workshop::Revision revision;
+        std::string contentKey;   ///< playable content of a local file; identifies equivalent copies
+        bool hasSidecar = false;  ///< a .workshop.ini beside the file pins an exact revision
+    };
     std::vector<MapEntry> mapEntries;
     std::vector<size_t> visibleMaps;
     std::vector<std::string> filterMods;

@@ -17,6 +17,7 @@ target_sources(dunelegacy_tests
         CoopGameSettingsTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/GameInitSettings.cpp
         ${CMAKE_SOURCE_DIR}/src/misc/IFileStream.cpp
+        MapCatalogueTestCase.cpp
         CityTrafficPolicyTestCase.cpp
         CitySpritePolicyTestCase.cpp
         RendererSizeTestCase.cpp

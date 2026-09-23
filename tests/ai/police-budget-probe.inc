@@ -108,7 +108,9 @@ void runPoliceBudgetProbe(Game& game) {
         }
         yard->setHealth(yard->getMaxHealth());
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
-        house->takeCredits(house->getCredits());house->addCredits(credits);
+        // Scenario funding for the policing decision, not earned spice that
+        // fills the store and correctly requests a silo before routine defence.
+        house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
         house->producedPower=10000;bot->lastCalculatedSpice=1300000;
     };
     auto queued=[&](Uint32 item) {

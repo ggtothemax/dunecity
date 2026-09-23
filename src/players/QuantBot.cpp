@@ -4852,6 +4852,17 @@ void QuantBot::build(int militaryValue) {
         if (getHouse()->getNumItems(item)==0) coreInfrastructureReady=false;
         if (missingCoreInfrastructure==NONE_ID && itemCount[item]==0) missingCoreInfrastructure=item;
     }
+    // Earned spice and city income share storage. Make room before optional
+    // growth can monopolize the yards, and stop once storage reaches the global
+    // credit ceiling. Count queued capacity so parallel yards do not spam silos.
+    auto storageExpansionNeeded = [&]() {
+        const int capacity = getHouse()->getCapacity();
+        return getHouse()->getNumItems(Structure_HeavyFactory)>0 && coreInfrastructureReady
+            && capacity > 0 && capacity < 999999
+            && getHouse()->getEarnedCredits() >= capacity * 0.80_fix
+            && itemCount[Structure_Silo] == getHouse()->getNumItems(Structure_Silo)
+            && itemCount[Structure_Refinery] == getHouse()->getNumItems(Structure_Refinery);
+    };
     const bool routineRocketsAllowed=coreInfrastructureReady || itemCount[Structure_RocketTurret]<2;
     auto proactiveCoverageShortfall=[&]() {
         if (!routineRocketsAllowed) return 0;
@@ -5669,6 +5680,10 @@ void QuantBot::build(int militaryValue) {
                     || capitalCandidates[capitalChoice].item==Unit_Harvester
                     || capitalCandidates[capitalChoice].item==Unit_Carryall)) protectedCash=0;
                 protectedCash=std::max(protectedCash,capitalReserve(pBuilder->getObjectID()));
+                // Saving for optional capital must not stop the yard from
+                // relieving the storage ceiling that prevents further saving.
+                if (pBuilder->getItemID()==Structure_ConstructionYard && storageExpansionNeeded()
+                    && campaignAvailableToBuild(pBuilder,Structure_Silo)) protectedCash=0;
                 reserve.reserved = money - QuantBotBuildPolicy::spendableCredits(money,protectedCash);
 				money -= reserve.reserved;
 
@@ -6263,6 +6278,14 @@ void QuantBot::build(int militaryValue) {
 						if (!citySimEnabled && gameMode == GameMode::Campaign && difficulty != Difficulty::Brutal) {
 							//logDebug("GameMode Campaign.. ");
 
+                            if (storageExpansionNeeded() && getHouse()->hasPower()
+                                && campaignAvailableToBuild(pBuilder,Structure_Silo)
+                                && findPlaceLocation(Structure_Silo).isValid()
+                                && produceItemWithLogging(Structure_Silo,__LINE__,"spice_storage_priority")) {
+                                ++itemCount[Structure_Silo];
+                                break;
+                            }
+
 						for (int i = Structure_FirstID; i <= Structure_LastID; i++) {
 							if (itemCount[i] < initialItemCount[i]
 								&& campaignAvailableToBuild(pBuilder,i)
@@ -6305,15 +6328,6 @@ void QuantBot::build(int militaryValue) {
 									if (produceItemWithLogging(Structure_WindTrap, __LINE__)) itemCount[Structure_WindTrap]++;
 									logDebug("***CampAI Build windtrap: power %d/%d", getHouse()->getProducedPower(), getHouse()->getPowerRequirement());
 								}
-							}
-							else if ((getHouse()->getEarnedCredits() > getHouse()->getCapacity() * 0.90_fix)  // Only build when 90% full
-								&& campaignAvailableToBuild(pBuilder,Structure_Silo)
-								&& findPlaceLocation(Structure_Silo).isValid()
-								&& pBuilder->getProductionQueueSize() == 0) {
-
-								if (produceItemWithLogging(Structure_Silo, __LINE__)) itemCount[Structure_Silo]++;
-
-								logDebug("***CampAI Build A new Silo increasing count to: %d (credits: %d/%d)", itemCount[Structure_Silo], getHouse()->getEarnedCredits().lround(), getHouse()->getCapacity());
 							}
 							else if (money > 3000
 								&& campaignAvailableToBuild(pBuilder,Structure_RocketTurret)
@@ -6360,10 +6374,19 @@ void QuantBot::build(int militaryValue) {
                 bool serviceSavingHold = false;
 								bool skipRemainingStructureLogic = false;
 
+                if (storageExpansionNeeded() && getHouse()->hasPower()
+                    && campaignAvailableToBuild(pBuilder,Structure_Silo)
+                    && money >= buildingCapitalCost(Structure_Silo)
+                    && findPlaceLocation(Structure_Silo).isValid()) {
+                    itemID=Structure_Silo;
+                    structureRule="spice_storage_priority";
+                    skipRemainingStructureLogic=true;
+                }
+
                 // Honour the growth allocation in the actual yard decision,
                 // not just the shared cash reserve. Previously this yard could
                 // immediately spend the protected plot's budget on a service.
-                if (cityGrowthProtected && capitalPending()
+                if (itemID==NONE_ID && cityGrowthProtected && capitalPending()
                     && capitalCandidates[capitalChoice].builder==pBuilder->getObjectID()) {
                     itemID=affordableCityZone(pBuilder,money);
                     if (itemID!=NONE_ID) structureRule="dedicated_city_growth";
@@ -7416,16 +7439,6 @@ void QuantBot::build(int militaryValue) {
 							logDebug("Build Repair Yard: have=%d busy=%d cap=%d military=%d", itemCount[Structure_RepairYard], activeRepairYardCount,
 								repairTarget, militaryValue);
 						}
-				// 16. Silos (when storage is 80%+ full)
-				if (itemID == NONE_ID && !skipRemainingStructureLogic
-					&& itemCount[Structure_HeavyFactory] > 0
-					&& itemCount[Structure_Silo] == getHouse()->getNumItems(Structure_Silo)
-                    && itemCount[Structure_Refinery] == getHouse()->getNumItems(Structure_Refinery)
-                    && getHouse()->getEarnedCredits() > getHouse()->getCapacity() * 0.80_fix
-					&& campaignAvailableToBuild(pBuilder,Structure_Silo)) {
-									itemID = Structure_Silo; structureRule = "spice_storage";
-					logDebug("Build Silo - storage at %d/%d", getHouse()->getEarnedCredits().lround(), getHouse()->getCapacity());
-								}
                 selectCrimeService("city_service_investment");
                 // Civic turrets use the shared investment comparison above.
 				// 17b. Palace (after military infrastructure)

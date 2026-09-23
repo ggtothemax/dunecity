@@ -508,6 +508,66 @@ int runMenuProbe() {
         menuRequire(browser.mapList.getNumEntries()==0&&!browser.nextButton.isEnabled(),"Empty filter result can start a stale map");
     }
     {
+        // "All Maps" reads four directories, so one map can arrive from several
+        // of them: a metaserver download installed into the user profile, an
+        // editor save of a bundled map, or a metadata-annotated copy left
+        // beside its original. Those copies shared one display name and were
+        // listed once each. Real files, real chooser, real INI parsing.
+        namespace fs = std::filesystem;
+        menuRequire(std::getenv("DUNECITY_USERDIR") != nullptr,"Duplicate map test needs an isolated profile");
+        const auto userMaps = fs::path(std::getenv("DUNECITY_USERDIR"))/"maps/multiplayer";
+        fs::create_directories(userMaps);
+        const std::string original = readCompleteFile(dir + "6P - 256x256 - Alkozeltser 4.ini");
+        const auto basicEnd = original.find('\n', original.find("[BASIC]"));
+        menuRequire(basicEnd != std::string::npos,"Duplicate map fixture lost its [BASIC] section");
+        auto named=[&](const std::string& keys) {
+            return original.substr(0,basicEnd+1) + "Name=Menu probe duplicate\n" + keys + original.substr(basicEnd+1);
+        };
+        std::string distinct = named("");
+        const auto row = distinct.find("\n000=");
+        menuRequire(row != std::string::npos,"Duplicate map fixture lost its terrain rows");
+        distinct[row+5] = distinct[row+5]=='~' ? '%' : '~';   // one changed tile: a different map
+        const std::vector<std::pair<std::string,std::string>> fixtures = {
+            {"menu-probe-a-copy.ini", named("")},                     // plain copy, scanned first
+            {"menu-probe-b-annotated.ini", named("MapVersion=4\n")},  // same map, annotated beside it
+            {"menu-probe-c-distinct.ini", distinct},                  // same name, other content
+            {"6P - 256x256 - Alkozeltser 4.ini", original},           // user copy of an installed map
+        };
+        struct Cleanup {
+            fs::path directory; std::vector<std::string> files;
+            ~Cleanup(){ std::error_code e; for(const auto& f:files) fs::remove(directory/f,e); }
+        } cleanup{userMaps,{}};
+        for(const auto& fixture : fixtures) {
+            std::ofstream out((userMaps/fixture.first).string(), std::ios::binary);
+            out.write(fixture.second.data(), static_cast<std::streamsize>(fixture.second.size()));
+            out.close();
+            cleanup.files.push_back(fixture.first);
+        }
+        CustomGameMenu browser(false,false,&setup);
+        browser.onMapTypeChange(4);
+        int copies=0, mergedVersion=-1; std::string keptPath; bool distinctListed=false;
+        for(size_t index : browser.visibleMaps) {
+            const auto& entry=browser.mapEntries[index];
+            if(entry.metadata.name!="Menu probe duplicate") continue;
+            ++copies;
+            if(fs::path(entry.path).filename()=="menu-probe-c-distinct.ini") distinctListed=true;
+            else { keptPath=entry.path; mergedVersion=entry.metadata.version; }
+        }
+        menuRequire(copies==2,"Equivalent map copies are still listed once per file");
+        menuRequire(fs::path(keptPath).filename()=="menu-probe-a-copy.ini",
+                    "Deduplication did not keep the copy the catalogue scanned first");
+        menuRequire(mergedVersion==4,"The surviving copy lost the newest revision of its group");
+        menuRequire(distinctListed,"A different map sharing a name was hidden as a duplicate");
+        int installedCopies=0; std::string installedPath;
+        for(size_t index : browser.visibleMaps)
+            if(browser.mapEntries[index].metadata.name=="6P - 256x256 - Alkozeltser 4")
+                { ++installedCopies; installedPath=browser.mapEntries[index].path; }
+        menuRequire(installedCopies==1,"A user-profile copy of an installed map is listed twice");
+        menuRequire(installedPath==dir+"6P - 256x256 - Alkozeltser 4.ini",
+                    "Deduplication moved an installed map to its user-profile copy");
+        menuCapture(browser,"duplicate-map-copies");
+    }
+    {
         const auto file=setup.maps.front();
         ModManager::instance().setActiveMod("vanilla");
         GameInitSettings hosted(getBasename(file,true),readCompleteFile(file),"Map collection test",false,setup.rules);

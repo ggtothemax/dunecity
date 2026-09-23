@@ -21,6 +21,7 @@
 #include "DefaultStructureInterface.h"
 #include "CityStatsBox.h"
 
+#include <GUI/HBox.h>
 #include <GUI/ProgressBar.h>
 #include <GUI/VBox.h>
 
@@ -38,18 +39,25 @@ public:
 
 protected:
     explicit RepairYardInterface(int objectID) : DefaultStructureInterface(objectID) {
-        // Left half: city-sim stats column (only relevant in city mode but
-        // harmless otherwise — labels just show em-dashes).
+        // One full-width column: the city-sim stats rows on top (only relevant
+        // in city mode but harmless otherwise — labels just show em-dashes),
+        // the repair-unit progress icon centred underneath.
+        //
+        // The icon used to share a row with the stats column. A city stat line
+        // is wider than the whole sidebar, so the text claimed the row and the
+        // icon was laid out past the sidebar's right edge while a unit was
+        // being repaired. Stacking keeps both inside the panel at every
+        // supported resolution, in city and in vanilla games.
         Uint32 color = getHouseColorRGB(getHouseVisualHouse(pLocalHouse->getHouseID()), 3);
         mainHBox.addWidget(&textVBox);
-        cityStats_.attachTo(textVBox, color);
-        textVBox.addWidget(Spacer::create(), 0.99);
+        cityStats_.attachTo(textVBox, color, false, false, SIDEBARWIDTH - 25);
 
-        // Right half: the repair-unit progress icon. A spacer separates it
-        // from the text so the icon never sits underneath the labels.
-        mainHBox.addWidget(Spacer::create());
-        mainHBox.addWidget(&repairUnitProgressBar);
-        mainHBox.addWidget(Spacer::create());
+        textVBox.addWidget(Spacer::create(), 0.5);
+        repairUnitRow.addWidget(Spacer::create());
+        repairUnitRow.addWidget(&repairUnitProgressBar);
+        repairUnitRow.addWidget(Spacer::create());
+        textVBox.addWidget(&repairUnitRow, repairUnitRowHeight);
+        textVBox.addWidget(Spacer::create(), 0.5);
     }
 
     /**
@@ -83,7 +91,11 @@ protected:
     }
 
 private:
+    /// Tall enough for every unit picture the sidebar can show.
+    static constexpr Sint32 repairUnitRowHeight = 60;
+
     PictureProgressBar  repairUnitProgressBar;
+    HBox                repairUnitRow;
     VBox                textVBox;
     CityStatsBox        cityStats_;
 };

@@ -36,6 +36,7 @@
 #include <misc/string_util.h>
 
 #include <INIMap/INIMapPreviewCreator.h>
+#include <INIMap/MapCatalogue.h>
 #include <GameInitSettings.h>
 #include <Network/WorkshopGameContent.h>
 #include <GUI/MsgBox.h>
@@ -469,7 +470,11 @@ void CustomGameMenu::onMapTypeChange(int buttonID) {
                 if(mapBytes.find('\0')!=std::string::npos)continue;
                 INIFile ini(entry.path);entry.metadata=MapMetadata::read(ini,file.substr(0,file.size()-4));
                 if(entry.metadata.width<=0||entry.metadata.height<=0||entry.metadata.players<=0)continue;
-                if(std::filesystem::exists(entry.path+".workshop.ini")) {
+                // Identifies this file's playable content, so the same map
+                // found in several directories is listed once.
+                entry.contentKey=MapCatalogue::contentKey(mapBytes);
+                entry.hasSidecar=std::filesystem::exists(entry.path+".workshop.ini");
+                if(entry.hasSidecar) {
                     INIFile meta(entry.path+".workshop.ini");
                     entry.metadata.name=meta.getStringValue("Workshop","Name",entry.metadata.name);
                     entry.metadata.version=meta.getIntValue("Workshop","Version",entry.metadata.version);
@@ -483,7 +488,26 @@ void CustomGameMenu::onMapTypeChange(int buttonID) {
 #endif
         }
     }
+    dropDuplicateMapCopies();
     rebuildMapList();
+}
+
+void CustomGameMenu::dropDuplicateMapCopies() {
+    std::vector<MapCatalogue::Copy> copies;
+    copies.reserve(mapEntries.size());
+    for(const auto& entry:mapEntries)
+        copies.push_back({entry.metadata.name,entry.contentKey,entry.metadata.version,
+            entry.metadata.mod+":"+entry.metadata.dependency});
+    const auto kept=MapCatalogue::keptCopies(copies);
+    if(kept.size()==mapEntries.size())return;
+    std::vector<MapEntry> remaining;
+    remaining.reserve(kept.size());
+    for(const auto& row:kept) {
+        remaining.push_back(std::move(mapEntries[row.index]));
+        // The surviving path keeps the newest revision the copies reported.
+        remaining.back().metadata.version=row.version;
+    }
+    mapEntries=std::move(remaining);
 }
 
 void CustomGameMenu::rebuildMapList() {
