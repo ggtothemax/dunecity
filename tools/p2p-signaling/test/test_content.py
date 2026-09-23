@@ -304,6 +304,25 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(['c'*32],[r[1] for r in self.catalogue(mod='tornie')[0]])
         self.assertEqual([],self.catalogue(mod='?')[0])
 
+    def test_inline_comments_and_quoted_values_in_map_metadata(self):
+        data = (b'[BASIC]\nName="Desert; # City" ; title\n'
+                b'[MAP]\nSizeX=256 ; width\nSizeY="128" # height\n[Harkonnen]\n')
+        raw, _ = self.share({'map.ini': data})
+        self.share({'map.ini': b'[BASIC]\nName=Desert # City\n[MAP]\nSizeX=64\nSizeY=64\n'}, item='b'*32)
+        self.assertEqual(1, len(self.catalogue(mod='vanilla')[0]))
+        rows, _ = self.catalogue(mod='dunecity')
+        self.assertEqual(1, len(rows))
+        state_path = Path(self.service.state) / 'content/index.json'
+        state = json.loads(state_path.read_text())
+        meta = state['maps'][sha(raw)]
+        self.assertEqual((256, 128, 'dunecity'), (meta['width'], meta['height'], meta['mod']))
+        # Existing cached metadata is repaired without uploading the map again.
+        meta.update(schema=4, width=0, height=0, mod='vanilla')
+        state_path.write_text(json.dumps(state))
+        self.assertEqual(1, len(self.catalogue(mod='dunecity')[0]))
+        refreshed = json.loads(state_path.read_text())['maps'][sha(raw)]
+        self.assertEqual((5, 256, 128), (refreshed['schema'], refreshed['width'], refreshed['height']))
+
     def test_sparse_city_named_starter_maps_remain_city(self):
         for i,(count,name,expected) in enumerate([(4,'DuneCity','dunecity'),(5,'DuneCity','vanilla'),(0,'Twin Cities','dunecity'),(0,'Desert','vanilla')]):
             data=map_ini().replace(b'Name=Shared dunes',('Name='+name).encode())
@@ -370,7 +389,7 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(0o600, stored.stat().st_mode & 0o777)
         state = json.loads((Path(self.service.state) / 'content/index.json').read_text())
         self.assertEqual(2, len(state['maps']))
-        self.assertEqual({'schema': 4, 'width': 64, 'height': 64, 'players': 2, 'mod': 'vanilla', 'known': True, 'file': sha(data)},
+        self.assertEqual({'schema': 5, 'width': 64, 'height': 64, 'players': 2, 'mod': 'vanilla', 'known': True, 'file': sha(data)},
                          state['maps'][sha(raw)])
 
     def test_catalogue_counts_extended_houses_and_refreshes_old_cache(self):

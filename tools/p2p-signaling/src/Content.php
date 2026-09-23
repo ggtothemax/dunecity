@@ -482,7 +482,7 @@ final class Content
 
     private static function unknownMap(): array
     {
-        return ['schema' => 4, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => 'vanilla', 'known' => false, 'file' => ''];
+        return ['schema' => 5, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => 'vanilla', 'known' => false, 'file' => ''];
     }
 
     private static function iniInt(string $value, int $fallback): int
@@ -521,9 +521,19 @@ final class Content
             if ($split === false || $split === 0) continue;
             $key = strtolower(trim(substr($line, 0, $split)));
             $value = trim(substr($line, $split + 1));
+            // Match INIFile: comment markers inside quoted values are literal;
+            // after the closing quote only whitespace or a comment is valid.
+            if (str_starts_with($value, '"')) {
+                $end = strpos($value, '"', 1);
+                if ($end === false) continue;
+                $tail = ltrim(substr($value, $end + 1));
+                if ($tail !== '' && $tail[0] !== ';' && $tail[0] !== '#') continue;
+                $value = substr($value, 1, $end - 1);
+            } else {
+                $value = rtrim(substr($value, 0, strcspn($value, ';#')));
+                if ($value === '') continue;
+            }
             if (strlen($value) > 256) $value = substr($value, 0, 256);
-            if ($value !== '' && $value[0] === '"' && str_ends_with($value, '"') && strlen($value) > 1)
-                $value = substr($value, 1, -1);
             if ($section === 'map' && in_array($key, ['sizex', 'sizey', 'seed'], true)) $map[$key] = $value;
             elseif ($section === 'basic' && in_array($key, ['mapscale', 'name'], true)) $basic[$key] = $value;
             elseif ($section === 'structures' && preg_match('/^(id|gen)[0-9]+$/D', $key)) {
@@ -558,7 +568,7 @@ final class Content
     private function mapMetadata(array &$state, string $hash, array &$budget): array
     {
         $cached = $state['maps'][$hash] ?? null;
-        if (is_array($cached) && ($cached['schema'] ?? 0) === 4 && isset($cached['width'], $cached['height'], $cached['players'],
+        if (is_array($cached) && ($cached['schema'] ?? 0) === 5 && isset($cached['width'], $cached['height'], $cached['players'],
             $cached['mod'], $cached['known'], $cached['file'])) return $cached;
         if ($budget['files'] <= 0 || $budget['bytes'] <= 0) return self::unknownMap();
         --$budget['files'];
