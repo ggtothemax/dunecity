@@ -8700,3 +8700,44 @@ committed locally; no public game release or game-source push was performed.
 Fresh-profile live smoke test also passed: real catalogue pagination and combined
 filters, SHA-verified map plus full DuneCity dependency download, stable installed
 filename, preview, exact mod activation and transition to player setup.
+
+## 2026-09-23 — Map categories and editor conversion (local 1.0.766)
+
+Map categories are Vanilla, Tornie and DuneCity. Classification uses placed
+buildings rather than old tags, selected mod, or unit types. City structures
+win on mixed maps; otherwise Tornie-specific buildings select Tornie. A name
+containing city/cities with at most max(4, 2 * players) functional buildings
+also selects DuneCity (walls/slabs excluded); other maps select Vanilla.
+Exact gameplay dependencies remain separate and preserved in revision metadata.
+Save writes the inferred category; Save As updates BASIC.Name. MapVersion is
+revision metadata and BASIC.Version remains the file format.
+
+Map Settings provides an explicit Convert button with an incompatible-content
+preview and cancel-default confirmation. It changes the active editor palette,
+removes incompatible placed objects, reinforcements and starport entries, and
+supports undo/redo of both objects and mod. Terrain/spice/players are retained.
+Empty converted maps remain Vanilla until appropriate buildings or the sparse
+city-name exception apply. Settings scrolls at 640x480. Regression testing also
+caught and fixed stale INI value bounds after repeated writes, which could
+corrupt category strings and other changed values across successive saves.
+
+Server schema 4 and seeder changes are committed in 9dba8818/d8ecc4ac. Website
+service deployment 564e6d4 completed successfully (Actions 35806457305 and
+associated checks). Live catalogue verification: 139 maps, 129 Vanilla and 10
+DuneCity; all 127 seeded latest map hashes/category values verified. Existing
+immutable map payloads remain preserved. Two sparse city starters have new
+version 3 metadata; the mixed 4 corners map is DuneCity version 2 while retaining
+its exact Tornie gameplay dependency. Names contain no added version suffix.
+Evidence and seed receipts: ../outputs/map-types. Server suite: 220 tests passed;
+content suite: 27 passed; seeder classifier: 4 passed.
+
+Native verification: all 29 CTest targets pass in aggregate. The initial menu
+run found a regression-fixture collision between resolution profiles; filenames
+now include the resolution, and its focused CTest rerun passed all three sizes
+(99.72 seconds). The other 28 targets passed in the full run (219.78 seconds).
+Live native catalogue/download/player-setup smoke test passed. Dependency audits,
+packaged runtime initialization/rendering, and archive transfer hash checks pass.
+1.0.766 archive SHA256: 8f4d96c6dea1b76bfd84a3ea2859f3d9d315987e612c70d6ff78035b800b1dca.
+The tested package/guarded installer are staged on the MacBook Air at
+/tmp/dunecity-install-766. Installation is pending the running game being closed
+(PID 95931 at last check); the existing app and profile are untouched.

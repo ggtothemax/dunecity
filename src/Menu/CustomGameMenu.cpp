@@ -146,8 +146,11 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
     previewMapButton.setOnClick([this](){onPreviewMap();});
 
     leftVBox.addWidget(&remoteMapsRow,24);
-    filterMods={"","vanilla","dunecity","tornie","dune2r","unknown"};
-    for(const char* label:{"Any mod","Dune Legacy","DuneCity","Tornie","Dune2R","Untagged"})mapModFilter.addEntry(label);
+    // The category is derived from the map's own buildings, so exactly three exist.
+    filterMods={"",MapMetadata::ModVanilla,MapMetadata::ModTornie,MapMetadata::ModDuneCity};
+    mapModFilter.addEntry(_("Any type"));
+    for(const auto& id:{MapMetadata::ModVanilla,MapMetadata::ModTornie,MapMetadata::ModDuneCity})
+        mapModFilter.addEntry(MapMetadata::modLabel(id));
     for(const char* label:{"Any size","Up to 64","65 - 128","129 - 192","193 - 256","Over 256"})mapSizeFilter.addEntry(label);
     mapPlayersFilter.addEntry(_("Any players"));
     for(int i=1;i<=12;++i)mapPlayersFilter.addEntry(std::to_string(i)+" players");
@@ -201,7 +204,7 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
     mapPropertyValuesVBox.addWidget(&mapPropertyAuthors);
     mapPropertyNamesVBox.addWidget(Label::create(_("License") + ":"));
     mapPropertyValuesVBox.addWidget(&mapPropertyLicense);
-    mapPropertyNamesVBox.addWidget(Label::create(_("For mod")+":"));
+    mapPropertyNamesVBox.addWidget(Label::create(_("Map type")+":"));
     mapPropertyValuesVBox.addWidget(&mapPropertyMod);
     mapPropertyNamesVBox.addWidget(Label::create(_("Version")+":"));
     mapPropertyValuesVBox.addWidget(&mapPropertyVersion);
@@ -470,7 +473,8 @@ void CustomGameMenu::onMapTypeChange(int buttonID) {
                     INIFile meta(entry.path+".workshop.ini");
                     entry.metadata.name=meta.getStringValue("Workshop","Name",entry.metadata.name);
                     entry.metadata.version=meta.getIntValue("Workshop","Version",entry.metadata.version);
-                    if(entry.metadata.mod.empty())entry.metadata.mod=MapMetadata::canonicalMod(meta.getStringValue("Workshop","Mod",""));
+                    // The pinned mod is a gameplay dependency, not the map category.
+                    entry.metadata.dependency=MapMetadata::canonicalMod(meta.getStringValue("Workshop","Mod",entry.metadata.dependency));
                 }
                 mapEntries.push_back(std::move(entry));
             } catch(const std::exception& e){SDL_Log("Map catalogue: %s",e.what());}
@@ -485,11 +489,6 @@ void CustomGameMenu::onMapTypeChange(int buttonID) {
 void CustomGameMenu::rebuildMapList() {
     const std::string previous=getSelectedMapPath();
     mapList.clearAllEntries();visibleMaps.clear();
-    // Every mod in the catalogue remains selectable, including custom ones.
-    for(const auto& entry:mapEntries)if(!entry.metadata.mod.empty()
-       && std::find(filterMods.begin(),filterMods.end(),entry.metadata.mod)==filterMods.end()) {
-        filterMods.push_back(entry.metadata.mod);mapModFilter.addEntry(entry.metadata.mod);
-    }
     const int modIndex=mapModFilter.getSelectedIndex();
     const std::string mod=modIndex>=0&&modIndex<static_cast<int>(filterMods.size())?filterMods[modIndex]:"";
     for(size_t i=0;i<mapEntries.size();++i)if(mapEntries[i].metadata.matches(mod,mapSizeFilter.getSelectedIndex(),mapPlayersFilter.getSelectedIndex()))visibleMaps.push_back(i);
@@ -513,7 +512,10 @@ void CustomGameMenu::update() {
     }
     if(mapClient.status()!=Workshop::Client::Status::Succeeded)return;
     for(const auto& r:mapClient.items()) {
-        MapEntry e;e.revision=r;e.metadata.name=r.name;e.metadata.mod=MapMetadata::canonicalMod(r.mapMod);
+        // The metaserver derives the category the same way the engine does; the
+        // exact mod dependency is obtained from its downloaded manifest.
+        MapEntry e;e.revision=r;e.metadata.name=r.name;e.metadata.dependency="";
+        e.metadata.mod=MapMetadata::canonicalCategory(r.mapMod);
         e.metadata.width=r.mapWidth;e.metadata.height=r.mapHeight;e.metadata.players=r.mapPlayers;e.metadata.version=r.version;
         mapEntries.push_back(std::move(e));
     }
@@ -533,10 +535,13 @@ bool CustomGameMenu::prepareSelectedMap() {
             entry.path=Workshop::installMap(Workshop::store().get(entry.revision.hash));
             if(setup && std::find(setup->maps.begin(),setup->maps.end(),entry.path)==setup->maps.end())setup->maps.push_back(entry.path);
         }
-        if(!entry.metadata.mod.empty()) {
+        if(!entry.revision.modHash.empty())
+            entry.metadata.dependency=MapMetadata::canonicalMod(Workshop::store().get(entry.revision.modHash).base);
+        // Gameplay follows the map's pinned mod dependency, never its category.
+        if(!entry.metadata.dependency.empty()) {
             int choice=-1;
             for(size_t j=0;j<availableMods.size();++j)
-                if(MapMetadata::canonicalMod(availableMods[j].name)==entry.metadata.mod){choice=static_cast<int>(j);break;}
+                if(MapMetadata::canonicalMod(availableMods[j].name)==entry.metadata.dependency){choice=static_cast<int>(j);break;}
             if(choice>=0) {
                 modDropDown.setSelectedItem(choice);
                 auto& manager=ModManager::instance();
@@ -544,7 +549,7 @@ bool CustomGameMenu::prepareSelectedMap() {
                     if(!manager.setActiveMod(availableMods[choice].name))throw std::runtime_error("The required map mod could not be activated.");
                     currentGameOptions=effectiveGameOptions=manager.loadEffectiveGameOptions(settings.gameOptions);
                 }
-            } else if(entry.revision.modHash.empty()) throw std::runtime_error("Install the map's required mod before starting it: "+entry.metadata.mod);
+            } else if(entry.revision.modHash.empty()) throw std::runtime_error("Install the map's required mod before starting it: "+entry.metadata.dependency);
         }
         return true;
     } catch(const std::exception& e){openWindow(MsgBox::create(e.what()));return false;}
@@ -565,7 +570,7 @@ void CustomGameMenu::onMapListSelectionChange(bool bInteractive)
     const int selected=mapList.getSelectedIndex();
     if(selected>=static_cast<int>(visibleMaps.size()))return;
     const auto& entry=mapEntries[visibleMaps[selected]];
-    mapPropertyMod.setText(entry.metadata.mod.empty()?_("Untagged"):entry.metadata.mod);
+    mapPropertyMod.setText(MapMetadata::modLabel(entry.metadata.mod));
     mapPropertyVersion.setText(entry.metadata.version?std::to_string(entry.metadata.version):"-");
     if(entry.path.empty()) {
         mapPropertySize.setText(std::to_string(entry.metadata.width)+" x "+std::to_string(entry.metadata.height));

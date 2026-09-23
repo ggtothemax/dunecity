@@ -64,7 +64,7 @@ class MetaserverMenu final : public MenuBase {
     std::string kind, loadedPath;
     std::vector<Revision> entries;
     std::vector<size_t> visible;
-    std::vector<std::string> mods{""};
+    std::vector<std::string> mods{"","vanilla","tornie","dunecity"};
     bool waiting=false, online;
     void selected() {
         const int i=list.getSelectedIndex();
@@ -73,14 +73,14 @@ class MetaserverMenu final : public MenuBase {
         if(!valid) { details.setText(""); return; }
         const auto& r=entries[visible[i]];
         details.setText("Version: "+std::to_string(r.version)+(kind=="map"
-            ? "  |  Mod: "+r.mapMod+"\n"+std::to_string(r.mapWidth)+" x "+std::to_string(r.mapHeight)+"  |  Max players: "+std::to_string(r.mapPlayers)
+            ? "  |  Map type: "+MapMetadata::modLabel(MapMetadata::canonicalCategory(r.mapMod))+"\n"+std::to_string(r.mapWidth)+" x "+std::to_string(r.mapHeight)+"  |  Max players: "+std::to_string(r.mapPlayers)
             : "  |  Base: "+r.base));
     }
     void filter() {
         list.clearAllEntries(); visible.clear();
         for(size_t i=0;i<entries.size();++i) {
             const auto& r=entries[i];
-            MapMetadata m; m.mod=r.mapMod; m.width=r.mapWidth; m.height=r.mapHeight; m.players=r.mapPlayers;
+            MapMetadata m; m.mod=MapMetadata::canonicalCategory(r.mapMod); m.width=r.mapWidth; m.height=r.mapHeight; m.players=r.mapPlayers;
             const int mi=mod.getSelectedIndex();
             if(kind=="map" && !m.matches(mi>=0 ? mods[mi] : "",size.getSelectedIndex(),players.getSelectedIndex())) continue;
             visible.push_back(i); list.addEntry(r.name);
@@ -119,7 +119,9 @@ public:
         title.setText(kind=="map" ? "Load map from metaserver" : "Load mod from metaserver");
         title.setTextFontSize(22); title.setAlignment(Alignment_HCenter);
         layout.addWidget(&title,Point(x,y),Point(w,40));
-        mod.addEntry("Any mod"); mod.setSelectedItem(0);
+        mod.addEntry("Any type");
+        for(size_t i=1;i<mods.size();++i) mod.addEntry(MapMetadata::modLabel(mods[i]));
+        mod.setSelectedItem(0);
         for(const char* s:{"Any size","Up to 64","65 to 128","129 to 192","193 to 256","Over 256"}) size.addEntry(s);
         size.setSelectedItem(0); players.addEntry("Any players");
         for(int n=1;n<=12;++n) players.addEntry(std::to_string(n)+" players");
@@ -150,9 +152,7 @@ public:
             auto previous=std::find_if(entries.begin(),entries.end(),[&](const Revision& old){return old.id==r.id;});
             if(previous==entries.end()) entries.push_back(r);
             else if(r.version>previous->version) *previous=r;
-            if(kind=="map" && !r.mapMod.empty() && std::find(mods.begin(),mods.end(),r.mapMod)==mods.end()) {
-                mods.push_back(r.mapMod); mod.addEntry(r.mapMod);
-            }
+
         }
         const auto next=client.nextPage();
         if(next && entries.size()<10000) { if(kind=="map") client.browseMaps(next); else client.browse("mod",next); }

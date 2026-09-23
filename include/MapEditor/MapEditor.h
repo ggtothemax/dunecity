@@ -137,6 +137,29 @@ public:
         ATTACKMODE      attackmode;
     };
 
+    /**
+        A planned change of the map's category. It lists exactly which placed
+        objects the target category cannot hold, so the editor can show real
+        counts and only touch the map once the user has confirmed.
+    */
+    class MapTypeConversion {
+    public:
+        std::string             target;                     ///< canonical category id (vanilla/tornie/dunecity)
+        std::string             resultingType;              ///< category the map will report once applied
+        std::vector<int>        removedStructureIDs;        ///< buildings the target category cannot hold
+        std::vector<int>        removedUnitIDs;             ///< units the target category cannot hold
+        std::vector<size_t>     removedReinforcementIndices;///< reinforcements delivering removed unit types
+        std::vector<int>        removedChoamItemIDs;        ///< starport entries for removed unit types
+
+        bool isLossless() const {
+            return removedStructureIDs.empty() && removedUnitIDs.empty()
+                && removedReinforcementIndices.empty() && removedChoamItemIDs.empty();
+        }
+
+        /// False when the classifier would still report another category afterwards.
+        bool reachesTarget() const { return resultingType == target; }
+    };
+
     MapEditor();
     MapEditor(const MapEditor& o) = delete;
     ~MapEditor();
@@ -280,7 +303,45 @@ public:
     void saveMap(const std::string& filepath);
     void loadMap(const std::string& filepath);
 
+    /// Category of the map as it stands, derived from the placed buildings only.
+    std::string getMapType() const;
+
+    /// What converting to targetType would cost; nothing is changed yet.
+    MapTypeConversion planMapTypeConversion(const std::string& targetType) const;
+
+    /**
+        Remove the objects the plan lists and switch the editor over to the
+        target category's content. Terrain, spice, players, roads and every
+        compatible building and unit are kept. Undoable as one operation.
+    */
+    void applyMapTypeConversion(const MapTypeConversion& conversion);
+
+    /**
+        The name the classifier sees: the stored map name, else the stem of the
+        file this map was last saved as. Empty while the map has neither.
+    */
+    std::string getEffectiveMapName() const;
+
+    /// Buildings that count towards the city name exception; walls and concrete do not.
+    int getFunctionalBuildingCount() const;
+
+    /// How many functional buildings a city-named map may hold and stay a city map.
+    int getCityNameBuildingLimit() const;
+
+    /// Whether a map name alone puts a sparsely built map into the city category.
+    static bool isCityMapName(const std::string& name);
+
 private:
+    /// Which of the three categories a single placed item belongs to.
+    static std::string getItemCategory(int itemID);
+
+    /// Category of the placed objects alone, before the name exception applies.
+    std::string getBuiltMapType(const std::vector<int>& ignoredStructureIDs) const;
+
+    /// Functional buildings left once the listed buildings are gone.
+    int countFunctionalBuildings(const std::vector<int>& ignoredStructureIDs) const;
+
+
     void performMapEdit(int xpos, int ypos, bool bRepeated);
 
     void performTerrainChange(int x, int y, TERRAINTYPE terrainType);

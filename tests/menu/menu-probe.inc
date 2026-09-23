@@ -4,6 +4,7 @@
 // Test-only entry point, linked against the real menu objects by run-menu-probe.py.
 #include <Menu/HouseChoiceMenu.h>
 #include <MapEditor/MapEditor.h>
+#include <MapEditor/MapSettingsWindow.h>
 #include <Menu/CustomGamePlayers.h>
 #include <Menu/CustomGameMenu.h>
 #include <Menu/CrossplayMenu.h>
@@ -52,7 +53,7 @@ int runLiveMapCatalogueProbe() {
     const auto deadline=SDL_GetTicks()+60000;
     while(browser.loadingMaps && static_cast<Sint32>(deadline-SDL_GetTicks())>0){browser.update();SDL_Delay(10);}
     menuRequire(!browser.loadingMaps && browser.mapEntries.size()>=127,"Live catalogue did not load seeded maps");
-    browser.mapModFilter.setSelectedItem(2);browser.mapSizeFilter.setSelectedItem(4);browser.mapPlayersFilter.setSelectedItem(6);browser.rebuildMapList();
+    browser.mapModFilter.setSelectedItem(3);browser.mapSizeFilter.setSelectedItem(4);browser.mapPlayersFilter.setSelectedItem(6);browser.rebuildMapList();
     int selected=-1;
     for(int i=0;i<browser.mapList.getNumEntries();++i)if(browser.mapList.getEntry(i)=="Alkozeltser 4 Cities")selected=i;
     menuRequire(selected>=0,"DuneCity/256/6-player filters lost Alkozeltser 4 Cities");
@@ -439,6 +440,11 @@ int runMenuProbe() {
     }
     {
         CustomGameMenu browser(false,false,&setup);
+        menuRequire(browser.mapModFilter.getNumEntries()==4 && browser.mapModFilter.getEntry(1)=="Vanilla","Map type choices retain legacy labels");
+        browser.mapModFilter.setSelectedItem(1);browser.mapSizeFilter.setSelectedItem(4);browser.rebuildMapList();
+        menuRequire(browser.mapList.getNumEntries()>0,"Old untagged large maps disappeared from Vanilla filter");
+        menuCapture(browser,"vanilla-large-maps");
+        browser.mapModFilter.setSelectedItem(0);browser.mapSizeFilter.setSelectedItem(0);
         browser.onMapTypeChange(5);browser.mapClient.cancel();browser.loadingMaps=false;
         browser.mapEntries.clear();
         CustomGameMenu::MapEntry city;city.metadata.name="Alkozeltser 4 Cities";
@@ -449,7 +455,7 @@ int runMenuProbe() {
         menuRequire(browser.mapList.getNumEntries()==2,"Metaserver maps were not listed");
         menuRequire(browser.mapList.getEntry(0)=="Alkozeltser 4 Cities","Map name contains revision suffix");
         menuRequire(browser.mapPropertyVersion.getText()=="3","Map revision metadata missing");
-        browser.mapModFilter.setSelectedItem(2);browser.mapSizeFilter.setSelectedItem(4);browser.mapPlayersFilter.setSelectedItem(6);browser.rebuildMapList();
+        browser.mapModFilter.setSelectedItem(3);browser.mapSizeFilter.setSelectedItem(4);browser.mapPlayersFilter.setSelectedItem(6);browser.rebuildMapList();
         menuRequire(browser.mapList.getNumEntries()==1,"Combined map filters dropped a matching map");
         menuCapture(browser,"metaserver-maps");
         browser.mapPlayersFilter.setSelectedItem(2);browser.rebuildMapList();
@@ -875,6 +881,66 @@ int runMenuProbe() {
             if(menu.mods[i].name == "vanilla") menu.modListBox.setSelectedItem(static_cast<int>(i));
         menuRequire(!menu.editButton.isEnabled(), "Bundled mod can be edited without making a copy");
         menuCapture(menu,"mod-projects");
+    }
+    {
+        auto& manager=ModManager::instance();manager.setActiveMod("dunecity");
+        MapEditor editor;
+        while(editor.pInterface->hasChildWindow()){editor.pInterface->closeChildWindow();editor.pInterface->processChildWindowOpenCloses();}
+        editor.setMap(MapData(64,64,Terrain_Rock),MapInfo());
+        editor.getMap()(0,0)=Terrain_Spice;
+        auto& structures=editor.getStructureList(); auto& units=editor.getUnitList();
+        structures.emplace_back(1,HOUSE_HARKONNEN,Structure_ZoneResidential,256,Coord(4,4));
+        structures.emplace_back(2,HOUSE_HARKONNEN,Structure_Road,256,Coord(6,4));
+        structures.emplace_back(3,HOUSE_HARKONNEN,Structure_TechCenter,256,Coord(8,4));
+        structures.emplace_back(4,HOUSE_HARKONNEN,Structure_Refinery,256,Coord(12,4));
+        structures.emplace_back(5,HOUSE_HARKONNEN,Structure_Wall,256,Coord(15,4));
+        units.emplace_back(1,HOUSE_HARKONNEN,Unit_RocketTrike,256,Coord(4,12),0,GUARD);
+        units.emplace_back(2,HOUSE_HARKONNEN,Unit_AmbientHelicopter,256,Coord(5,12),0,GUARD);
+        units.emplace_back(3,HOUSE_HARKONNEN,Unit_Harvester,256,Coord(6,12),0,GUARD);
+        const auto players=editor.getPlayers().size();
+        auto plan=editor.planMapTypeConversion("vanilla");
+        menuRequire(plan.removedStructureIDs.size()==3 && plan.removedUnitIDs.size()==2,"Vanilla conversion plan retains incompatible objects");
+        menuRequire(structures.size()==5 && units.size()==3,"Planning conversion changed the map");
+        auto cityPlan=editor.planMapTypeConversion("dunecity");
+        menuRequire(cityPlan.removedStructureIDs.size()==1 && cityPlan.removedUnitIDs.size()==1,"City conversion retains Tornie-only objects");
+        MapSettingsWindow options(&editor,HOUSE_HARKONNEN);
+        options.mapTypeDropDownBox.setSelectedItem(0);options.updateMapTypeNote();
+        options.centralScroll.scrollbar.setCurrentValue(180);
+        menuRequire(options.getSize().x<=getRendererWidth() && options.getSize().y<=getRendererHeight(),"Map settings exceeds screen");
+        menuCapture(options,"map-conversion-settings");
+        options.onConvert();options.processChildWindowOpenCloses();
+        auto* question=dynamic_cast<QstBox*>(options.pChildWindow);
+        menuRequire(question!=nullptr,"Destructive conversion did not ask first");
+        menuCapture(options,"map-conversion-confirmation");
+        question->onButton(QSTBOX_BUTTON2);options.processChildWindowOpenCloses();
+        menuRequire(structures.size()==5 && units.size()==3 && manager.getActiveModName()=="dunecity","Cancelled conversion changed the map or mod");
+        options.onConvert();options.processChildWindowOpenCloses();
+        question=dynamic_cast<QstBox*>(options.pChildWindow);menuRequire(question!=nullptr,"Conversion retry lost confirmation");
+        question->onButton(QSTBOX_BUTTON1);options.processChildWindowOpenCloses();
+        editor.refreshInterfaceIfNeeded();
+        menuRequire(structures.size()==2 && units.size()==1 && editor.getMap()(0,0)==Terrain_Spice && editor.getPlayers().size()==players,"Conversion lost compatible content");
+        menuRequire(manager.getActiveModName()=="vanilla" && !editor.pInterface->cityStructsVisible_ && editor.hasChangeSinceLastSave(),"Conversion did not switch palette or mark unsaved");
+        const std::string path=std::string(std::getenv("MENU_PROBE_OUT"))+"/converted-plain-"+std::getenv("MENU_PROBE_WIDTH")+".ini";
+        editor.saveMap(path);INIFile saved(path);
+        menuRequire(saved.getStringValue("BASIC","Mod")=="vanilla" && saved.getIntValue("BASIC","Version",0)==2,"Saving conversion lost category or format version");
+        editor.undoLastOperation();editor.refreshInterfaceIfNeeded();
+        menuRequire(structures.size()==5 && units.size()==3 && manager.getActiveModName()=="dunecity" && editor.pInterface->cityStructsVisible_,"Undo did not restore converted objects and mod");
+        editor.redoLastOperation();editor.refreshInterfaceIfNeeded();
+        menuRequire(structures.size()==2 && units.size()==1 && manager.getActiveModName()=="vanilla","Redo failed to reapply conversion");
+        editor.undoLastOperation();editor.refreshInterfaceIfNeeded();
+        editor.applyMapTypeConversion(editor.planMapTypeConversion("tornie"));editor.refreshInterfaceIfNeeded();
+        menuRequire(manager.isTornieContentActive() && structures.size()==3 && units.size()==2,"Tornie conversion lost its own content or kept city objects");
+        editor.applyMapTypeConversion(editor.planMapTypeConversion("dunecity"));editor.refreshInterfaceIfNeeded();
+        menuRequire(manager.isCityModeActive() && structures.size()==2 && units.size()==1 && editor.pInterface->cityStructsVisible_,"Conversion to city did not switch palette");
+        const std::string suffix=std::getenv("MENU_PROBE_WIDTH");
+        const std::string cityName="City starter "+suffix;
+        const std::string desertName="Desert starter "+suffix;
+        const std::string cityPath=std::string(std::getenv("MENU_PROBE_OUT"))+"/"+cityName+".ini";
+        editor.saveMap(cityPath);INIFile citySaved(cityPath);
+        menuRequire(citySaved.getStringValue("BASIC","Name")==cityName && citySaved.getStringValue("BASIC","Mod")=="dunecity","Sparse city Save As lost its name or category");
+        const std::string desertPath=std::string(std::getenv("MENU_PROBE_OUT"))+"/"+desertName+".ini";
+        editor.saveMap(desertPath);INIFile desertSaved(desertPath);
+        menuRequire(desertSaved.getStringValue("BASIC","Name")==desertName && desertSaved.getStringValue("BASIC","Mod")=="vanilla","Save As retained the old city name or inferred category from the active mod");
     }
     // Exercise the real editor palette, scrolling, placement and map round trip.
     for(const std::string mod : {"vanilla", "dunecity"}) {

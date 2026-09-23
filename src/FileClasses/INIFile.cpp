@@ -116,11 +116,14 @@ double INIFile::Key::getDoubleValue(double defaultValue) const {
 }
 
 void INIFile::Key::setStringValue(const std::string& newValue, bool bEscapeIfNeeded) {
-    if(completeLine[valueStringBegin-1] == '"') {
-        completeLine.replace(valueStringBegin-1,valueStringLength+2, bEscapeIfNeeded ? escapeValue(newValue) : newValue);
-    } else {
-        completeLine.replace(valueStringBegin,valueStringLength, bEscapeIfNeeded ? escapeValue(newValue) : newValue);
-    }
+    const bool wasQuoted = valueStringBegin > 0 && completeLine[valueStringBegin-1] == '"';
+    const int replacementBegin = valueStringBegin - (wasQuoted ? 1 : 0);
+    completeLine.replace(replacementBegin, valueStringLength + (wasQuoted ? 2 : 0),
+                         bEscapeIfNeeded ? escapeValue(newValue) : newValue);
+    // Future reads and writes must use the replacement's bounds, including
+    // transitions between quoted and unquoted values.
+    valueStringBegin = replacementBegin + ((bEscapeIfNeeded && escapingValueNeeded(newValue)) ? 1 : 0);
+    valueStringLength = newValue.size();
 }
 
 void INIFile::Key::setIntValue(int newValue) {

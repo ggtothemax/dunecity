@@ -21,6 +21,10 @@
 #include <MapEditor/MapEditorOperation.h>
 
 #include <GUI/Spacer.h>
+#include <GUI/QstBox.h>
+#include <GUI/MsgBox.h>
+
+#include <INIMap/MapMetadata.h>
 
 #include <globals.h>
 
@@ -58,7 +62,8 @@ MapSettingsWindow::MapSettingsWindow(MapEditor* pMapEditor, HOUSETYPE currentHou
 
     mainVBox.addWidget(VSpacer::create(8));
 
-    mainVBox.addWidget(&centralVBox, 360);
+    centralScroll.setContent(&centralVBox);
+    mainVBox.addWidget(&centralScroll, 360);
 
     centralVBox.addWidget(&pictureHBox, 38);
 
@@ -244,6 +249,41 @@ MapSettingsWindow::MapSettingsWindow(MapEditor* pMapEditor, HOUSETYPE currentHou
 
     centralVBox.addWidget(VSpacer::create(15));
 
+    centralVBox.addWidget(&mapTypeHBox);
+    mapTypeLabel.setText(_("Map Type") + ":");
+    mapTypeLabel.setTextColor(color);
+    mapTypeHBox.addWidget(&mapTypeLabel, 95);
+
+    mapTypeDropDownBox.setColor(color);
+    mapTypeDropDownBox.setNumVisibleEntries(3);
+
+    availableMapTypes.emplace_back(MapMetadata::ModVanilla);
+    availableMapTypes.emplace_back(MapMetadata::ModTornie);
+    availableMapTypes.emplace_back(MapMetadata::ModDuneCity);
+
+    const std::string currentMapType = pMapEditor->getMapType();
+    for(size_t i = 0; i < availableMapTypes.size(); ++i) {
+        mapTypeDropDownBox.addEntry(MapMetadata::modLabel(availableMapTypes[i]), i);
+        if(availableMapTypes[i] == currentMapType) {
+            mapTypeDropDownBox.setSelectedItem(i);
+        }
+    }
+
+    mapTypeDropDownBox.setOnSelectionChange(std::bind(&MapSettingsWindow::onMapTypeChange, this, std::placeholders::_1));
+    mapTypeHBox.addWidget(&mapTypeDropDownBox);
+    mapTypeHBox.addWidget(HSpacer::create(8));
+    convertButton.setText(_("Convert"));
+    convertButton.setTextColor(color);
+    convertButton.setOnClick([this](){ onConvert(); });
+    mapTypeHBox.addWidget(&convertButton,100);
+
+    mapTypeNoteLabel.setTextColor(color);
+    mapTypeNoteLabel.setTextFontSize(12);
+    centralVBox.addWidget(&mapTypeNoteLabel, 48);
+    updateMapTypeNote();
+
+    centralVBox.addWidget(VSpacer::create(15));
+
     authorLabel.setText(_("Author:"));
     authorLabel.setTextColor(color);
     authorHBox.addWidget(&authorLabel, 95);
@@ -293,6 +333,7 @@ MapSettingsWindow::MapSettingsWindow(MapEditor* pMapEditor, HOUSETYPE currentHou
 }
 
 void MapSettingsWindow::onCancel() {
+    // Leaving this window never touches the map, not even a chosen map type.
     Window* pParentWindow = dynamic_cast<Window*>(getParent());
     if(pParentWindow != nullptr) {
         pParentWindow->closeChildWindow();
@@ -300,7 +341,69 @@ void MapSettingsWindow::onCancel() {
 }
 
 
-void MapSettingsWindow::onOK() {
+std::string MapSettingsWindow::getSelectedMapType() const {
+    const int index = mapTypeDropDownBox.getSelectedIndex();
+
+    if((index < 0) || (index >= (int) availableMapTypes.size())) {
+        return pMapEditor->getMapType();
+    }
+
+    return availableMapTypes[index];
+}
+
+
+void MapSettingsWindow::onMapTypeChange(bool bInteractive) {
+    updateMapTypeNote();
+}
+
+
+void MapSettingsWindow::updateMapTypeNote() {
+    const auto plan=pMapEditor->planMapTypeConversion(getSelectedMapType());
+    std::string note="Category: "+MapMetadata::modLabel(pMapEditor->getMapType())+". Convert changes the editing palette.\n";
+    note+="Removes "+std::to_string(plan.removedStructureIDs.size())+" buildings, "+std::to_string(plan.removedUnitIDs.size())+" units. Saved category: "+MapMetadata::modLabel(plan.resultingType)+".";
+    if(!plan.reachesTarget()) note+="\nCategory follows buildings or a sparse city map's name.";
+    mapTypeNoteLabel.setText(note);
+}
+
+
+void MapSettingsWindow::onChildWindowClose(Window* pChildWindow) {
+    QstBox* pQstBox = dynamic_cast<QstBox*>(pChildWindow);
+
+    if(pQstBox == nullptr) {
+        return;
+    }
+
+    if(pQstBox->getPressedButtonID() == QSTBOX_BUTTON1) {
+        applyChanges(true);
+    }
+
+    // Declining keeps the map and this window exactly as they were.
+}
+
+
+void MapSettingsWindow::onOK() { applyChanges(); }
+
+void MapSettingsWindow::onConvert() {
+    const auto plan=pMapEditor->planMapTypeConversion(getSelectedMapType());
+    if(!plan.isLossless() || !plan.reachesTarget()) {
+        std::string question="Convert to "+MapMetadata::modLabel(plan.target)+"?\n";
+        question+="Remove: "+std::to_string(plan.removedStructureIDs.size())+" buildings, "+std::to_string(plan.removedUnitIDs.size())+" units.\n";
+        question+=std::to_string(plan.removedReinforcementIndices.size())+" reinforcements, "+std::to_string(plan.removedChoamItemIDs.size())+" starport entries.\n";
+        question+="Terrain, spice and compatible objects stay.";
+        if(!plan.reachesTarget()) {
+            question+="\nAfter saving: "+MapMetadata::modLabel(plan.resultingType)+".";
+            question+=plan.resultingType==MapMetadata::ModDuneCity
+                ? "\nIts city name keeps this starter map in DuneCity.\nUse Save As with a non-city name to change that category."
+                : "\nAdd buildings from the selected type to change its category.";
+        }
+        auto* box=QstBox::create(question,_("Convert"),_("Cancel"),QSTBOX_BUTTON2);
+        box->setTextColor(color); openWindow(box); return;
+    }
+    applyChanges(true);
+}
+
+
+void MapSettingsWindow::applyChanges(bool convert) {
 
     MapInfo mapInfo = pMapEditor->getMapInfo();
 
@@ -317,7 +420,16 @@ void MapSettingsWindow::onOK() {
     mapInfo.author = authorTextBox.getText();
     mapInfo.license = licenseTextBox.getText();
 
-    pMapEditor->startOperation();
+    const std::string targetType = getSelectedMapType();
+
+    if(convert) {
+        // The conversion opens the undo step; the settings below join it, so a
+        // single undo restores both the settings and every discarded object.
+        try { pMapEditor->applyMapTypeConversion(pMapEditor->planMapTypeConversion(targetType)); }
+        catch(const std::exception& error) { openWindow(MsgBox::create(error.what())); return; }
+    } else {
+        pMapEditor->startOperation();
+    }
 
     MapEditorChangeMapInfo changeMapInfoOperation(mapInfo);
 

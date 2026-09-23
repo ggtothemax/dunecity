@@ -95,11 +95,49 @@ TEST_CASE("Map catalogue separates format version from map revision and counts e
     REQUIRE(m.matches("dunecity",4,2));
     REQUIRE_FALSE(m.matches("vanilla",4,2));REQUIRE_FALSE(m.matches("",3,2));REQUIRE_FALSE(m.matches("",0,6));
 }
-TEST_CASE("Untagged legacy maps retain their size without inventing revision or mod", "[workshop][map-catalogue]") {
+TEST_CASE("Untagged legacy maps default to Vanilla without inventing a revision", "[workshop][map-catalogue]") {
     INIFile ini(false,std::string("legacy fixture"));
     ini.setIntValue("MAP","Seed",123);ini.setIntValue("BASIC","MapScale",0);
     ini.setIntValue("BASIC","Version",1);
     auto m=MapMetadata::read(ini,"Legacy map");
-    REQUIRE(m.width==62);REQUIRE(m.height==62);REQUIRE(m.version==0);REQUIRE(m.mod.empty());
-    REQUIRE(m.matches("unknown",1,0));REQUIRE_FALSE(m.matches("dunecity",0,0));
+    REQUIRE(m.width==62);REQUIRE(m.height==62);REQUIRE(m.version==0);REQUIRE(m.mod=="vanilla");
+    REQUIRE(m.matches("vanilla",1,0));REQUIRE_FALSE(m.matches("dunecity",0,0));
+}
+
+TEST_CASE("Map category uses buildings and sparse city names rather than old tags", "[workshop][map-catalogue]") {
+    INIFile ini(false,std::string("category fixture"));
+    ini.setStringValue("BASIC","Mod","dunecity");
+    ini.setStringValue("UNITS","ID0","Atreides,Rocket Trike,256,12");
+    ini.setStringValue("STRUCTURES","Description","Atreides,Nuclear,256,12");
+    REQUIRE(MapMetadata::inferMod(ini,"Desert")=="vanilla");
+    ini.setStringValue("STRUCTURES","ID0","Atreides,Advanced Wind Trap MK2,256,12");
+    REQUIRE(MapMetadata::inferMod(ini,"City")=="tornie");
+    ini.setStringValue("STRUCTURES","GEN14","Atreides,Road");
+    REQUIRE(MapMetadata::inferMod(ini,"Desert")=="dunecity");
+    ini.clearSection("STRUCTURES");
+    ini.setIntValue("Player1","Credits",1000);ini.setIntValue("Player2","Credits",1000);
+    for(int i=0;i<4;++i) ini.setStringValue("STRUCTURES","ID"+std::to_string(i),"Atreides,Const Yard,256,12");
+    REQUIRE(MapMetadata::inferMod(ini,"Twin Cities")=="dunecity");
+    ini.setStringValue("STRUCTURES","ID4","Atreides,Refinery,256,24");
+    REQUIRE(MapMetadata::inferMod(ini,"Twin Cities")=="vanilla");
+    ini.setStringValue("STRUCTURES","ID4","Atreides,Concrete");
+    REQUIRE(MapMetadata::inferMod(ini,"Twin Cities")=="dunecity");
+    REQUIRE(MapMetadata::read(ini,"Desert").mod=="vanilla");
+    REQUIRE(MapMetadata::modLabel("vanilla")=="Vanilla");
+}
+
+TEST_CASE("Repeated map metadata updates replace complete INI values", "[workshop][map-metadata]") {
+    Fixture f;
+    f.write("metadata.ini", "[BASIC]\nMod=vanilla ; keep comment\n");
+    INIFile ini((f.source/"metadata.ini").string());
+    for(const std::string value : {"dunecity", "vanilla", "City starter", "x", "", "tornie"}) {
+        ini.setStringValue("BASIC", "Mod", value);
+        REQUIRE(ini.getStringValue("BASIC", "Mod")==value);
+        REQUIRE(ini.saveChangesTo((f.source/"roundtrip.ini").string()));
+        INIFile saved((f.source/"roundtrip.ini").string());
+        REQUIRE(saved.getStringValue("BASIC", "Mod")==value);
+    }
+    std::ifstream input(f.source/"roundtrip.ini");
+    const std::string text((std::istreambuf_iterator<char>(input)), {});
+    REQUIRE(text.find("; keep comment")!=std::string::npos);
 }

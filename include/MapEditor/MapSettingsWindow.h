@@ -22,6 +22,7 @@
 #include <MapEditor/ReinforcementInfo.h>
 
 #include <GUI/Window.h>
+#include <GUI/ScrollView.h>
 #include <GUI/HBox.h>
 #include <GUI/VBox.h>
 #include <GUI/Label.h>
@@ -62,11 +63,27 @@ private:
 
     void onCancel();
     void onOK();
+    void onConvert();
+
+    /// Refresh the explanation below the map type drop down box.
+    void onMapTypeChange(bool bInteractive);
+
+    /// Answers the conversion question; the map is untouched until "Convert".
+    void onChildWindowClose(Window* pChildWindow) override;
+
+    /// Write the settings back and run the conversion, if one was chosen.
+    void applyChanges(bool convert=false);
+
+    void updateMapTypeNote();
+
+    /// Canonical category id currently chosen in the drop down box.
+    std::string getSelectedMapType() const;
 
 
     HBox            mainHBox;
     VBox            mainVBox;
     VBox            centralVBox;
+    ScrollView      centralScroll;
 
     HBox            pictureHBox;
 
@@ -107,6 +124,12 @@ private:
     Label           techLevelLabel;
     DropDownBox     techLevelDropDownBox;
 
+    HBox            mapTypeHBox;
+    TextButton      convertButton;
+    Label           mapTypeLabel;
+    DropDownBox     mapTypeDropDownBox;
+    Label           mapTypeNoteLabel;
+
     HBox            authorHBox;
     Label           authorLabel;
     TextBox         authorTextBox;
@@ -126,6 +149,7 @@ private:
     HOUSETYPE       house;
     Uint32          color;
 
+    std::vector<std::string>    availableMapTypes;  ///< canonical category ids, in drop down box order
     std::vector<std::string>    availableWinPictures;
     std::vector<std::string>    availableLosePictures;
     std::vector<std::string>    availableBriefingPictures;
