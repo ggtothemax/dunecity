@@ -1228,6 +1228,13 @@ int runMenuProbe() {
         menuRequire(fs::is_directory(directory) && readCompleteFile(installed)==data,
                     "First received map did not create its destination or preserve bytes");
         menuRequire(fs::exists(installed+".workshop.ini"), "First received map lost revision metadata");
+        menuRequire(Workshop::installMap(received)==installed,
+                    "Downloading the same map again changed its destination");
+        fs::remove(installed+".workshop.ini");
+        const auto separate=Workshop::installMap(received);
+        menuRequire(separate!=installed && readCompleteFile(installed)==data
+                    && readCompleteFile(separate)==data,
+                    "A same-name local map without metadata was overwritten");
     }
     { DisplayMenu menu;menuCapture(menu,"display"); }
     {

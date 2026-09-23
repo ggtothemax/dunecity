@@ -151,8 +151,13 @@ std::string installMap(const Revision& revision) {
     fs::create_directories(directory); // fnkdat creates parents; a fresh profile has no final map folder.
     auto path=directory/(name.substr(0,100)+".ini");
     if(fs::exists(path)) {
-        INIFile meta(fs::exists(path.string()+".workshop.ini")?INIFile(path.string()+".workshop.ini"):INIFile(false,std::string("")));
-        if(meta.getStringValue("Workshop","ID","")!=r.id) path=directory/(name.substr(0,80)+" - "+r.id.substr(0,8)+".ini");
+        bool sameMap = false;
+        const auto metadataPath = path.string()+".workshop.ini";
+        if(fs::exists(metadataPath)) {
+            INIFile meta(metadataPath);
+            sameMap = meta.getStringValue("Workshop","ID","") == r.id;
+        }
+        if(!sameMap) path=directory/(name.substr(0,80)+" - "+r.id.substr(0,8)+".ini");
     }
     if(fs::exists(path) && Dune2RAssetManager::sha256File(path.string())!=r.files[0].hash) {
         if(!fs::exists(path.string()+".workshop.ini")) throw std::runtime_error("A local map occupies the download destination.");
