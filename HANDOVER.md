@@ -8908,3 +8908,22 @@ release-test executable and arguments, SIGKILL stopped PID 56535. A fresh
 CoreAudio process query on the mini returned no active output process. Other
 apps and the MBA's older fixtures were left untouched. Verify process exit,
 not merely a successful signal request, when cleaning up future GUI tests.
+
+## 2026-09-23 — automatic desktop update confirmation (1.0.769, local)
+
+The main menu now opens the existing Install update / Later confirmation when
+the desktop updater reports an available supported update. It offers once per
+application launch, waits for other dialogs to close, and preserves Later across
+main-menu recreation. The footer update button can still reopen it manually.
+Installation still requires Install update; matches are not interrupted.
+
+Native build and dependency audits passed on claw.local. The silent, isolated
+menu_navigation_probe passed at 640/854/1280 widths, covering automatic display,
+Later, menu recreation, manual reopening and dialog deferral. A negative-control
+run with the automatic trigger removed failed as intended; restoring it and
+rebuilding passed. No MBA tests or interactive game/audio launches were used.
+
+Source and local app are 1.0.769; protocol 24 and save format 9846 unchanged.
+This change is committed locally on fix/automatic-update-prompt, not published
+or installed. Public release remains 1.0.768. Worker evidence is in
+../outputs/update-prompt-769/claude.json; menu evidence is build/menu-probe/.

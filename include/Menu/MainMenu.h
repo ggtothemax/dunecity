@@ -93,6 +93,16 @@ private:
     bool installationRequested = false;
     void onUpdate();
 
+    /// Offer the update confirmation on its own once an update is known to be
+    /// available, without waiting for the update button. Deferred while any
+    /// other dialog owns the screen; never installs anything by itself.
+    void showUpdatePromptIfAvailable();
+
+    /// The confirmation is offered at most once per app launch. A "Later"
+    /// must survive main menus recreated by a mod reinitialize, so this
+    /// outlives the individual MainMenu instance.
+    static bool updatePromptOfferedThisLaunch;
+
     // First-launch "Enable city-sim mod?" prompt state.
     bool bFirstLaunchPromptChecked = false; ///< Have we evaluated whether to show the prompt this session?
     bool bFirstLaunchPromptOpen    = false; ///< Is the prompt QstBox currently open (so we can route its result)?
