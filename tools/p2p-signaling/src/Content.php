@@ -444,7 +444,7 @@ final class Content
         try {
             if ($meta['files'][0]['size'] > self::MAX_MAP_INI) return;
             $text = $this->linkMap($hash, $meta['files'][0]['hash']);
-            $map = self::parseMapIni($text);
+            $map = self::parseMapIni($text, hex2bin($state['revisions'][$hash]['name']));
             $map['file'] = $meta['files'][0]['hash'];
             $state['maps'][$hash] = $map;
             $this->writeMapMetadata($state, $hash, $map);
@@ -482,7 +482,7 @@ final class Content
 
     private static function unknownMap(): array
     {
-        return ['schema' => 3, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => 'vanilla', 'known' => false, 'file' => ''];
+        return ['schema' => 4, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => 'vanilla', 'known' => false, 'file' => ''];
     }
 
     private static function iniInt(string $value, int $fallback): int
@@ -496,7 +496,7 @@ final class Content
      * rather than a guess. `[BASIC] Version` is the map *format* version and is deliberately not
      * read here: content versions are the numbers this server assigns.
      */
-    public static function parseMapIni(string $text): array
+    public static function parseMapIni(string $text, string $fallbackName = ''): array
     {
         $out = self::unknownMap();
         if (strlen($text) > self::MAX_MAP_INI) return $out;
@@ -506,6 +506,7 @@ final class Content
         $map = [];
         $basic = [];
         $lines = 0;
+        $buildings = 0;
         foreach (explode("\n", $text) as $line) {
             if (++$lines > self::MAX_MAP_LINES) break;
             $line = trim($line, " \t\r\0\x0b");
@@ -524,10 +525,11 @@ final class Content
             if ($value !== '' && $value[0] === '"' && str_ends_with($value, '"') && strlen($value) > 1)
                 $value = substr($value, 1, -1);
             if ($section === 'map' && in_array($key, ['sizex', 'sizey', 'seed'], true)) $map[$key] = $value;
-            elseif ($section === 'basic' && $key === 'mapscale') $basic[$key] = $value;
+            elseif ($section === 'basic' && in_array($key, ['mapscale', 'name'], true)) $basic[$key] = $value;
             elseif ($section === 'structures' && preg_match('/^(id|gen)[0-9]+$/D', $key)) {
                 $parts = explode(',', $value);
                 $building = strtolower(trim($parts[1] ?? ''));
+                if (!in_array($building, ['wall','concrete','slab1','slab4'], true)) ++$buildings;
                 if (in_array($building, self::CITY_BUILDINGS, true)) $out['mod'] = 'dunecity';
                 elseif ($out['mod'] !== 'dunecity' && in_array($building, self::TORNIE_BUILDINGS, true)) $out['mod'] = 'tornie';
             }
@@ -546,6 +548,9 @@ final class Content
         $out['width'] = $width;
         $out['height'] = $height;
         foreach (self::PLAYER_SECTIONS as $name) if (isset($sections[$name])) ++$out['players'];
+        $name = strtolower($basic['name'] ?? $fallbackName);
+        if ($out['mod'] === 'vanilla' && (str_contains($name, 'city') || str_contains($name, 'cities'))
+            && $buildings <= max(4, 2 * $out['players'])) $out['mod'] = 'dunecity';
         return $out;
     }
 
@@ -553,7 +558,7 @@ final class Content
     private function mapMetadata(array &$state, string $hash, array &$budget): array
     {
         $cached = $state['maps'][$hash] ?? null;
-        if (is_array($cached) && ($cached['schema'] ?? 0) === 3 && isset($cached['width'], $cached['height'], $cached['players'],
+        if (is_array($cached) && ($cached['schema'] ?? 0) === 4 && isset($cached['width'], $cached['height'], $cached['players'],
             $cached['mod'], $cached['known'], $cached['file'])) return $cached;
         if ($budget['files'] <= 0 || $budget['bytes'] <= 0) return self::unknownMap();
         --$budget['files'];
@@ -562,7 +567,7 @@ final class Content
             if ($meta['kind'] !== 'map' || $meta['files'][0]['size'] > self::MAX_MAP_INI) return self::unknownMap();
             $text = $this->linkMap($hash, $meta['files'][0]['hash']);
             $budget['bytes'] -= strlen($text);
-            $map = self::parseMapIni($text);
+            $map = self::parseMapIni($text, hex2bin($state['revisions'][$hash]['name']));
             $map['file'] = $meta['files'][0]['hash'];
             $state['maps'][$hash] = $map;
             $this->writeMapMetadata($state, $hash, $map);

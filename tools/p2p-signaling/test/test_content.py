@@ -304,6 +304,16 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(['c'*32],[r[1] for r in self.catalogue(mod='tornie')[0]])
         self.assertEqual([],self.catalogue(mod='?')[0])
 
+    def test_sparse_city_named_starter_maps_remain_city(self):
+        for i,(count,name,expected) in enumerate([(4,'DuneCity','dunecity'),(5,'DuneCity','vanilla'),(0,'Twin Cities','dunecity'),(0,'Desert','vanilla')]):
+            data=map_ini().replace(b'Name=Shared dunes',('Name='+name).encode())
+            data+=b'[STRUCTURES]\n'+b''.join(('ID%d=Atreides,Const Yard,256,%d\n'%(j,j*10)).encode() for j in range(count))
+            self.share({'map.ini':data},item='%032x'%i)
+        rows,_=self.catalogue()
+        self.assertEqual(['dunecity','vanilla','dunecity','vanilla'],[bytes.fromhex(r[7]).decode() for r in rows])
+        self.share({'map.ini':b'[MAP]\nSizeX=64\nSizeY=64\n'},item='e'*32,name='City starter')
+        self.assertEqual('dunecity',bytes.fromhex(self.catalogue()[0][-1][7]).decode())
+
     def test_catalogue_building_aliases_and_old_category_cache_migration(self):
         fixtures = [('Nuclear Plant','dunecity'),('Police','dunecity'),('Zone Commercial','dunecity'),
                     ('Powerline','dunecity'),('Advanced Wind Trap MK2','tornie'),
@@ -360,7 +370,7 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(0o600, stored.stat().st_mode & 0o777)
         state = json.loads((Path(self.service.state) / 'content/index.json').read_text())
         self.assertEqual(2, len(state['maps']))
-        self.assertEqual({'schema': 3, 'width': 64, 'height': 64, 'players': 2, 'mod': 'vanilla', 'known': True, 'file': sha(data)},
+        self.assertEqual({'schema': 4, 'width': 64, 'height': 64, 'players': 2, 'mod': 'vanilla', 'known': True, 'file': sha(data)},
                          state['maps'][sha(raw)])
 
     def test_catalogue_counts_extended_houses_and_refreshes_old_cache(self):

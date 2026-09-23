@@ -85,7 +85,8 @@ CITY_BUILDINGS = {'industrial zone', 'police', 'zone commercial', 'residential z
 TORNIE_BUILDINGS = {'advanced wind trap 3x2', 'chemipost', 'advanced wind trap 3x3', 'advanced wind trap mk2', 'scoutpost', 'advanced windtrap 3x2', 'avant-poste', 'flame post', 'green post', 'chaosfactory', 'sentinel post', 'advanced windtrap 3x3', 'tech center', 'avant poste', 'love factory', 'scout post', 'advanced wind trap', 'worfinery', 'advanced windtrap mk2', 'flamepost', 'advanced windtrap', 'advanced wind trap mk3', 'techcenter', 'lovefactory', 'advanced wind trap 2x3', 'chaos factory', 'chemi post', 'advanced windtrap mk3', 'advanced windtrap 2x3'}
 
 
-def infer_mod(c):
+def infer_mod(c, fallback_name=""):
+    buildings=0
     category = 'vanilla'
     for section in c.sections():
         if section.lower() != 'structures':
@@ -95,10 +96,19 @@ def infer_mod(c):
                 continue
             parts=value.split(',')
             building=parts[1].strip().lower() if len(parts)>1 else ''
+            if building not in {'wall','concrete','slab1','slab4'}:
+                buildings += 1
             if building in CITY_BUILDINGS:
                 return 'dunecity'
             if building in TORNIE_BUILDINGS:
                 category='tornie'
+    sections={section.lower():section for section in c.sections()}
+    basic=c[sections['basic']] if 'basic' in sections else {}
+    name=basic.get('name',fallback_name).lower()
+    houses={'harkonnen','atreides','ordos','fremen','sardaukar','mercenary','rebels','custom','wildspade','kleshmersh','tharpique'}
+    players=sum(section in houses or bool(re.fullmatch(r'player(?:[1-9]|1[0-2])',section)) for section in sections)
+    if category=='vanilla' and ('city' in name or 'cities' in name) and buildings<=max(4,2*players):
+        return 'dunecity'
     return category
 
 
@@ -130,7 +140,7 @@ def prepare(source, output, snapshots, owner, previous_output=None):
             if not ('seed' in m or (0 < int(m.get('sizex','0')) <= 2048 and 0 < int(m.get('sizey','0')) <= 2048)):
                 raise ValueError('Invalid dimensions')
             basic = c[sections['basic']] if 'basic' in sections else {}
-            mod = infer_mod(c)
+            mod = infer_mod(c,path.stem)
             # Reclassification does not rewrite an already published map's exact
             # gameplay dependency (e.g. a map containing Tornie units only).
             old = previous.get(str(path), {})

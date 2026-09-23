@@ -373,8 +373,10 @@ need a version suffix; the server-assigned version remains metadata.
 
 Map categories are derived from actual `[STRUCTURES]` entries: Vanilla by default,
 Tornie for its exclusive buildings, and DuneCity for city buildings (including roads).
-City content takes precedence in mixed maps. Names, existing tags and unit types
-do not determine the category. Schema-3 metadata refreshes older cached labels.
+City content takes precedence in mixed maps. City/ Cities-named starter maps with at most max(4, twice the player count)
+functional buildings also count as DuneCity; walls and slabs do not count toward
+that limit. Existing tags and unit types do not determine the category. Schema-4
+metadata refreshes older cached labels.
 Editor saves write the derived `[BASIC] Mod` flag. The pinned mod dependency remains
 separate and authoritative for exact gameplay; reclassification never changes it. `[BASIC] MapVersion` describes
 an authored map revision; `[BASIC] Version` remains the legacy file-format number.
