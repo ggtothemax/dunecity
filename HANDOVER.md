@@ -8927,3 +8927,34 @@ Source and local app are 1.0.769; protocol 24 and save format 9846 unchanged.
 This change is committed locally on fix/automatic-update-prompt, not published
 or installed. Public release remains 1.0.768. Worker evidence is in
 ../outputs/update-prompt-769/claude.json; menu evidence is build/menu-probe/.
+
+## 2026-09-23 — 1.0.769 deployed and verified
+
+PR #72 merged at 224b43424e5d05ab5e8cf09f025b5783989a0c26 and was tagged
+v1.0.769. Independent Claude review found no blockers. PR CI 35861588457
+and stable release CI 35862919846 passed. Duplicate main build 35862892187
+was cancelled (force-cancel was needed for its always-running Mac job); the
+release used the Mac mini runner. No MBA or interactive/audio tests were run.
+
+All 13 public GitHub release assets passed size and SHA256 verification. Three
+update manifests and both Mac/Windows appcast archive signatures verified with
+the checked-in Ed25519 key. The Mac app and DMG passed independent notarization
+ticket checks; app codesign and Gatekeeper accepted the Notarized Developer ID.
+Their hashes match the published packages. SourceForge run 35864497542 passed
+all upload readback hashes and Windows/Mac/Linux default checks. Independent
+HTTPS Git refs confirm its dunecity branch and 1.0.769 tag at the release commit.
+
+Reused the exact stable CI browser artifact after bundled-mod checks, avoiding
+a redundant browser rebuild (35864497734 cancelled). Website b6d847d deployed
+successfully in 35864719716; Web security 35864719331 passed. Matching service
+packaging changed provenance only, not PHP implementation. Live play/build.json
+reports 1.0.769 and the release commit; all eight browser file hashes and both
+release landing pages verified. Verification used gzip delivery and hashed the
+decompressed bytes. No fresh interactive browser or multiplayer session was
+run for this desktop-only UI change. Existing menu probes cover the change.
+
+Release: https://github.com/ggtothemax/dunecity/releases/tag/v1.0.769
+Evidence: ../outputs/release-769/ (review.json, PR/release CI logs,
+published-verification.json, sourceforge.log, live-verification.json and website
+deployment log). This supersedes the prior local-only status. Existing clients
+need to install 1.0.769 before they gain the automatic update prompt.
