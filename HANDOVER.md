@@ -1,3 +1,42 @@
+## 2026-09-24 — Ten redesigned city scenarios, published and verified
+
+Replaced Sihaya Basin, Ash Quarter and Coriolis Gap with irregular, tactical
+layouts; added Cielago Watch, Hagal Flats, Tuono Crossing, Carthag Vise,
+Arrakeen Blackout, Shield Wall Rift and Harg Pass Convoy. All ten are standalone
+Atreides-human single-player maps, with a proposed campaign order and briefings
+in `docs/city-scenarios.md`; no campaign menu registration. Preserved the
+separate SimCity spacing repair unchanged. No engine/protocol/release changes.
+
+Micropolis Detroit/Bern/Dullsville binary city layouts and existing All Against
+Atreides, Sardaukar Outpost and Alkozeltser maps informed the redesign. Terrain
+and streets now form islands, ribbons, gates, mesas, valleys and scattered towns.
+Ordinary Dune buildings count toward their actual R/C/I roles. Population is
+never a win condition; 5000 displayed population is only unrest eligibility.
+Hagal requires 24000 stored spice credits and starts with 12010 storage, so two
+more silos are needed. Cielago wins after 30 minutes; other missions use conquest.
+
+Claude Max implemented the generator/maps and static checks; its bounded run
+hit 96 turns after producing the patch. Codex reviewed/integrated it, corrected
+Hagal's already-satisfied storage capacity, reduced Ash's immediate squatter
+army so crime can mature, added targeted precincts, and ran real-engine probes.
+Power budgets include populated-zone demand except deliberate Arrakeen blackout.
+All ten deterministically regenerate, pass structural checks and load without
+warnings in the real engine. Ash's real hostile unrest occurred around minute
+five in both tested seeds (18 and 28 troops total over twelve idle minutes).
+Both starting MCVs in each expansion map have traversable paths to distant legal
+yard footprints. Active helper benchmarks sustained Sihaya for 35 minutes;
+Cielago and Coriolis lost before completing their objectives. These are mechanics
+and opening checks, not completed human balance playtests. Enemy-city unrest
+still occurs, but entrenched opponents retain much larger production and armies.
+
+Published Sihaya/Ash/Coriolis v2 under their existing identities and seven v1
+maps to the production metaserver, retaining the verified DuneCity dependency.
+Verified all ten live catalogue entries, complete downloads, manifest/file hashes
+and downloaded structural checks. SimCity remains v2. Installed local user and
+built-app copies; signed-bundle verification passes. No push/PR/game release.
+Evidence, telemetry, overview images, ZIP and publication receipts:
+`../outputs/city-scenarios-redesign/`; live proof `publish/verified.json`.
+
 ## 2026-09-24 — City scenarios published to metaserver
 
 User explicitly requested publication. Used the existing Workshop API and

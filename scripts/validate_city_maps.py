@@ -3,8 +3,10 @@
 Structural validator for DuneCity city-sim scenario maps.
 
 It re-derives, from the INI alone, the things the engine will do with the map
-and fails on anything the loader would reject or the city simulation would
-silently starve.  Checks:
+and fails on illegal placements or malformed mission data. For authored
+scenarios, city-service defects are warnings: they can be the mission problem
+and must be assessed in runtime playtests. Strict mode also rejects starvation.
+Checks:
 
   bounds/format   map rows present, right length, only legal terrain chars,
                   linear positions in range, structure names known
@@ -37,6 +39,7 @@ silently starve.  Checks:
 Usage:
     python3 scripts/validate_city_maps.py                # all known maps
     python3 scripts/validate_city_maps.py <file.ini> ... # specific files
+    python3 scripts/validate_city_maps.py --scenario <file.ini> ...
 """
 
 from __future__ import annotations
@@ -177,6 +180,7 @@ def get(sec: List[Tuple[str, str]], key: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 def validate(path: Path, expect: Optional[dict] = None) -> Report:
     expect = expect or {}
+    scenario = bool(expect.get("scenario"))
     rep = Report(path.name)
     ini = parse_ini(path.read_text())
 
@@ -492,6 +496,8 @@ def validate(path: Path, expect: Optional[dict] = None) -> Report:
                    if (get(ini[s], "Brain") or "").strip().lower() == "human"]
     if len(human_slots) > 1:
         rep.err(f"more than one Brain=Human section: {sorted(human_slots)}")
+    if scenario and human_slots != ["atreides"]:
+        rep.err("Single-player city missions require exactly one Atreides Human slot")
     if not human_slots:
         rep.warn("no Brain=Human section — the lobby will pick the slot at random")
 
@@ -552,6 +558,22 @@ def validate(path: Path, expect: Optional[dict] = None) -> Report:
         if not (lo.isdigit() and hi.isdigit()):
             rep.err(f"team '{key}' min/max must be integers")
 
+    if scenario:
+        # City problems are intentional scenario content; illegal placements and
+        # malformed mission data remain fatal. Growth and outbreaks need runtime proof.
+        rep.note("Scenario city-service defects are reported for playtesting, not erased by the generator")
+        human_structures = sum(o.lower() == "atreides" for o, n, x, y in structures)
+        enemy_structures = len(structures) - human_structures
+        rep.note(f"starting structures: Atreides {human_structures}, other houses {enemy_structures}")
+        player_items = {n for o, n, x, y in structures if o.lower() == "atreides"}
+        has_mcv = any(len(parts) >= 2 and parts[0] == "atreides" and parts[1] == "mcv"
+                      for parts in ([p.strip().lower() for p in v.split(',')]
+                                    for k, v in ini.get("units", [])))
+        if not player_items.intersection({"Const Yard", "Construction Yard"}) and not has_mcv:
+            rep.err("Player has neither a Construction Yard nor an MCV")
+        if not win_flags & 2:
+            rep.err("Mission must detect the player's defeat")
+
     # -- summary ------------------------------------------------------------
     counts = {"R": 0, "C": 0, "I": 0}
     for _o, n, _x, _y in zones:
@@ -570,11 +592,11 @@ def validate(path: Path, expect: Optional[dict] = None) -> Report:
             rep.err(f"road graph [{o}] has {comps} components, expected <= {limit}")
 
     if no_frontage:
-        rep.err(f"{len(no_frontage)} zones have no road on their perimeter ring, "
+        (rep.warn if scenario else rep.err)(f"{len(no_frontage)} zones have no road on their perimeter ring, "
                 f"e.g. {no_frontage[:4]}")
     allowed_nodest = expect.get("allow_no_destination", 0)
     if len(no_dest) > allowed_nodest:
-        rep.err(f"{len(no_dest)} zones cannot reach a complementary destination "
+        (rep.warn if scenario else rep.err)(f"{len(no_dest)} zones cannot reach a complementary destination "
                 f"within {MAX_TRAFFIC_DISTANCE} road tiles "
                 f"(allowed {allowed_nodest}), e.g. {no_dest[:4]}")
     elif no_dest:
@@ -584,15 +606,15 @@ def validate(path: Path, expect: Optional[dict] = None) -> Report:
     if starved_com:
         msg = (f"{len(starved_com)} commercial zones lack residential or "
                f"industrial supply within {SUPPLY_RADIUS} tiles, e.g. {starved_com[:4]}")
-        (rep.warn if len(starved_com) <= expect.get("allow_starved_com", 0) else rep.err)(msg)
+        (rep.warn if scenario or len(starved_com) <= expect.get("allow_starved_com", 0) else rep.err)(msg)
     if polluted_res:
         msg = (f"{len(polluted_res)} residential zones sit within "
                f"{POLLUTION_RADIUS} tiles of industry, e.g. {polluted_res[:4]}")
-        (rep.warn if len(polluted_res) <= expect.get("allow_polluted_res", 0) else rep.err)(msg)
+        (rep.warn if scenario or len(polluted_res) <= expect.get("allow_polluted_res", 0) else rep.err)(msg)
     if unpoliced_res:
         msg = (f"{len(unpoliced_res)} residential zones are outside every "
                f"police/turret coverage radius ({POLICE_RADIUS}), e.g. {unpoliced_res[:4]}")
-        (rep.warn if len(unpoliced_res) <= expect.get("allow_unpoliced_res", 0) else rep.err)(msg)
+        (rep.warn if scenario or len(unpoliced_res) <= expect.get("allow_unpoliced_res", 0) else rep.err)(msg)
 
     if win_flags & 0x10:
         rep.note(f"ECONOMIC victory active: local house must reach "
@@ -601,43 +623,28 @@ def validate(path: Path, expect: Optional[dict] = None) -> Report:
 
 
 # ---------------------------------------------------------------------------
-# Per-map expectations.  Coriolis Gap deliberately ships unpaved passes, so its
-# local districts must remain viable despite the tactical blockade.
-EXPECTATIONS = {
-    "2P - 128x128 - Sihaya Basin.ini": {
-        "max_road_components": {"atreides": 1, "harkonnen": 1},
-    },
-    "3P - 128x128 - Ash Quarter.ini": {
-        # Atreides owns two road graphs on purpose: the city plateau and the
-        # cut-off ruined annex north of the wall.
-        "max_road_components": {"harkonnen": 1, "mercenary": 1, "atreides": 2},
-        # Detroit premise: the precincts were destroyed, so part of the
-        # housing starts outside police coverage and crime climbs.
-        "allow_unpoliced_res": 60,
-    },
-    "3P - 160x96 - Coriolis Gap.ini": {
-        # West shelf, centre shelf and the two unpaved pass stubs.
-        "max_road_components": {"atreides": 4, "harkonnen": 1},
-        # Bern premise: the passes are unpaved, so the west shelf starts with
-        # separate military/harvester routes; local freight depots keep trade viable.
-        "allow_no_destination": 0,
-        "allow_starved_com": 0,
-    },
-    "2P - 192x192 - SimCity.ini": {
-        "max_road_components": {"player1": 1, "player2": 1},
-        "allow_polluted_res": 40,
-    },
+# Scenario flaws are mission content; the repaired SimCity map remains strict.
+SCENARIO_TARGETS = ['2P - 128x128 - Sihaya Basin.ini',
+ '3P - 128x128 - Ash Quarter.ini',
+ '3P - 160x96 - Coriolis Gap.ini',
+ '3P - 96x96 - Cielago Watch.ini',
+ '3P - 128x128 - Hagal Flats.ini',
+ '3P - 160x96 - Tuono Crossing.ini',
+ '4P - 128x128 - Carthag Vise.ini',
+ '3P - 128x128 - Arrakeen Blackout.ini',
+ '4P - 144x112 - Shield Wall Rift.ini',
+ '3P - 160x128 - Harg Pass Convoy.ini']
+EXPECTATIONS = {name: {"scenario": True} for name in SCENARIO_TARGETS}
+EXPECTATIONS["2P - 192x192 - SimCity.ini"] = {
+    "max_road_components": {"player1": 1, "player2": 1},
+    "allow_polluted_res": 40,
 }
-
-DEFAULT_TARGETS = [
-    "2P - 128x128 - Sihaya Basin.ini",
-    "3P - 128x128 - Ash Quarter.ini",
-    "3P - 160x96 - Coriolis Gap.ini",
-    "2P - 192x192 - SimCity.ini",
-]
+DEFAULT_TARGETS = SCENARIO_TARGETS + ["2P - 192x192 - SimCity.ini"]
 
 
 def main(argv: List[str]) -> int:
+    scenario_mode = "--scenario" in argv
+    argv = [a for a in argv if a != "--scenario"]
     if argv:
         paths = [Path(a) for a in argv]
     else:
@@ -649,7 +656,8 @@ def main(argv: List[str]) -> int:
             print(f"MISSING  {p}")
             bad += 1
             continue
-        rep = validate(p, EXPECTATIONS.get(p.name))
+        expect = {"scenario": True} if scenario_mode else EXPECTATIONS.get(p.name)
+        rep = validate(p, expect)
         status = "PASS" if rep.ok() else "FAIL"
         print(f"\n=== {status}  {rep.name}")
         for m in rep.info:

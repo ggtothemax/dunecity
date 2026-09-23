@@ -1,90 +1,72 @@
-# Arrakis city scenarios
+# Arrakis: ten city scenarios
 
-Three standalone **single-player** missions, with one Atreides human slot and
-computer-controlled opposing houses. The `2P`/`3P` filenames count houses, not
-required human players. Play with the **DuneCity** mod in **Custom Game → SP Maps**
-(or **SP User Maps** for copies installed in the user map directory).
+Ten standalone single-player missions, each with one **Atreides human** slot.
+The P count in filenames is the number of houses, not the number of humans.
+Select **DuneCity** in Custom Game. The shared viewpoint and mission order are
+ready for a campaign conversion; these maps are not yet wired into the campaign
+menu. Read the briefings here before starting: custom maps do not display their
+INI header comments as an in-game briefing.
 
-These form a proposed campaign order, with a shared Atreides viewpoint. They
-are not yet linked into the campaign menu. The briefings below and in each INI
-header provide the narrative material for that conversion; the current custom
-map loader does not display those header comments as a briefing screen.
-
-| Order | Map | Objective | Starting problem |
+| Order | Mission | Win condition | What needs doing |
 | --- | --- | --- | --- |
-| 1 | Sihaya Basin, 128×128 | Defeat the Harkonnen within 60 minutes | Establish a profitable frontier town while defending its spice economy |
-| 2 | Ash Quarter, 128×128 | Defeat the Harkonnen and Mercenaries | Repair a damaged refinery town, restore policing and reclaim its northern works |
-| 3 | Coriolis Gap, 160×96 | Defeat the Sardaukar and Harkonnen | Secure the mountain passes between your districts and the enemy city |
+| 1 | Sihaya Basin | Defeat Harkonnen | Your tiny shelf cannot support a competing city. Escort two MCVs across sand, colonise empty rock and protect new harvesting routes. |
+| 2 | Ash Quarter | Defeat Harkonnen and Mercenaries | A long industrial town has abandoned its southern tenements. Restore policing or rezone the polluted blocks before persistent crime produces hostile gangs. |
+| 3 | Hagal Flats | Store 24,000 credits of refined spice | Expand storage and harvesting while two rival houses raid the fields. Starting cash and city taxes do not satisfy the spice quota. |
+| 4 | Arrakeen Blackout | Defeat Harkonnen and Mercenaries | Restore power to a sprawling damaged city before its neighbourhoods empty. Decide which districts to repair and defend first. |
+| 5 | Harg Pass Convoy | Defeat Harkonnen and Mercenaries | Five small supply towns share one construction yard. Protect the useful links and choose which exposed settlements to evacuate or reinforce. |
+| 6 | Cielago Watch | Survive 30 minutes | Hold a compact mesa under pressure from two directions. The timer wins the mission; destroying an enemy base does not end it early. |
+| 7 | Tuono Crossing | Defeat Harkonnen and Sardaukar | Start with a mobile column and supply ledge, without a construction yard. Move an MCV to open rock and establish a real base. |
+| 8 | Shield Wall Rift | Defeat all three rival houses | Harkonnen, Ordos and Fremen are on separate teams and fight each other. Exploit their conflict without letting one rival take over. |
+| 9 | Carthag Vise | Defeat all three hostile houses | A valley city faces northern and southern armies and a Sardaukar battery. Balance the defence of its core and outlying refineries. |
+| 10 | Coriolis Gap | Defeat Harkonnen and Sardaukar | Take the middle plateau and breach a much larger fortified eastern city through its guarded gates. |
 
-In every mission, losing your house loses the game. Sihaya also has a losing
-timeout. Victory uses the engine's normal enemy-defeat condition; the fixed
-500-internal-population economic condition is deliberately disabled because
-these prebuilt cities could satisfy it within seconds.
+Losing all your buildings loses every mission. Keep Tuono's starting depot alive
+until an MCV deploys. There is no population victory: 5,000 displayed population
+is merely the crime system's eligibility threshold, not a meaningful challenge.
+Gang outbreaks require sustained dangerous crime and surviving hostile houses.
 
-## Public availability
+## Availability and checks
 
-Published to the production metaserver on 2026-09-24. Find them through
-**Custom Game → Metaserver Maps**, filtered to **DuneCity**:
-Sihaya Basin v1, Ash Quarter v1, Coriolis Gap v1, and repaired SimCity v2.
-The new scenarios retain their single-player human/AI setup.
+Published on the metaserver on 2026-09-24. Use **Custom Game → Metaserver Maps**
+and filter to **DuneCity**. Sihaya Basin, Ash Quarter and Coriolis Gap are now
+**version 2**; the seven additional missions are **version 1**. SimCity remains
+at its separately published repaired version 2. All ten current catalogue entries,
+complete downloaded maps and manifest/file SHA-256 hashes were verified; the
+downloaded maps passed structural validation again.
 
-All four were found in the live catalogue, downloaded through the public content
-API, matched against their manifest/file SHA-256 hashes, and passed structural
-validation again. SimCity v2 continues the original seeded map identity; older
-revisions and the separate existing SimCity lineage were preserved.
+All ten load in the real engine without map warnings, pass placement/format
+validation and regenerate byte-for-byte. Opening simulations used an idle human
+slot against Medium QuantBots. Ash was also checked with a second seed: real
+hostile gang outbreaks appeared at about five minutes in both runs. The two
+expansion maps have traversable paths from both starting MCVs to distant legal
+yard footprints. Hagal's starting storage is below its 24,000-spice quota and
+can reach it by adding two silos. No mission uses population victory.
 
-## Mission briefings
+These are opening and mechanics checks, not completed human balance playtests.
+The active AI benchmarks held Sihaya for 35 minutes; Cielago and Coriolis
+remained difficult, with the helper losing before the holdout deadline or
+conquest. Enemy cities can also suffer unrest: their stronger production and
+armies remain part of the challenge. Custom-game difficulty remains selectable.
 
-### 1. Sihaya Basin
+## City and terrain design
 
-The basin's company town has survived for generations without prospering.
-CHOAM will review our claim in one hour, and the Harkonnen intend to seize the
-spice fields before then. You have inherited a working town, factories,
-refineries and an airfield. Protect its harvesters, use the city's income to
-build an army, and destroy the Harkonnen base before the audit.
+The ten maps use different landforms and street patterns: isolated islands,
+a diagonal ribbon town, fortified gates, a small mesa, scattered depots, a narrow
+crossing, a valley, a broken ring city, four rival shelves and a chain of hamlets.
+Vacant lots, road stubs, damaged buildings and underserved pockets are deliberate.
+The maps do not assume that a city should already be solved when you arrive.
 
-Atreides starts with 9,000 credits; Harkonnen with 7,000. Two compact works
-areas serve nearby housing and commercial streets. Rock outcrops offer room
-to expand. Enemy reinforcements begin at minute 9, with armour at 20 and 32;
-later waves repeat. Friendly harvesters arrive at 14 and 30 minutes.
+Dune structures supply their real city roles: factories, refineries, yards,
+silos and starports provide industrial destinations; Outposts and House IX
+provide commerce; Barracks, WOR and Palaces provide housing. Local mixed
+neighbourhoods use those roles instead of separating residential and industrial
+areas across the map. Const Yards, Silos and Starports provide industry without
+industrial pollution. Power is house-wide, not transmitted along roads.
 
-Inspiration: Micropolis **Dullsville**—developing a stagnant town—adapted into
-a timed military and economic challenge using existing DuneCity mechanics.
-
-### 2. Ash Quarter
-
-Our advance has recovered a ruined refinery town. Its workshops still stand,
-but damaged buildings, missing police coverage and an isolated northern annex
-threaten the recovery. Harkonnen raiders and Mercenary scavengers hold the
-surrounding shelves. Repair the production core, restore the neighbourhoods,
-and remove both hostile houses so this town can support the next advance.
-
-Atreides starts with 6,500 credits. Many buildings begin at reduced health;
-33 residential lots lie outside starting police/turret coverage. Industry is
-oversupplied, making rezoning and service placement useful choices. The annex
-has a separate local road network. Hostile reinforcements begin at minutes 7
-and 13; friendly relief arrives from minute 6. There is no time limit.
-
-Inspiration: Micropolis **Detroit**'s urban recovery and **Hamburg**'s rebuilding
-brief. Damage is a starting condition, not a scripted earthquake or firestorm.
-
-### 3. Coriolis Gap
-
-Our towns are ready to support an advance, but Sardaukar troops hold the
-western pass and a Harkonnen city controls the eastern approach. Secure the
-passes, connect your forces and harvesting routes, then break the enemy city.
-Each district has local housing, commerce and employment: the blockade is a
-tactical obstacle, not an impossible long-distance commute.
-
-Atreides starts with 8,000 credits. Western freight depots use Spice Silos'
-industrial role without adding pollution. Barracks and a WOR supply nearby
-residents to the central works. Mountain walls, pass garrisons, road stubs,
-spice fields and an established enemy city create several fronts. Harkonnen
-reinforcements begin at minute 8; Sardaukar troops reinforce every 15 minutes.
-There is no time limit.
-
-Inspiration: Micropolis **Bern**'s transport and rezoning problem, translated
-into compact viable neighbourhoods separated by a contested military corridor.
+The references are the actual Micropolis scenario city layouts and the existing
+Dune maps All Against Atreides, The Sardaukar Outpost and Alkozeltser. These
+inspire urban shape and tactical problems; no unsupported flood, earthquake,
+escort-arrival or scripted city-rating objectives are claimed.
 
 ## SimCity repair
 
@@ -97,49 +79,16 @@ Each city's roads form one connected network. Terrain, mission flags, CHOAM
 and player sections are preserved. The generator also repairs orphaned
 Player3 sandworms by assigning them to the neutral Fremen house.
 
-## Layout and reproduction
 
-Zones retain their 2×2 gameplay footprint. Complementary roles must be
-reachable within 20 road steps; commerce also needs nearby residential and
-industrial supply. Roads are distinct from concrete and power is global.
-
-Industrial roles include construction yards, refineries, silos, factories,
-repair yards and starports. Outposts, House IX and airports are commercial;
-barracks, WORs and palaces are residential. Silos, starports and construction
-yards have industrial roles but do not emit industrial pollution. Windtraps
-and nuclear plants supply power and have no R/C/I role.
+## Reproduction
 
 ```sh
 python3 scripts/gen_city_scenarios.py
-python3 scripts/pack_simcity_user_map.py
 python3 scripts/validate_city_maps.py
 ```
 
-Generators are deterministic. The validator checks format, legal placements,
-overlap, road graphs, real-role traffic destinations, supply, pollution,
-services, ownership, objectives and reinforcement syntax. Ash Quarter's
-under-policed housing is an explicit scenario exception; disconnected local
-trade is not an exception in any new map.
-
-Micropolis reference: `MicropolisCore/resources/data/scenarios.xml` and
-`strings_en-US.xml`, notices 50 (Dullsville), 52 (Hamburg), 53 (Bern), 55
-(Detroit). Existing DuneCity single-player maps, Twin Cities and campaign
-reinforcement/team formats informed the bases and mission structure.
-
-## Verification and limits
-
-Local native build and core CTest suite passed. Structural validation passes
-for all four maps. Real-engine checks cover loading, rendered screenshots,
-zone connectivity and automated opening simulations. All new missions completed
-12 simulated minutes with a passive human slot and Medium enemy QuantBots;
-SimCity completed five minutes. No map-loader warnings occurred. Initial route
-checks passed for 237/237 Sihaya zones, 315/315 Ash zones, 432/432 Coriolis
-zones and 1,222/1,222 SimCity zones. These are single-seed
-smoke checks, not a full human difficulty or mission-completion playtest.
-An unattended human base is vulnerable to the active opponents; repair,
-policing, storage expansion and military production remain player decisions.
-
-For a later campaign conversion, retain the shared Atreides viewpoint and this
-order, move the briefings into campaign text resources, assign mission slots,
-and recheck tech unlocks, campaign AI and win/lose transitions. These standalone
-maps currently use tech level 8 and do not carry armies or money between games.
+The generator creates the ten missions deterministically. The separate
+`scripts/pack_simcity_user_map.py` reproduces the repaired SimCity map.
+Validation rejects illegal placements and invalid mission data. Authored
+scenario service defects are reported for playtesting, while SimCity retains
+strict traffic and connectivity checks.
