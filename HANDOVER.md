@@ -1,3 +1,28 @@
+## 2026-09-24 — All local work integrated and installed on the MacBook Air
+
+User authorized combining the local branch work and installing it. New checkout
+`/Users/stefan/Documents/projects/dunecity-all-local`, branch
+`integrate/all-local-773`, version 1.0.773, protocol 27. Base `610ddca4` includes
+the latest AI/map/menu work; aircraft-AA merged at `2c260400`, all city scenarios
+at `52da93bc`, historical carryall release notes at `40f82be9`. The older Starport
+recovery is already present byte-identically; play-mode commits are patch-equivalent.
+No local gameplay fix was omitted. Save layout unchanged. No push/PR/public release.
+
+Fresh native build and all 37 CTest tests passed. All city maps validate; all
+227 packaged maps match source. The 552-row aircraft audit matches the earlier
+cadence-fix results. Packaged with cmake --install (bundled dylibs, verified
+signature), transferred by SSH, installed at `/Applications/dunecity.app` on
+`Stefans-MacBook-Air.local`. Installed version 1.0.773, binary SHA-256
+`125a45097557c76f97af732eca3dc8c7a950673b926f72bc7832cda9798b6e3d`, signature
+and hidden-window runtime/rendering verified on the Air after replacement.
+Old 1.0.768 retained at `/Applications/.dunecity-backup-before-773-cf537620/dunecity.app`.
+No running game was interrupted, no profile/save edited, no game launched.
+
+Detailed inclusion table and evidence: docs/local-build-773.md. Receipts/package
+in `/Users/stefan/Documents/projects/outputs/all-local-773/`. Claude subscription
+worker audited branch completeness and packaging read-only; Codex integrated,
+reviewed, built/tested, packaged and verified the actual MBA installation.
+
 ## 2026-09-24 — QuantBot progression, air rescue and unreachable Hunt targets
 
 Local worktree `/Users/stefan/Documents/projects/dunecity-vanilla-ai`, branch
