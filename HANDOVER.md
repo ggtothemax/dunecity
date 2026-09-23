@@ -8844,3 +8844,13 @@ immutable-source forks across resolutions. Native builds, dependency audits,
 version agreement and the website service snapshot installer/security checks
 passed. Final candidate still needs platform CI and live multiplayer release
 checks; no broader release-readiness claim is made here.
+
+Production follow-up (user authorized deployment): website commit 82398cc was
+rebased over the hourly statistics update to b9ea124 and pushed to main. Deploy
+run 35852799408 succeeded. Production installed service snapshot
+ a6c72446afe7c11a37108e064dd672f5e58448511333e2d24dc197d843635bb6,
+matching the locally verified package. Live /p2p/v1/health returned status=ok;
+all 139 catalogue maps remain available (129 Vanilla, 10 DuneCity), all 127
+seeded latest revisions/category values verified, and mod-filter counts match.
+Evidence: ../outputs/release-fixes-768/deployment.log and
+production-catalogue.json. Game release and MBA installation were not performed.
