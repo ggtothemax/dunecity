@@ -1,3 +1,14 @@
+# Dune City 1.0.774
+
+QuantBot now builds a missing Starport when it reaches House IX or Palace in its construction priorities, even on maps with no Starport imports. Once the port is completed, the AI continues to the intended building.
+
+- Keeps the earlier import and opening priorities unchanged.
+- Respects map/mod prerequisites, tech and upgrade restrictions, affordability and placement; queued Starports prevent duplicate orders from multiple construction yards.
+- Applies across Easy, Medium, Hard and Brutal. Real-game regression probes cover Vanilla and DuneCity.
+- Includes all twelve new Dune City scenarios and repaired SimCity from 1.0.773.
+
+Multiplayer protocol is now 28. All players in a match must use this version. Save format is unchanged.
+
 # Dune City 1.0.773
 
 Twelve new Dune City single-player scenarios are bundled with the desktop installers and available through Metaserver Maps. The repaired SimCity map is included too. Select DuneCity in Custom Game to play the city scenarios.

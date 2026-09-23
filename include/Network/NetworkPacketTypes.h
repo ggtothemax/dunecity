@@ -82,7 +82,7 @@
 // Version 25: Map deduplication and mature AI storage prioritization.
 // Version 26: AI progression, aircraft rescue and terrain-reachable Hunt targets.
 // Version 27: Combined AI changes and Dynasty turret/launcher cadence.
-#define NETWORK_PROTOCOL_VERSION            27
+#define NETWORK_PROTOCOL_VERSION            28
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size
