@@ -358,18 +358,64 @@ int runMenuProbe() {
         menuCapture(menu,"home-pointer");
 #if defined(DUNECITY_DESKTOP_UPDATER)
         auto& updater = DesktopUpdater::instance();
-        updater.state_ = DesktopUpdater::State::Available;
-        updater.manifest_.version = "9.0.0";
         menu.bFirstLaunchPromptChecked = true;
+        MainMenu::updatePromptOfferedThisLaunch = false;
+        updater.manifest_.version = "9.0.0";
+        updater.state_ = DesktopUpdater::State::Current;
+        menu.update();
+        menuRequire(!menu.pChildWindow && !menu.updatePromptOpen, "Up-to-date launch opened an update dialog");
+        // An available update introduces itself; no visit to the update button.
+        updater.state_ = DesktopUpdater::State::Available;
         menu.update();
         menuRequire(menu.updateButton.getText()=="Update available", "Update notice missing");
-        menu.onUpdate();
         auto* question = dynamic_cast<QstBox*>(menu.pChildWindow);
-        menuRequire(question && menu.updatePromptOpen, "Update confirmation missing");
+        menuRequire(question && menu.updatePromptOpen, "Update confirmation did not appear on its own");
         menuCapture(menu,"update-confirmation");
         question->onButton(QSTBOX_BUTTON2);
         menu.processChildWindowOpenCloses();
-        menuRequire(!menu.updatePromptOpen && !updater.busy(), "Later started an installation");
+        menuRequire(!menu.updatePromptOpen && !updater.busy()
+            && updater.state()==DesktopUpdater::State::Available, "Later started an installation");
+        menu.update(); menu.update();
+        menuRequire(!menu.pChildWindow, "Automatic update prompt returned after Later");
+        {
+            // A mod reinitialize builds a new main menu; "Later" still holds,
+            // and the update button must still reach the confirmation.
+            MainMenu recreated;
+            recreated.bFirstLaunchPromptChecked = true;
+            recreated.update(); recreated.update();
+            menuRequire(!recreated.pChildWindow && !recreated.updatePromptOpen,
+                "Later did not survive a recreated main menu");
+            recreated.onUpdate();
+            auto* manual = dynamic_cast<QstBox*>(recreated.pChildWindow);
+            menuRequire(manual && recreated.updatePromptOpen, "Update button no longer reopens the confirmation");
+            manual->onButton(QSTBOX_BUTTON2);
+            recreated.processChildWindowOpenCloses();
+            menuRequire(!recreated.updatePromptOpen && !updater.busy()
+                && updater.state()==DesktopUpdater::State::Available, "Manual Later started an installation");
+        }
+        {
+            // Availability arriving while another dialog is open waits for it
+            // instead of closing it.
+            MainMenu deferred;
+            deferred.bFirstLaunchPromptChecked = true;
+            MainMenu::updatePromptOfferedThisLaunch = false;
+            updater.state_ = DesktopUpdater::State::Checking;
+            deferred.openWindow(MsgBox::create("Busy"));
+            deferred.update();
+            updater.state_ = DesktopUpdater::State::Available;
+            deferred.update();
+            menuRequire(dynamic_cast<MsgBox*>(deferred.pChildWindow) && !deferred.updatePromptOpen
+                && deferred.queuedChildWindows.empty(), "Update prompt displaced an open dialog");
+            deferred.closeChildWindow();
+            deferred.processChildWindowOpenCloses();
+            deferred.update();
+            auto* deferredPrompt = dynamic_cast<QstBox*>(deferred.pChildWindow);
+            menuRequire(deferredPrompt && deferred.updatePromptOpen, "Deferred update prompt never appeared");
+            deferredPrompt->onButton(QSTBOX_BUTTON2);
+            deferred.processChildWindowOpenCloses();
+            menuRequire(!updater.busy() && updater.state()==DesktopUpdater::State::Available,
+                "Deferred prompt installed without confirmation");
+        }
         updater.state_ = DesktopUpdater::State::Installing;
         auto* active = menu.windowWidget.pActiveChildWidget;
         menu.handleInput(tab);

@@ -8854,3 +8854,76 @@ all 139 catalogue maps remain available (129 Vanilla, 10 DuneCity), all 127
 seeded latest revisions/category values verified, and mod-filter counts match.
 Evidence: ../outputs/release-fixes-768/deployment.log and
 production-catalogue.json. Game release and MBA installation were not performed.
+
+## 2026-09-23 — 1.0.768 published
+
+User authorized actual game deployment after the metaserver rollout. PR #71
+merged at c0cfb48d7c9b712d79405b4aaf8d625422ea5cbd; stable tag v1.0.768 and
+release run 35856127626 succeeded. Windows, Linux, Emscripten and signed/notarized
+Mac packages passed their CI gates. PR CI caught two release issues: host PHP
+OPcache hid dynamic fixture configuration (disabled only in test workers; all
+221 tests pass with an OPcache-enabled host), and MSVC rejected conditional
+construction of the noncopyable INIFile parser (scoped metadata read now avoids
+that copy). The latter has repeated-download and local-name-collision coverage;
+rendered menu tests passed in 98.49 seconds after the native rebuild/dependency audit.
+
+Independent public verification downloaded all 13 GitHub assets, matched their
+published sizes/SHA256 digests, verified all three Ed25519 update manifests and
+both appcast archive signatures. Mac app and DMG stapled tickets validate; the
+app passes codesign --deep --strict and Gatekeeper as Notarized Developer ID.
+The signed app's hidden desktop runtime/rendering check passed on claw.local.
+SourceForge run 35857539387 verified all seven package uploads and three OS
+defaults. Independent HTTPS Git reads confirm its dunecity branch and peeled
+1.0.768 tag point to c0cfb48d.
+
+The exact stable CI browser artifact was reused, with bundled-mod verification,
+matching PHP service packaging and website security/hash checks. Redundant web
+rebuild 35857538995 was cancelled. Website commit d7711e4 (browser plus current
+release prose) deployed successfully in run 35857658989. Live /play/build.json
+is 1.0.768/c0cfb48d; all eight public browser artifact hashes and both desktop
+landing pages were verified. The packaged PHP implementation is byte-identical
+to the already deployed schema-5 service.
+
+Additional integration: three native DuneCity peers continued with matching
+cycle-150 state. A CI browser candidate joined an isolated native game, loaded
+checkpoint 5109, caught up and visibly continued without a reported desync.
+This is local RTC integration, not a fresh complete public WAN match. The
+additional native UI smoke test could not be completed through the available
+locked UI connection. All task-owned test tabs and native test processes were
+closed. Stefan reiterated: do not test on his MacBook Air; use the Mac mini.
+Read-only SSH checks found no native DuneCity process on the MBA, but older
+browser preview/PHP fixture servers remain; they were not stopped. No MBA app
+installation or interruption was performed during this release.
+
+Evidence: ../outputs/release-768/ (audit.json, validation.md, CI logs,
+published-verification.json, live-verification.json, sourceforge.log,
+mini-runtime.log, real-peers/ and browser-native/). The public release is at
+https://github.com/ggtothemax/dunecity/releases/tag/v1.0.768 .
+
+Audio cleanup follow-up: CoreAudio's live process list identified the task-owned
+ReleaseNative process on the mini still outputting audio after SIGTERM. The MBA
+had no native game process; its active outputs were Winamp and avconferenced,
+so remote audio was a possible route, not proven. After verifying the exact
+release-test executable and arguments, SIGKILL stopped PID 56535. A fresh
+CoreAudio process query on the mini returned no active output process. Other
+apps and the MBA's older fixtures were left untouched. Verify process exit,
+not merely a successful signal request, when cleaning up future GUI tests.
+
+## 2026-09-23 — automatic desktop update confirmation (1.0.769, local)
+
+The main menu now opens the existing Install update / Later confirmation when
+the desktop updater reports an available supported update. It offers once per
+application launch, waits for other dialogs to close, and preserves Later across
+main-menu recreation. The footer update button can still reopen it manually.
+Installation still requires Install update; matches are not interrupted.
+
+Native build and dependency audits passed on claw.local. The silent, isolated
+menu_navigation_probe passed at 640/854/1280 widths, covering automatic display,
+Later, menu recreation, manual reopening and dialog deferral. A negative-control
+run with the automatic trigger removed failed as intended; restoring it and
+rebuilding passed. No MBA tests or interactive game/audio launches were used.
+
+Source and local app are 1.0.769; protocol 24 and save format 9846 unchanged.
+This change is committed locally on fix/automatic-update-prompt, not published
+or installed. Public release remains 1.0.768. Worker evidence is in
+../outputs/update-prompt-769/claude.json; menu evidence is build/menu-probe/.

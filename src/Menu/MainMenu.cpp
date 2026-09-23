@@ -134,6 +134,8 @@ std::unique_ptr<MenuBase> createExtrasMenu(bool editors) {
     return std::make_unique<ModesMenu>(editors);
 }
 
+bool MainMenu::updatePromptOfferedThisLaunch = false;
+
 MainMenu::MainMenu()
 {
     // Update Discord Rich Presence
@@ -365,6 +367,7 @@ void MainMenu::update()
         else if (state == State::Failed) openWindow(MsgBox::create(updater.message()));
         else if (state == State::Available) onUpdate();
     }
+    showUpdatePromptIfAvailable();
 #endif
 
     // First-launch "Enable city-sim mod?" prompt. Runs after the update
@@ -415,12 +418,35 @@ void MainMenu::onUpdate() {
     }
     if (updater.state() == DesktopUpdater::State::Available) {
         updatePromptOpen = true;
+        updatePromptOfferedThisLaunch = true;
         openWindow(QstBox::create(_("Install Dune City ") + updater.version() +
             _(" and restart?\n\nYour saves, settings and user mods will be kept."),
             _("Install update"), _("Later"), QSTBOX_BUTTON2));
     } else if (!updater.busy()) {
         updater.check(); manualUpdateCheck = true;
     }
+}
+
+void MainMenu::showUpdatePromptIfAvailable()
+{
+#if defined(DUNECITY_DESKTOP_UPDATER)
+    // Offered once per launch: after a "Later" the user is not asked again,
+    // not even by a main menu recreated through a mod reinitialize. The
+    // update button still reopens the confirmation on demand.
+    if (updatePromptOfferedThisLaunch || updatePromptOpen) return;
+
+    auto& updater = DesktopUpdater::instance();
+    if (updater.state() != DesktopUpdater::State::Available) return;
+    // Packagings we cannot install into (DEB/RPM, portable ZIP) get the
+    // explanatory message from the button, never an unsolicited dialog.
+    if (!updater.supported()) return;
+
+    // Another dialog owns the screen — openWindow() would close it. Leave the
+    // flag clear so the offer simply arrives on a later tick.
+    if (pChildWindow != nullptr || !queuedChildWindows.empty()) return;
+
+    onUpdate();
+#endif
 }
 
 void MainMenu::onModes() const

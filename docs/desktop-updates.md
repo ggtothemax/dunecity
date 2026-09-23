@@ -7,9 +7,12 @@ build. Browser and Android builds do not include the desktop updater.
 
 ## User flow
 
-The main menu checks once per process in the background. A newer signed release
-changes the footer button to **Update available**. **Install update** requires
-confirmation; **Later** leaves the installed game untouched. Manual checks report
+The main menu checks once per process in the background. From 1.0.769, a newer
+signed release automatically opens the **Install update / Later** confirmation
+once per launch, waiting until any existing menu dialog closes. **Later** dismisses
+the automatic prompt for the rest of that launch, including after returning from
+a match. The footer remains **Update available** and can reopen the confirmation.
+Installation still requires choosing **Install update**. Manual checks report
 errors and whether the game is current. Installation disables game-entry actions,
 including keyboard activation. No update is installed during a match.
 
