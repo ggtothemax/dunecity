@@ -440,6 +440,15 @@ OptionsMenu::OptionsMenu() : MenuBase()
     pages[4].addWidget(&restoreDefaultsHBox, 32);
     pages[4].addWidget(VSpacer::create(6));
 
+    clearDuneCityAssetsHBox.addWidget(Spacer::create(), 0.5);
+    clearDuneCityAssetsButton.setText(_("Clear DuneCity Asset Cache"));
+    clearDuneCityAssetsButton.setOnClick(
+        std::bind(&OptionsMenu::onClearDuneCityAssets, this));
+    clearDuneCityAssetsHBox.addWidget(&clearDuneCityAssetsButton, 320);
+    clearDuneCityAssetsHBox.addWidget(Spacer::create(), 0.5);
+    pages[4].addWidget(&clearDuneCityAssetsHBox, 32);
+    pages[4].addWidget(VSpacer::create(6));
+
     backButton.setText(_("BACK"));
     backButton.setOnClick(std::bind(&OptionsMenu::onOptionsCancel, this));
 
@@ -685,6 +694,21 @@ void OptionsMenu::onRestoreDefaults() {
             "ERROR: Failed to restore config files!\n\n"
             "Check the log file for details.";
         MsgBox* pMsgBox = MsgBox::create(errorMessage);
+        pMsgBox->setTextColor(COLOR_RED);
+        openWindow(pMsgBox);
+    }
+}
+
+void OptionsMenu::onClearDuneCityAssets() {
+    if(ModManager::instance().clearDunecityGraphicsCache()) {
+        openWindow(MsgBox::create(
+            _("DuneCity graphics cache cleared.\n\n"
+              "Your saves and settings were not changed.\n"
+              "Restart the game to restore the current bundled assets.")));
+    } else {
+        MsgBox* pMsgBox = MsgBox::create(
+            _("ERROR: The DuneCity graphics cache could not be cleared.\n\n"
+              "Check the log file for details."));
         pMsgBox->setTextColor(COLOR_RED);
         openWindow(pMsgBox);
     }

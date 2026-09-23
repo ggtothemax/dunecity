@@ -131,6 +131,25 @@ function Convert-ToPropertiesPath([string]$Path) {
     return $Path.Replace("\", "\\").Replace(":", "\:")
 }
 
+function Get-DirectoryContentFingerprint([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "Cannot fingerprint missing directory: $Path"
+    }
+
+    $entries = foreach ($file in Get-ChildItem -LiteralPath $Path -File -Recurse | Sort-Object FullName) {
+        $relative = [System.IO.Path]::GetRelativePath($Path, $file.FullName).Replace("\", "/")
+        $fileHash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+        "$relative|$($file.Length)|$fileHash"
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes(($entries -join "`n"))
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($sha256.ComputeHash($bytes))).Replace("-", "").Substring(0, 24)
+    } finally {
+        $sha256.Dispose()
+    }
+}
+
 function Write-AndroidTvBanner([string]$IconPath, [string]$Destination) {
     Add-Type -AssemblyName System.Drawing
 
@@ -274,6 +293,8 @@ if ($androidVersionCode -le 0 -or $androidVersionCode -gt 2100000000) {
     throw "Android versionCode must be between 1 and 2100000000."
 }
 $payloadVersion = $androidVersionName -replace '[^0-9A-Za-z._-]', '_'
+$duneCitySkinsPath = Join-Path $RepoRoot "mods\dunecity\graphics_skins"
+$duneCitySkinsVersion = Get-DirectoryContentFingerprint $duneCitySkinsPath
 
 $nativeBuildPath = if ([System.IO.Path]::IsPathRooted($NativeBuildDir)) {
     Get-FullPath $NativeBuildDir
@@ -565,6 +586,12 @@ public class Dune2RActivity extends SDLActivity {
     private static final String TAG = "Dune2RActivity";
     private static final String PAYLOAD_ROOT = "dune2r_payload";
     private static final String PAYLOAD_MARKER = ".dune2r_payload___PAYLOAD_VERSION__";
+    private static final String DUNECITY_SKINS_ASSET_PATH =
+            PAYLOAD_ROOT + "/mods/dunecity/graphics_skins";
+    private static final String DUNECITY_SKINS_RELATIVE_PATH =
+            "mods/dunecity/graphics_skins";
+    private static final String DUNECITY_SKINS_VERSION = "__DUNECITY_SKINS_VERSION__";
+    private static final String DUNECITY_SKINS_MARKER = ".android-bundle-version";
 
     @Override
     protected String[] getLibraries() {
@@ -574,6 +601,7 @@ public class Dune2RActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         copyBundledPayload();
+        refreshBundledDuneCitySkins();
         super.onCreate(savedInstanceState);
         logWindowConfiguration("created");
     }
@@ -626,6 +654,73 @@ public class Dune2RActivity extends SDLActivity {
         }
     }
 
+    private void refreshBundledDuneCitySkins() {
+        File outputRoot = getExternalFilesDir(null);
+        if (outputRoot == null) {
+            outputRoot = getFilesDir();
+        }
+
+        File target = new File(outputRoot, DUNECITY_SKINS_RELATIVE_PATH);
+        File versionMarker = new File(target, DUNECITY_SKINS_MARKER);
+        if (DUNECITY_SKINS_VERSION.equals(readFirstLine(versionMarker))) {
+            Log.i(TAG, "DuneCity graphics cache is current: " + DUNECITY_SKINS_VERSION);
+            return;
+        }
+
+        try {
+            // This subtree is an APK-managed presentation cache. Replacing it
+            // prevents removed or renamed sprites from surviving an upgrade;
+            // configs and saves live outside this exact directory.
+            deleteTree(target);
+            copyAssetTree(getAssets(), DUNECITY_SKINS_ASSET_PATH, outputRoot);
+            writeTextFile(new File(target, DUNECITY_SKINS_MARKER), DUNECITY_SKINS_VERSION + "\n");
+            Log.i(TAG, "Refreshed DuneCity graphics cache: " + DUNECITY_SKINS_VERSION);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to refresh DuneCity graphics cache", e);
+        }
+    }
+
+    private String readFirstLine(File file) {
+        if (!file.isFile()) {
+            return "";
+        }
+        try (InputStream in = new java.io.FileInputStream(file)) {
+            StringBuilder value = new StringBuilder();
+            int next;
+            while ((next = in.read()) != -1 && next != '\n' && next != '\r') {
+                value.append((char) next);
+            }
+            return value.toString();
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private void writeTextFile(File file, String value) throws IOException {
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Could not create directory: " + parent);
+        }
+        try (OutputStream out = new FileOutputStream(file)) {
+            out.write(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    private void deleteTree(File file) throws IOException {
+        if (!file.exists()) {
+            return;
+        }
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                deleteTree(child);
+            }
+        }
+        if (!file.delete() && file.exists()) {
+            throw new IOException("Could not remove stale cache entry: " + file);
+        }
+    }
+
     private void copyAssetTree(AssetManager assets, String assetPath, File outputRoot) throws IOException {
         String[] children = assets.list(assetPath);
         if (children != null && children.length > 0) {
@@ -657,7 +752,7 @@ public class Dune2RActivity extends SDLActivity {
     }
 }
 '@
-$activity = $activity.Replace("__PAYLOAD_VERSION__", $payloadVersion)
+$activity = $activity.Replace("__PAYLOAD_VERSION__", $payloadVersion).Replace("__DUNECITY_SKINS_VERSION__", $duneCitySkinsVersion)
 Set-Content -LiteralPath (Join-Path $activityDir "Dune2RActivity.java") -Value $activity -Encoding ASCII
 
 $stringsPath = Join-Path $stageDir "app\src\main\res\values\strings.xml"
@@ -763,6 +858,7 @@ if ($BuildApk) {
 Write-Host "APK project staged: $stageDir"
 Write-Host "APK version: $androidVersionName ($androidVersionCode)"
 Write-Host "DuneCity payload version: $projectVersion"
+Write-Host "DuneCity graphics fingerprint: $duneCitySkinsVersion"
 Write-Host "Data payload staged: $payloadDir"
 Write-Host "Native libs staged: $jniLibsArm64"
 Write-Host "Install APK: adb install -r `"$stageDir\app\build\outputs\apk\debug\DuneLegacy.apk`""

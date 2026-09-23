@@ -50,6 +50,7 @@ private:
     void    onOptionsCancel();
     void    onGameOptions();
     void    onRestoreDefaults();
+    void    onClearDuneCityAssets();
 
     void    saveConfiguration2File();
 
@@ -129,6 +130,8 @@ private:
 
     HBox        restoreDefaultsHBox;
     TextButton  restoreDefaultsButton;
+    HBox        clearDuneCityAssetsHBox;
+    TextButton  clearDuneCityAssetsButton;
 
     TextButton  acceptButton;
     TextButton  backButton;

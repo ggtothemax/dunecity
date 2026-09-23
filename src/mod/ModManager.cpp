@@ -129,6 +129,25 @@ std::filesystem::path findBundledModPath(const std::string& modName) {
     return {};
 }
 
+std::filesystem::path findBundledDunecityGraphicsSkins() {
+    const std::filesystem::path dataRoot = getDuneLegacyDataDir();
+    const std::filesystem::path candidates[] = {
+        dataRoot / "mods" / DUNECITY_MOD_NAME / "graphics_skins",
+        dataRoot / ".." / "mods" / DUNECITY_MOD_NAME / "graphics_skins",
+        dataRoot / ".." / ".." / "mods" / DUNECITY_MOD_NAME / "graphics_skins",
+        dataRoot / ".." / ".." / ".." / "mods" / DUNECITY_MOD_NAME / "graphics_skins"
+    };
+
+    // DuneCity is seeded from config defaults, so its bundled selectable-mod
+    // directory intentionally carries graphics_skins only and has no mod.ini.
+    for(const auto& candidate : candidates) {
+        if(std::filesystem::is_directory(candidate)) {
+            return std::filesystem::weakly_canonical(candidate);
+        }
+    }
+    return {};
+}
+
 void appendFingerprintBytes(uint64_t& hash, const std::string& value) {
     constexpr uint64_t prime = 1099511628211ULL;
     for(const unsigned char c : value) {
@@ -435,6 +454,13 @@ void ModManager::initialize() {
     // Seed built-in dunecity mod if needed
     if (!modExists(DUNECITY_MOD_NAME) || dunecityNeedsReseed()) {
         seedDunecityFromDefaults();
+    } else {
+        // graphics_skins is a managed presentation payload, but the DuneCity
+        // mod itself also contains user-facing configuration. A pre-existing
+        // profile therefore must receive new Compacts and Icon Sprites without
+        // forcing a destructive full mod reseed. Windows always mounts the
+        // copy under %APPDATA%, not the bundle beside the executable.
+        refreshBundledDunecityGraphicsSkins();
     }
 
     // Seed built-in Tornie mod if needed. DuneCity 1.0.492:
@@ -1558,36 +1584,88 @@ void ModManager::seedDunecityFromDefaults() {
     // Install bundled graphics-only skins without deleting locally mounted
     // authored assets. The normal config files above remain authoritative;
     // this directory carries presentation payloads only.
-    const std::filesystem::path bundledDunecity = findBundledModPath(DUNECITY_MOD_NAME);
-    const std::filesystem::path bundledSkins = bundledDunecity / "graphics_skins";
-    if(std::filesystem::is_directory(bundledSkins)) {
-        try {
-            const std::filesystem::path installedSkins =
-                std::filesystem::path(dunecityPath) / "graphics_skins";
-            std::filesystem::create_directories(installedSkins);
-            // Android's libc++ filesystem implementation reports
-            // "Function not implemented" for recursive directory copy.
-            // Copy files individually; this also preserves locally authored
-            // files that are absent from the bundled presentation payload.
-            for(const auto& entry : std::filesystem::recursive_directory_iterator(bundledSkins)) {
-                const auto relative = std::filesystem::relative(entry.path(), bundledSkins);
-                const auto destination = installedSkins / relative;
-                if(entry.is_directory()) {
-                    std::filesystem::create_directories(destination);
-                } else if(entry.is_regular_file()) {
-                    std::filesystem::create_directories(destination.parent_path());
-                    std::filesystem::copy_file(
-                        entry.path(), destination,
-                        std::filesystem::copy_options::overwrite_existing);
-                }
-            }
-            SDL_Log("ModManager: Installed bundled DuneCity graphics skins");
-        } catch(const std::exception& e) {
-            SDL_Log("ModManager: Warning - DuneCity graphics skins were not copied: %s", e.what());
-        }
-    }
+    refreshBundledDunecityGraphicsSkins();
 
     SDL_Log("ModManager: Dunecity mod seeded successfully");
+}
+
+void ModManager::refreshBundledDunecityGraphicsSkins() const {
+    const std::filesystem::path bundledSkins = findBundledDunecityGraphicsSkins();
+    if(bundledSkins.empty()) {
+        SDL_Log("ModManager: Bundled DuneCity graphics skins are unavailable");
+        return;
+    }
+
+    try {
+        const std::filesystem::path installedSkins =
+            std::filesystem::path(getModPath(DUNECITY_MOD_NAME)) / "graphics_skins";
+        std::filesystem::create_directories(installedSkins);
+        std::size_t copiedFiles = 0;
+        std::size_t currentFiles = 0;
+
+        // Android's libc++ filesystem implementation reports "Function not
+        // implemented" for recursive directory copy. Copy files individually
+        // and preserve locally authored files that are absent from the bundle.
+        for(const auto& entry : std::filesystem::recursive_directory_iterator(bundledSkins)) {
+            const auto relative = std::filesystem::relative(entry.path(), bundledSkins);
+            const auto destination = installedSkins / relative;
+            if(entry.is_directory()) {
+                std::filesystem::create_directories(destination);
+                continue;
+            }
+            if(!entry.is_regular_file()) continue;
+
+            std::filesystem::create_directories(destination.parent_path());
+            bool needsCopy = !std::filesystem::is_regular_file(destination);
+            if(!needsCopy) {
+                needsCopy = std::filesystem::file_size(entry.path())
+                    != std::filesystem::file_size(destination)
+                    || std::filesystem::last_write_time(entry.path())
+                    > std::filesystem::last_write_time(destination);
+            }
+            if(needsCopy) {
+                std::filesystem::copy_file(
+                    entry.path(), destination,
+                    std::filesystem::copy_options::overwrite_existing);
+                ++copiedFiles;
+            } else {
+                ++currentFiles;
+            }
+        }
+        SDL_Log("ModManager: Refreshed bundled DuneCity graphics skins (%zu copied, %zu current)",
+                copiedFiles, currentFiles);
+    } catch(const std::exception& e) {
+        SDL_Log("ModManager: Warning - DuneCity graphics skins were not refreshed: %s", e.what());
+    }
+}
+
+bool ModManager::clearDunecityGraphicsCache() const {
+    const std::filesystem::path modRoot =
+        std::filesystem::path(getModPath(DUNECITY_MOD_NAME)).lexically_normal();
+    const std::filesystem::path graphicsCache =
+        (modRoot / "graphics_skins").lexically_normal();
+
+    // Keep this operation deliberately narrower than a mod reset. It is
+    // exposed in Options > Advanced and must never remove gameplay config,
+    // saves, or another selectable mod.
+    if(graphicsCache.filename() != "graphics_skins"
+       || graphicsCache.parent_path() != modRoot) {
+        SDL_Log("ModManager: Refusing unsafe DuneCity graphics-cache path: %s",
+                graphicsCache.string().c_str());
+        return false;
+    }
+
+    std::error_code error;
+    const auto removed = std::filesystem::remove_all(graphicsCache, error);
+    if(error) {
+        SDL_Log("ModManager: Could not clear DuneCity graphics cache '%s': %s",
+                graphicsCache.string().c_str(), error.message().c_str());
+        return false;
+    }
+
+    SDL_Log("ModManager: Cleared DuneCity graphics cache (%llu entries removed)",
+            static_cast<unsigned long long>(removed));
+    return true;
 }
 
 // DuneCity 1.0.492: seed the Tornie mod. The source files

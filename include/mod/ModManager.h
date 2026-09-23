@@ -237,6 +237,13 @@ public:
      */
     void seedDunecityFromDefaults();
 
+    /**
+     * Remove only the installed DuneCity presentation cache. The bundled
+     * copy is restored on the next application start; saves, configuration,
+     * and every other mod directory are left untouched.
+     */
+    bool clearDunecityGraphicsCache() const;
+
     // DuneCity 1.0.492: seed the Tornie mod
     void seedTornieFromDefaults();
     void seedDune2RFromDefaults();
@@ -296,6 +303,12 @@ private:
      * Get path to install config defaults directory.
      */
     std::string getInstallConfigPath() const;
+
+    /**
+     * Refresh the bundled DuneCity presentation payload in the installed
+     * user-data mod without touching authored gameplay configuration.
+     */
+    void refreshBundledDunecityGraphicsSkins() const;
 
     /**
      * Compute a canonical FNV-1a hash of an INI-style file (skips comments and
