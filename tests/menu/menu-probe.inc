@@ -70,8 +70,12 @@ int runLiveMapCatalogueProbe() {
     browser.onNext();menuRequire(browser.retVal==MENU_SETUP_PLAYERS,"Metaserver selection did not reach player setup");
     auto path=setup.maps[setup.map];
     GameInitSettings init(getBasename(path,true),readCompleteFile(path),false,setup.rules);
-    menuRequire(WorkshopGameContent::applyMapDependency(path,init),"Downloaded map lost its mod dependency");
-    menuRequire(ModManager::instance().getContentBase(ModManager::instance().getActiveModName())=="dunecity","Downloaded city map activated the wrong mod");
+    // A new custom game plays the mod that was selected here; the authored revision of the
+    // downloaded bytes is reused only when it belongs to that very mod.
+    const bool reused=WorkshopGameContent::applyMapRevisionForSelectedMod(path,init);
+    SDL_Log("LIVE_MAP_REVISION: authored revision %s",reused?"reused":"recaptured under the selected mod");
+    menuRequire(ModManager::instance().getContentBase(ModManager::instance().getActiveModName())=="dunecity",
+                "Downloading a city map changed the selected mod");
     SDL_Log("MENU_PROBE_PASS: live catalogue, combined filters, verified map/mod download, stable name, preview and player setup");
     return MENU_QUIT_DEFAULT;
 }
@@ -508,6 +512,66 @@ int runMenuProbe() {
         menuRequire(browser.mapList.getNumEntries()==0&&!browser.nextButton.isEnabled(),"Empty filter result can start a stale map");
     }
     {
+        // "All Maps" reads four directories, so one map can arrive from several
+        // of them: a metaserver download installed into the user profile, an
+        // editor save of a bundled map, or a metadata-annotated copy left
+        // beside its original. Those copies shared one display name and were
+        // listed once each. Real files, real chooser, real INI parsing.
+        namespace fs = std::filesystem;
+        menuRequire(std::getenv("DUNECITY_USERDIR") != nullptr,"Duplicate map test needs an isolated profile");
+        const auto userMaps = fs::path(std::getenv("DUNECITY_USERDIR"))/"maps/multiplayer";
+        fs::create_directories(userMaps);
+        const std::string original = readCompleteFile(dir + "6P - 256x256 - Alkozeltser 4.ini");
+        const auto basicEnd = original.find('\n', original.find("[BASIC]"));
+        menuRequire(basicEnd != std::string::npos,"Duplicate map fixture lost its [BASIC] section");
+        auto named=[&](const std::string& keys) {
+            return original.substr(0,basicEnd+1) + "Name=Menu probe duplicate\n" + keys + original.substr(basicEnd+1);
+        };
+        std::string distinct = named("");
+        const auto row = distinct.find("\n000=");
+        menuRequire(row != std::string::npos,"Duplicate map fixture lost its terrain rows");
+        distinct[row+5] = distinct[row+5]=='~' ? '%' : '~';   // one changed tile: a different map
+        const std::vector<std::pair<std::string,std::string>> fixtures = {
+            {"menu-probe-a-copy.ini", named("")},                     // plain copy, scanned first
+            {"menu-probe-b-annotated.ini", named("MapVersion=4\n")},  // same map, annotated beside it
+            {"menu-probe-c-distinct.ini", distinct},                  // same name, other content
+            {"6P - 256x256 - Alkozeltser 4.ini", original},           // user copy of an installed map
+        };
+        struct Cleanup {
+            fs::path directory; std::vector<std::string> files;
+            ~Cleanup(){ std::error_code e; for(const auto& f:files) fs::remove(directory/f,e); }
+        } cleanup{userMaps,{}};
+        for(const auto& fixture : fixtures) {
+            std::ofstream out((userMaps/fixture.first).string(), std::ios::binary);
+            out.write(fixture.second.data(), static_cast<std::streamsize>(fixture.second.size()));
+            out.close();
+            cleanup.files.push_back(fixture.first);
+        }
+        CustomGameMenu browser(false,false,&setup);
+        browser.onMapTypeChange(4);
+        int copies=0, mergedVersion=-1; std::string keptPath; bool distinctListed=false;
+        for(size_t index : browser.visibleMaps) {
+            const auto& entry=browser.mapEntries[index];
+            if(entry.metadata.name!="Menu probe duplicate") continue;
+            ++copies;
+            if(fs::path(entry.path).filename()=="menu-probe-c-distinct.ini") distinctListed=true;
+            else { keptPath=entry.path; mergedVersion=entry.metadata.version; }
+        }
+        menuRequire(copies==2,"Equivalent map copies are still listed once per file");
+        menuRequire(fs::path(keptPath).filename()=="menu-probe-a-copy.ini",
+                    "Deduplication did not keep the copy the catalogue scanned first");
+        menuRequire(mergedVersion==4,"The surviving copy lost the newest revision of its group");
+        menuRequire(distinctListed,"A different map sharing a name was hidden as a duplicate");
+        int installedCopies=0; std::string installedPath;
+        for(size_t index : browser.visibleMaps)
+            if(browser.mapEntries[index].metadata.name=="6P - 256x256 - Alkozeltser 4")
+                { ++installedCopies; installedPath=browser.mapEntries[index].path; }
+        menuRequire(installedCopies==1,"A user-profile copy of an installed map is listed twice");
+        menuRequire(installedPath==dir+"6P - 256x256 - Alkozeltser 4.ini",
+                    "Deduplication moved an installed map to its user-profile copy");
+        menuCapture(browser,"duplicate-map-copies");
+    }
+    {
         const auto file=setup.maps.front();
         ModManager::instance().setActiveMod("vanilla");
         GameInitSettings hosted(getBasename(file,true),readCompleteFile(file),"Map collection test",false,setup.rules);
@@ -520,6 +584,105 @@ int runMenuProbe() {
         INIFile pointer(installed+".workshop.ini");
         menuRequire(pointer.getIntValue("Workshop","Version",0)==static_cast<int>(r.version),"Downloaded map revision is not metadata");
         menuRequire(pointer.getStringValue("Workshop","Mod","")=="vanilla","Downloaded map has no mod flag");
+    }
+    {
+        // The mod the player picks is what the game starts with. Choosing a map - a local
+        // one or a downloaded one authored with another mod - never changes that choice,
+        // and the choice survives Next, reopening the setup and the next launch.
+        auto& mods = ModManager::instance();
+        const auto rememberedBefore = settings.general.customGameMod;
+        menuRequire(mods.setActiveMod("vanilla"),"Cannot start the mod choice fixture on vanilla");
+        auto modSetup = setup;
+        modSetup.players = ChangeEventList{};
+        {
+            CustomGameMenu browser(false,false,&modSetup);
+            int city=-1;
+            for(size_t i=0;i<browser.availableMods.size();++i)
+                if(browser.availableMods[i].name=="dunecity") city=static_cast<int>(i);
+            menuRequire(city>=0,"Dune City is not offered in the custom game mod picker");
+            browser.modDropDown.setSelectedItem(city,true);
+            menuRequire(mods.getActiveModName()=="dunecity" && mods.isCityModeActive(),
+                        "Picking Dune City did not activate the city content");
+            menuRequire(settings.general.customGameMod=="dunecity","Mod choice was not remembered");
+            menuRequire(browser.prepareSelectedMap(),"Vanilla map could not be prepared under Dune City");
+            menuRequire(mods.getActiveModName()=="dunecity","Selecting a Vanilla map reset the chosen mod");
+            // Using the already selected mod also records it, even without a dropdown change.
+            settings.general.customGameMod.clear();
+            browser.onNext();
+            menuRequire(settings.general.customGameMod=="dunecity","Next did not remember the mod being used");
+            menuRequire(browser.retVal==MENU_SETUP_PLAYERS,"Mod choice fixture did not reach player setup");
+            menuRequire(modSetup.mods[modSetup.mod].name=="dunecity","Player setup received a different mod than the one chosen");
+            menuRequire(mods.getActiveModName()=="dunecity" && mods.isCityModeActive(),"Next left the chosen mod");
+        }
+        // The downloaded fixture: the same map bytes, authored and pinned under Vanilla.
+        Workshop::Revision authored;
+        std::string downloaded;
+        {
+            menuRequire(mods.setActiveMod("vanilla"),"Cannot author the Vanilla map fixture");
+            GameInitSettings hosted(getBasename(setup.maps.front(),true),readCompleteFile(setup.maps.front()),
+                                    "Mod choice fixture",false,setup.rules);
+            WorkshopGameContent::pin(hosted,false,false);
+            authored = Workshop::store().get(hosted.getMapRevisionHash());
+            downloaded = Workshop::installMap(authored);
+            menuRequire(existsFile(downloaded+".workshop.ini") && !authored.modHash.empty(),
+                        "Downloaded map fixture has no pinned mod");
+            menuRequire(mods.setActiveMod("dunecity"),"Cannot reselect Dune City");
+        }
+        for(const auto& file : {setup.maps.front(), downloaded}) {
+            GameInitSettings started(getBasename(file,true),readCompleteFile(file),false,setup.rules);
+            menuRequire(!WorkshopGameContent::applyMapRevisionForSelectedMod(file,started),
+                        "A map authored with Vanilla overruled the chosen mod");
+            menuRequire(mods.getActiveModName()=="dunecity","Preparing the map switched the active mod");
+            WorkshopGameContent::pin(started,false,false);
+            menuRequire(started.getModName()=="dunecity","The started game did not keep the chosen mod");
+            menuRequire(!started.getMapRevisionHash().empty() && started.getMapRevisionHash()!=authored.hash,
+                        "The same map bytes under another mod did not become a new revision");
+            menuRequire(Workshop::store().get(started.getMapRevisionHash()).modHash==Workshop::saveMod("dunecity").hash,
+                        "The captured map revision is not tied to the chosen mod");
+            menuRequire(Workshop::store().get(authored.hash).modHash==authored.modHash,
+                        "Capturing a variant changed the authored revision");
+            WorkshopGameContent::resolveMod(started);
+            menuRequire(mods.getActiveModName()=="dunecity","Resolving the started game's content left Dune City");
+        }
+        {
+            // Back and a reopened setup keep the choice; so does the saved configuration.
+            auto reopened = setup;
+            reopened.mods = mods.listModChoices();
+            for(size_t i=0;i<reopened.mods.size();++i)
+                if(reopened.mods[i].matchesSelectionName(settings.general.customGameMod)) reopened.mod=static_cast<int>(i);
+            CustomGameMenu browser(false,false,&reopened);
+            const auto index=browser.modDropDown.getSelectedIndex();
+            menuRequire(index>=0 && browser.availableMods[index].name=="dunecity","Reopening custom setup lost the chosen mod");
+            INIFile config(getConfigFilepath());
+            menuRequire(config.getStringValue("General","Custom Game Mod","")=="dunecity",
+                        "The custom game mod choice was not saved for the next launch");
+        }
+        // A mod activated automatically - by a save, a join or a campaign - is not a choice.
+        menuRequire(mods.setActiveMod("vanilla"),"Cannot restore the vanilla fixture");
+        menuRequire(settings.general.customGameMod=="dunecity","Automatic mod activation overwrote the remembered choice");
+        // Reproduce the live Vanilla game carrying cached DuneCity turret rules.
+        settings.general.customGameMod="vanilla";
+        effectiveGameOptions.rocketTurretsNeedPower=true;
+        const auto vanillaRules=initialCustomGameRules();
+        menuRequire(!vanillaRules.rocketTurretsNeedPower && !effectiveGameOptions.rocketTurretsNeedPower,
+                    "A new Vanilla game inherited stale powered-turret rules");
+        auto rulesSetup=setup;
+        rulesSetup.rules=vanillaRules;
+        for(size_t i=0;i<rulesSetup.mods.size();++i)
+            if(rulesSetup.mods[i].name=="vanilla")rulesSetup.mod=static_cast<int>(i);
+        {
+            CustomGameMenu browser(false,false,&rulesSetup);
+            browser.onNext();
+            menuRequire(!rulesSetup.rules.rocketTurretsNeedPower,"Next restored stale turret rules");
+        }
+        // An explicit override belongs to this setup and survives Back/Next.
+        rulesSetup.rules.rocketTurretsNeedPower=true;
+        {
+            CustomGameMenu browser(false,false,&rulesSetup);
+            browser.onNext();
+            menuRequire(rulesSetup.rules.rocketTurretsNeedPower,"Back/Next erased an explicit turret-rule override");
+        }
+        settings.general.customGameMod = rememberedBefore;
     }
     const auto map = setup.maps.front();
     GameInitSettings init(getBasename(map,true),readCompleteFile(map),false,setup.rules);

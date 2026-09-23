@@ -223,15 +223,21 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
         setupMapRow.addWidget(&setupBrowseMaps, 110);
         setupMapRow.addWidget(Label::create(_("Mod")), 40);
         for(size_t i = 0; i < setup->mods.size(); ++i) setupMod.addEntry(setup->mods[i].selectionLabel(), static_cast<int>(i));
-        setupMod.setEnabled(gameInitSettings.getMapRevisionHash().empty());
+        // A new custom game plays the mod the player picks, including for a downloaded map.
         setupMod.setSelectedItem(setup->mod);
-        setupMod.setOnSelectionChange([this](bool interactive) { if(interactive) { setup->mod = setupMod.getSelectedIndex(); rebuildSetup(false); } });
+        setupMod.setOnSelectionChange([this](bool interactive) {
+            if(!interactive) return;
+            setup->mod = setupMod.getSelectedIndex();
+            if(setup->mod >= 0 && setup->mod < static_cast<int>(setup->mods.size()))
+                rememberCustomGameMod(setup->mods[setup->mod].name);
+            rebuildSetup(false);
+        });
         setupMapRow.addWidget(&setupMod, 155);
         mainVBox.addWidget(&setupMapRow, 28);
         setupConnection.addEntry(_("Offline"), 0);
         setupConnection.addEntry(_("Online"), 1);
         setupConnection.setSelectedItem(setup->online ? 1 : 0);
-        setupConnection.setOnSelectionChange([this](bool interactive) { if(interactive) { setup->online = setupConnection.getSelectedIndex() == 1; rebuildSetup(true); } });
+        setupConnection.setOnSelectionChange([this](bool interactive) { if(interactive) { setup->online = setupConnection.getSelectedIndex() == 1; rememberPlayMode(PlayModeScope::CustomGame, setup->online); rebuildSetup(true); } });
         setupModeRow.addWidget(&setupConnection, 120);
         setupVisibility.addEntry(_("Private - invite code"), 0);
         setupVisibility.addEntry(_("Public - anyone"), 1);

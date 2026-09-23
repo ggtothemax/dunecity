@@ -284,7 +284,10 @@ Power = 25
 ViewRange = 5
 WeaponDamage = 30
 WeaponRange = 8
-WeaponReloadTime = 360
+# 170 cycles = 2.72 s, the interval Dynasty's turret script actually achieves
+# (2.667-2.750 s); see docs/weapon-reload-comparison.md. The close-range cannon
+# scales from Gun-Turret instead, so a mod override there still applies.
+WeaponReloadTime = 170
 TurnSpeed = 0.05 #0.01
 BuildTime = 96
 InfSpawnProp = 25
@@ -639,7 +642,10 @@ Price = 450
 ViewRange = 5
 WeaponDamage = 75
 WeaponRange = 9
-WeaponReloadTime = 360
+# 750 cycles = 12.00 s from a pair's second rocket to the next pair's first, as
+# Dynasty does; the pair itself is 18 cycles wide, so pairs repeat every 12.288 s.
+# See docs/weapon-reload-comparison.md.
+WeaponReloadTime = 750
 MaxSpeed = 1.28  # Dynasty normal-speed cap; see docs/unit-speeds.md
 TurnSpeed = 0.03
 BuildTime = 72
@@ -655,7 +661,9 @@ Price = 725
 ViewRange = 5
 WeaponDamage = 94
 WeaponRange = 9
-WeaponReloadTime = 360
+# Elite launchers never had a reload advantage over the standard launcher; keep
+# them on the same rocket-pair cadence so only damage, health and speed differ.
+WeaponReloadTime = 750
 MaxSpeed = 3.8400
 BuildTime = 72
 InfSpawnProp = 25

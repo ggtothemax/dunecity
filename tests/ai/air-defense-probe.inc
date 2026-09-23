@@ -62,16 +62,37 @@ void runAirDefenseProbe(Game& game) {
         }
         const auto& config=getQuantBotConfig();auto settings=config.hard;
         settings.ornithopterAttackEnabled=true;
-        // Do not let an enemy anti-air escort turn a rescue into a suicide flight.
+        // A real attack overrides raid safety, even under an anti-air escort.
         launcher->setLocation(attacker->getLocation());unitList.push_back(launcher);
         bot->doSetAttackMode(air,STOP);bot->tryLaunchOrnithopterStrike(settings,config);
-        require(air->getTarget()!=attacker,"Defensive interception ignored enemy anti-air coverage");
+        require(air->getTarget()==attacker,"Anti-air escort suppressed an active harvester rescue");
+        attacker->doSetAttackMode(STOP);
+        launcher->doAttackObject(worker,true);
+        bot->doAttackObject(air,raid,true);
+        bot->tryLaunchOrnithopterStrike(settings,config);
+        require(air->getTarget()==launcher,"Aircraft refused to intercept a launcher attacking its harvester");
+        // Exercise the damage callback, not just the standalone target chooser.
+        bot->doAttackObject(air,raid,true);bot->defenceResponseCycles.clear();
+        bot->onDamage(worker,1,launcher->getObjectID());
+        require(air->getTarget()==launcher,"Harvester damage did not immediately interrupt the air raid");
+        // Nearby threats without an actual attack still obey normal raid safety.
+        launcher->doSetAttackMode(STOP);
+        bot->doSetAttackMode(air,STOP);bot->tryLaunchOrnithopterStrike(settings,config);
+        require(air->getTarget()!=attacker && air->getTarget()!=launcher,
+                "Proximity alone bypassed anti-air safety");
+        launcher->setLocation(origin+Coord(3,7));launcher->doAttackObject(base,true);
+        bot->doAttackObject(air,raid,true);bot->defenceResponseCycles.clear();
+        bot->onDamage(base,1,launcher->getObjectID());
+        require(air->getTarget()==launcher,"Base damage did not recall aircraft from a raid");
+        launcher->setHealth(0);attacker->setHealth(0);
+        bot->tryLaunchOrnithopterStrike(settings,config);
+        require(air->getTarget()==raid,"Aircraft failed to resume raids after the emergency ended");
         unitList.remove(launcher);
         bot->onHumanUnitOrder(air->getObjectID());bot->doAttackObject(air,raid,true);
         bot->tryLaunchOrnithopterStrike(settings,config);
         require(air->getTarget()==raid,"Defensive automation replaced a human aircraft order");
     } catch(...) {unitList=savedUnits;structureList=savedStructures;throw;}
     unitList=savedUnits;structureList=savedStructures;
-    SDL_Log("AIR_DEFENSE_PASS: all difficulties redirect raids to base/harvester threats; resume, safety and human control preserved");
+    SDL_Log("AIR_DEFENSE_PASS: base/harvester attacks preempt raids and AA avoidance; proximity safety, resumption and human control preserved");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: probe=air_defense outcome=passed");
 }

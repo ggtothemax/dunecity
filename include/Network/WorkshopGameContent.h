@@ -58,17 +58,21 @@ inline void resolveMod(GameInitSettings& init, bool allowDownload = true) {
     }
     init.setModIdentity(mods.getActiveModName(), mods.getEffectiveChecksums().combined);
 }
-// Returns true only when the selected bytes are an unchanged saved revision.
-inline bool applyMapDependency(const std::string& path, GameInitSettings& init) {
+// Selecting a map for a NEW custom game: the mod the player picked is authoritative, so
+// this never activates another mod. The authored revision of these exact bytes is reused
+// only when it already belongs to the active mod; otherwise no map revision is set and
+// pin() captures the same bytes as a revision of the selected mod, leaving the authored
+// revision untouched. Saves and joins keep their exact pinned mod through resolveMod().
+inline bool applyMapRevisionForSelectedMod(const std::string& path, GameInitSettings& init) {
     if(!existsFile(path + ".workshop.ini")) return false;
     INIFile metadata(path + ".workshop.ini");
     const auto map = Workshop::store().get(metadata.getStringValue("Workshop", "Hash", ""));
     if(map.kind != "map" || map.files.empty() || map.files.front().hash != Workshop::hashBytes(init.getFiledata())) return false;
+    Workshop::Revision selected;
+    try { selected = Workshop::saveMod(ModManager::instance().getActiveModName()); }
+    catch(const std::exception&) { return false; }
+    if(map.modHash != selected.hash) return false;
     init.setMapRevision(map.hash, map.version, map.manifest);
-    init.setModRevision(map.modHash, 0);
-    resolveMod(init);
-    const auto required = Workshop::store().get(map.modHash);
-    init.setModRevision(required.hash, required.version);
     return true;
 }
 // Called before advertising/starting. Save/checkpoint bytes are never treated as map INI files.

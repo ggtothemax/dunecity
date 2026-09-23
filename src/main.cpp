@@ -1167,6 +1167,13 @@ int main(int argc, char *argv[]) {
             settings.general.duneCityCampaignSkin = std::clamp(
                 myINIFile.getIntValue("General", "DuneCity Campaign Skin", 0), 0, 1);
             settings.general.multiplePlayersPerHouse = myINIFile.getBoolValue("General","Multiple Players Per House",false);
+            // The Offline/Online choice is remembered per menu; the defaults are the ones a
+            // first-time player gets: co-op offered for the campaign, offline for custom games.
+            settings.general.campaignOnline = myINIFile.getBoolValue("General","Campaign Online",true);
+            settings.general.customGameOnline = myINIFile.getBoolValue("General","Custom Game Online",false);
+            // Empty until the player picks a mod for a custom game; then that choice is
+            // restored on every entry, independent of mods activated by saves or joins.
+            settings.general.customGameMod = myINIFile.getStringValue("General","Custom Game Mod","");
             settings.video.width = myINIFile.getIntValue("Video","Width",640);
             settings.video.height = myINIFile.getIntValue("Video","Height",480);
             settings.video.interfaceHeight = validatedInterfaceHeight(

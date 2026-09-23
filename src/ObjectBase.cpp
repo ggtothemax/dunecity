@@ -513,7 +513,8 @@ const ObjectBase* findClosestTargetLegacy(const ObjectBase& seeker) {
                 }
 
                 ObjectBase* candidate = tile->getObject();
-                if(candidate != nullptr && seeker.canAttack(candidate)) {
+                if(candidate != nullptr && seeker.canAttack(candidate)
+                    && currentGameMap->terrainAttackReachable(seeker,*candidate)) {
                     const int deprio = getTargetDeprioritizationLevel(*candidate);
                     const FixPoint dist = blockDistance(seekerLocation, checkCoord);
 
@@ -606,7 +607,7 @@ const ObjectBase* findTargetLegacy(const ObjectBase& seeker, int checkRange) {
 const ObjectBase* findTargetViaGrid(const ObjectBase& seeker,
                                     const SpatialGrid& grid,
                                     int checkRange,
-                                    bool huntMode) {
+                                    bool huntMode, bool* terrainRejected = nullptr) {
     const Coord seekerLocation = seeker.getLocation();
     if(!seekerLocation.isValid()) {
         return nullptr;
@@ -669,6 +670,10 @@ const ObjectBase* findTargetViaGrid(const ObjectBase& seeker,
                     }
 
                     if(!seeker.canAttack(candidate)) {
+                        continue;
+                    }
+                    if(huntMode && !currentGameMap->terrainAttackReachable(seeker,*candidate)) {
+                        if(terrainRejected) *terrainRejected=true;
                         continue;
                     }
 
@@ -775,9 +780,11 @@ const UnitBase* ObjectBase::findClosestTargetUnit() const {
 
 const ObjectBase* ObjectBase::findClosestTarget() const {
     if(const SpatialGrid* grid = currentGame->getSpatialGrid()) {
-        if(const ObjectBase* target = findTargetViaGrid(*this, *grid, 0, true)) {
+        bool terrainRejected=false;
+        if(const ObjectBase* target = findTargetViaGrid(*this, *grid, 0, true,&terrainRejected)) {
             return target;
         }
+        if(terrainRejected) return nullptr; // Do not rescan every tile for the same unreachable enemies.
     }
 
     return findClosestTargetLegacy(*this);
@@ -819,9 +826,11 @@ const ObjectBase* ObjectBase::findTarget() const {
     // skip the spatial grid to let Ornithopter::findTarget() handle QuantBot-style scoring
     if(getItemID() != Unit_Ornithopter) {
         if(const SpatialGrid* grid = currentGame->getSpatialGrid()) {
-            if(const ObjectBase* target = findTargetViaGrid(*this, *grid, checkRange, huntMode)) {
+            bool terrainRejected=false;
+            if(const ObjectBase* target = findTargetViaGrid(*this, *grid, checkRange, huntMode,&terrainRejected)) {
                 return target;
             }
+            if(terrainRejected) return nullptr;
         }
     }
 

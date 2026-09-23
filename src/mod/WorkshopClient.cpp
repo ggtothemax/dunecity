@@ -36,7 +36,7 @@ std::vector<std::string> split(const std::string& s) {
 }
 class Client::Impl {
 public:
-    enum class Phase { None, Begin, Chunk, Commit, List, Manifest, Blob };
+    enum class Phase { None, Begin, Chunk, Commit, List, Manifest, Blob, Lookup };
     std::unique_ptr<BoundedHttpClient> http=createBoundedHttpClient();
     Status status=Status::Idle;
     Phase phase=Phase::None;
@@ -49,13 +49,13 @@ public:
     unsigned nextPage=0;
     size_t fileIndex=0;
     uint64_t offset=0,lastChunk=0;
-    bool promoted=true, mapCatalogue=false;
+    bool promoted=true, mapCatalogue=false, collecting=false;
     unsigned retries=0;
     Uint32 retryAt=0;
     BoundedHttpClient::Request lastRequest;
     ~Impl(){cancel();}
     void cancel(){http->cancel();if(!stage.empty()){std::error_code e;fs::remove_all(stage,e);stage.clear();}status=Status::Idle;}
-    void reset(){cancel();retries=0;retryAt=0;items.clear();publishQueue.clear();downloadQueue.clear();result={};current={};message.clear();nextPage=0;mapCatalogue=false;}
+    void reset(){cancel();retries=0;retryAt=0;items.clear();publishQueue.clear();downloadQueue.clear();result={};current={};message.clear();nextPage=0;mapCatalogue=false;collecting=false;}
     void send(Phase p,const std::string& route,const std::string& body) {
         phase=p;BoundedHttpClient::Request request;
         auto base=settings.network.activeDirectEndpoint();
@@ -74,7 +74,15 @@ public:
         current=publishQueue.front();publishQueue.pop_front();fileIndex=0;offset=0;
         message="Saving to metaserver: "+current.name+" (version "+std::to_string(current.version)+")"+"...";
         send(Phase::Begin,"begin","hash="+current.hash+"&manifest="+hex(current.manifest)+"&owner="+store().owner()
-             +"&source="+(promoted?"manual":"host")+"&promoted="+(promoted?"1":"0"));
+             +"&source="+(promoted?"manual":"host")+"&promoted="+(promoted?"1":"0")+"&collect="+(collecting && current.kind=="map"?"1":"0"));
+    }
+    void collected(const std::string& revision) {
+        if(!collecting || current.kind!="map" || !digest(revision))
+            throw std::runtime_error("Invalid map collection receipt.");
+        store().setCollected(current.hash,revision);
+        result=current;status=Status::Succeeded;
+        message="The community catalogue already has "+current.name+".";
+        WebRuntime::syncPersistentFiles();
     }
     void published(unsigned version) {
         if(!version)throw std::runtime_error("The metaserver did not assign a version.");
@@ -146,6 +154,7 @@ public:
             }
             switch(phase) {
             case Phase::Begin:
+                if(f.count("collected")){collected(f["collected"]);break;}
                 if(f.count("version")){if(f["hash"]!=current.hash)throw std::runtime_error("Server revision mismatch.");published(integer(f["version"]));}
                 else{upload=f["upload"];if(!digest(upload))throw std::runtime_error("Invalid upload receipt.");sendChunk();}break;
             case Phase::Chunk:
@@ -154,6 +163,7 @@ public:
                       throw std::runtime_error("Upload was not acknowledged completely.");
                   offset=accepted;if(offset==current.files[fileIndex].size){++fileIndex;offset=0;}sendChunk();break; }
             case Phase::Commit:
+                if(f.count("collected")){collected(f["collected"]);break;}
                 if(f["hash"]!=current.hash)throw std::runtime_error("Server revision mismatch.");published(integer(f["version"]));break;
             case Phase::Manifest: {
                 auto r=parseManifest(unhex(f["manifest"]));
@@ -168,6 +178,18 @@ public:
                 std::ofstream out(path,std::ios::binary|std::ios::app);out.write(data.data(),data.size());out.close();
                 if(!out)throw std::runtime_error("Could not save downloaded content. Check free disk space.");
                 offset+=data.size();if(offset==current.files[fileIndex].size){++fileIndex;offset=0;}receiveBlob();break;
+            }
+            case Phase::Lookup: {
+                // Local item identity is per-creator, so another player's copy of the same
+                // scenario has a different revision hash. A content match is the collection
+                // goal already met: record the server's revision as the receipt for this
+                // local copy - never as a shared version of a hash the server does not hold.
+                if(f["found"]=="1") {
+                    collected(f["hash"]);break;
+                }
+                if(f["found"]!="0")throw std::runtime_error("Invalid map lookup response.");
+                if(!current.modHash.empty())publishQueue.push_back(store().get(current.modHash));
+                publishQueue.push_back(current);beginPublish();break;
             }
             case Phase::List:
                 for(const auto& row:rows){auto p=split(row);if((mapCatalogue && p.size()!=11)||(!mapCatalogue && p.size()!=7))throw std::runtime_error("Invalid metaserver listing.");
@@ -186,6 +208,16 @@ Client::~Client()=default;
 void Client::publish(const Revision& revision,bool promoted){impl_->reset();impl_->promoted=promoted;
     try{auto r=store().get(revision.hash);if(!r.modHash.empty())impl_->publishQueue.push_back(store().get(r.modHash));impl_->publishQueue.push_back(r);impl_->beginPublish();}
     catch(const std::exception& e){impl_->status=Status::Failed;impl_->message=e.what();}}
+void Client::collect(const Revision& revision){impl_->reset();impl_->promoted=false;impl_->collecting=true;
+    try{
+        auto r=store().get(revision.hash);
+        if(r.kind!="map"||r.files.size()!=1||r.modHash.empty())
+            throw std::runtime_error("Only a complete scenario revision can be collected.");
+        store().get(r.modHash); // The mod dependency must be complete before offering the map.
+        impl_->current=r;impl_->wanted=r.hash;
+        impl_->message="Checking the community catalogue for "+r.name+"...";
+        impl_->send(Impl::Phase::Lookup,"lookup","file="+r.files.front().hash+"&mod="+r.modHash);
+    }catch(const std::exception& e){impl_->status=Status::Failed;impl_->message=e.what();}}
 void Client::download(const std::string& hash){impl_->reset();impl_->wanted=hash;
     if(!digest(hash)){impl_->status=Status::Failed;impl_->message="Invalid content checksum.";return;}
     try{impl_->downloadQueue.push_back(hash);impl_->beginDownload();}
@@ -206,13 +238,25 @@ const std::string& Client::message()const{return impl_->message;}
 const Revision& Client::result()const{return impl_->result;}
 const std::vector<Revision>& Client::items()const{return impl_->items;}
 unsigned Client::nextPage()const{return impl_->nextPage;}
-void queuePublish(const Revision& revision) {
+namespace {
+// The outbox is keyed by content hash, so repeating a start never queues a second copy.
+// The body distinguishes an ordinary publication from an automatic collection, which
+// asks the metaserver for an existing copy of the same content first.
+const char* const kCollectMarker="collect";
+void queueEntry(const Revision& revision,const std::string& body) {
     if(!digest(revision.hash)) throw std::runtime_error("Invalid queued revision.");
     const auto dir=store().root()/"outbox";fs::create_directories(dir);
-    std::ofstream out(dir/revision.hash,std::ios::binary);out << revision.hash;out.close();
+    std::ofstream out(dir/revision.hash,std::ios::binary);out << body;out.close();
     if(!out)throw std::runtime_error("Could not queue content sharing.");
     WebRuntime::syncPersistentFiles();
 }
+bool isCollection(const fs::path& path) {
+    std::ifstream in(path,std::ios::binary);std::string body;
+    std::getline(in,body);return body==kCollectMarker;
+}
+}
+void queuePublish(const Revision& revision) { queueEntry(revision,revision.hash); }
+void queueCollection(const Revision& revision) { queueEntry(revision,kCollectMarker); }
 void updatePublications() {
     static std::unique_ptr<Client> client;
     static std::string hash;
@@ -232,7 +276,9 @@ void updatePublications() {
         auto dir=store().root()/"outbox";if(!fs::is_directory(dir)){retryAt=now+5000;return;}
         for(const auto& entry:fs::directory_iterator(dir)) {
             auto candidate=entry.path().filename().string();if(!digest(candidate))continue;
-            auto revision=store().get(candidate);hash=candidate;client=std::make_unique<Client>();client->publish(revision,false);return;
+            auto revision=store().get(candidate);hash=candidate;client=std::make_unique<Client>();
+            if(isCollection(entry.path()))client->collect(revision);else client->publish(revision,false);
+            return;
         }
         retryAt=now+5000;
     }catch(const std::exception& e){SDL_Log("Workshop queued sharing: %s",e.what());client.reset();hash.clear();retryAt=now+60000;}

@@ -678,6 +678,15 @@ target_compile_options(dunecity
 set(DATA_DIR "${CMAKE_SOURCE_DIR}/data")
 set(MODS_DIR "${CMAKE_SOURCE_DIR}/mods")
 
+if(NOT EMSCRIPTEN)
+    # These balance files are copied by POST_BUILD below. A data-only edit must
+    # trigger that packaging step too, or the local app keeps stale weapon data.
+    file(GLOB BUNDLED_OBJECT_DATA CONFIGURE_DEPENDS
+        "${MODS_DIR}/*/ObjectData.ini" "${MODS_DIR}/*/checksums.sha256")
+    set_property(TARGET dunecity APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/config/ObjectData.ini.default" ${BUNDLED_OBJECT_DATA})
+endif()
+
 function(add_copy_mods DEST_DIR)
     if(EXISTS "${MODS_DIR}")
         add_custom_command(

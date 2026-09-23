@@ -247,10 +247,24 @@ void UnitBase::loadObserverRuntime(InputStream& s) {
     noProgressCount=s.readUint8(); carryallRequestCooldown=s.readSint32();
 }
 
+bool UnitBase::usesLauncherRocketPair() const {
+    return itemID == Unit_Launcher || itemID == Unit_EliteLauncher;
+}
+
+bool UnitBase::canFireSecondaryWeapon() const {
+    if(usesLauncherRocketPair()) {
+        // Dynasty fires the second rocket only above half health, so a launcher at
+        // exactly 50% already fires singles. isBadlyDamaged() is strictly below half
+        // and keeps that meaning everywhere else in the engine.
+        return getHealth()*2 > getMaxHealth();
+    }
+    return !isBadlyDamaged();
+}
+
 bool UnitBase::attack() {
 
     if(numWeapons) {
-        if((primaryWeaponTimer == 0) || ((numWeapons == 2) && (secondaryWeaponTimer == 0) && (isBadlyDamaged() == false))) {
+        if((primaryWeaponTimer == 0) || ((numWeapons == 2) && (secondaryWeaponTimer == 0) && canFireSecondaryWeapon())) {
 
             Coord targetCenterPoint;
             Coord centerPoint = getCenterPoint();
@@ -297,9 +311,12 @@ bool UnitBase::attack() {
                 enhancedCombatAnimationStartMs = currentGame->getGameTime();
                 enhancedRenderInteractionKey = -1;
                 playAttackSound();
+                // A launcher restarts this timer on its second rocket; arming it here
+                // too means an interrupted pair still reloads instead of stalling.
                 primaryWeaponTimer = getWeaponReloadTime();
 
-                secondaryWeaponTimer = 15;
+                secondaryWeaponTimer = usesLauncherRocketPair() ? launcherBurstGapCycles
+                                                                : defaultSecondaryWeaponCycles;
 
                 if(attackPos && getItemID() != Unit_SonicTank && currentGameMap->getTile(attackPos)->isSpiceBloom()) {
                     setDestination(location);
@@ -313,7 +330,7 @@ bool UnitBase::attack() {
                 }
             }
 
-            if((numWeapons == 2) && (secondaryWeaponTimer == 0) && (isBadlyDamaged() == false)) {
+            if((numWeapons == 2) && (secondaryWeaponTimer == 0) && canFireSecondaryWeapon()) {
                 // MULTIPLAYER-SAFE: Track launcher unit secondary weapon firing at ornithopters
                 if((getItemID() == Unit_Launcher || getItemID() == Unit_Deviator) && 
                    pObject && pObject->getItemID() == Unit_Ornithopter) {
@@ -329,7 +346,13 @@ bool UnitBase::attack() {
                 enhancedCombatAnimationStartMs = currentGame->getGameTime();
                 enhancedRenderInteractionKey = -1;
                 playAttackSound();
-                secondaryWeaponTimer = -1;
+                secondaryWeaponTimer = INVALID;
+
+                if(usesLauncherRocketPair()) {
+                    // Dynasty's long launcher delay starts on the second rocket of the
+                    // pair, not the first, so the next pair is a full reload away.
+                    primaryWeaponTimer = getWeaponReloadTime();
+                }
 
                 if(attackPos && getItemID() != Unit_SonicTank && currentGameMap->getTile(attackPos)->isSpiceBloom()) {
                     setDestination(location);
@@ -656,6 +679,16 @@ void UnitBase::engageTarget() {
     if(target && !targetFriendly && !canAttack(target.getObjPointer())) {
         // the (non-friendly) target cannot be attacked anymore
         releaseTarget();
+        return;
+    }
+
+    if (target && attackMode==HUNT && !forced && findTargetTimer==0
+        && !currentGameMap->terrainAttackReachable(*this,*target.getObjPointer())) {
+        // Drop an old hunt when its target moves behind an impassable ridge.
+        // Explicit player orders and booked transport are not autonomous hunts.
+        setGuardPoint(location);
+        releaseTarget();
+        clearPath();
         return;
     }
 
@@ -1782,6 +1815,12 @@ void UnitBase::resolvePendingTargetRequest() {
                 }
             }
 
+            if(pNewTarget==nullptr && attackMode==HUNT) {
+                // Match the synchronous targeting path. An empty reachable
+                // target set is not a mission to retry across the whole map.
+                setGuardPoint(location);
+                doSetAttackMode(GUARD);
+            }
             findTargetTimer = MILLI2CYCLES(1*1000);
         } else {
             findTargetTimer = MILLI2CYCLES(1*1000);
@@ -1803,6 +1842,16 @@ UnitBase::PathRequestStats UnitBase::resolvePendingPathRequest() {
         recalculatePathTimer = 0;
         stats.invalidDestination = true;
         return stats;
+    }
+
+    if (target && attackMode==HUNT && !forced) {
+        const ObjectBase* huntTarget=target.getObjPointer();
+        if (!huntTarget || !currentGameMap->terrainAttackReachable(*this,*huntTarget)) {
+            setGuardPoint(location);
+            releaseTarget();
+            clearPath();
+            return stats; // No A* budget spent on a missing or disconnected target.
+        }
     }
 
     // Jitter the cooldown by objectID to stagger re-requests across units,
@@ -2042,7 +2091,14 @@ bool UnitBase::update() {
     if(findTargetTimer > 0) findTargetTimer--;
     if(primaryWeaponTimer > 0) primaryWeaponTimer--;
     if(carryallRequestCooldown > 0) carryallRequestCooldown--;
-    if(secondaryWeaponTimer > 0) secondaryWeaponTimer--;
+    if(secondaryWeaponTimer > 0) {
+        secondaryWeaponTimer--;
+    } else if(secondaryWeaponTimer == 0 && usesLauncherRocketPair()) {
+        // Targeting had this tick to fire the due second rocket. If it could not
+        // (health, lost target, range or a new order), discard the interrupted pair
+        // instead of retaining a late follow-up until a future attack.
+        secondaryWeaponTimer = INVALID;
+    }
     if(deviationTimer != INVALID) {
         if(--deviationTimer <= 0) {
             quitDeviation();

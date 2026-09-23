@@ -31,6 +31,8 @@
 #include <Game.h>
 #include <Map.h>
 
+#include <algorithm>
+
 RocketTurret::RocketTurret(House* newOwner) : TurretBase(newOwner) {
     RocketTurret::init();
 
@@ -95,6 +97,15 @@ const ObjectBase* RocketTurret::findTarget() const {
     return best;
 }
 
+int RocketTurret::closeCannonReloadTime() const {
+    // Translate Dynasty's measured 2.000-2.083 s cannon interval to 2.048 s
+    // (128 cycles) in this engine, while a standalone gun turret keeps its
+    // 240-cycle reload. Scale the configured Gun-Turret value by 128/240 so a mod
+    // that retunes the gun turret still moves this cannon with it.
+    const int gunTurretReload = currentGame->objectData.data[Structure_GunTurret][originalHouseID].weaponreloadtime;
+    return std::max(1, gunTurretReload * closeCannonReloadNumerator / closeCannonReloadDenominator);
+}
+
 void RocketTurret::attack() {
     if((weaponTimer == 0) && (target.getObjPointer() != nullptr)) {
         Coord centerPoint = getCenterPoint();
@@ -112,7 +123,7 @@ void RocketTurret::attack() {
 
                 currentGameMap->viewMap(pObject->getOwner()->getHouseID(), location, 2);
                 soundPlayer->playSoundAt(Sound_ExplosionSmall, location);
-                weaponTimer = currentGame->objectData.data[Structure_GunTurret][originalHouseID].weaponreloadtime;
+                weaponTimer = closeCannonReloadTime();
             }
         } else {
             // MULTIPLAYER-SAFE: Track turret rocket firing

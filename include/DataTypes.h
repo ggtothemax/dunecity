@@ -194,6 +194,9 @@ public:
 #endif
         bool            diagnosticLogs = defaultDiagnosticLogs;
         bool            multiplePlayersPerHouse = false; ///< Custom game lobby: allow two players per house (remembered across games)
+        bool            campaignOnline = true;     ///< Campaign setup: last Offline/Online co-op choice (remembered across games)
+        bool            customGameOnline = false;  ///< Custom game setup: last Offline/Online choice (remembered across games)
+        std::string     customGameMod;             ///< Custom game setup: last mod the player picked (empty: follow the active mod)
     } general;
 
     class VideoClass {

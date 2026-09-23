@@ -1,3 +1,16 @@
+# Dune City 1.0.773
+
+Twelve new Dune City single-player scenarios are bundled with the desktop installers and available through Metaserver Maps. The repaired SimCity map is included too. Select DuneCity in Custom Game to play the city scenarios.
+
+- New missions: Sihaya Basin, Ash Quarter, Hagal Flats, Arrakeen Blackout, Harg Pass Convoy, Cielago Watch, Tuono Crossing, Shield Wall Rift, Carthag Vise, Coriolis Gap, Habbanya Crescent and Habbanya Narrows.
+- Rocket turrets now match Dune Dynasty's measured firing cadence after accounting for engine timing: 2.72 seconds between missiles and 2.048 seconds for the close-range cannon. Healthy launchers fire pairs 0.288 seconds apart, repeating every 12.288 seconds; launchers at half health or below fire singles every 12 seconds. Interrupted pairs cannot leave a late extra rocket queued. Applies across Vanilla, DuneCity, Dune2R and Tornie.
+- AI builds its production core and needed storage more reliably, balances expansion with air defence, sends aircraft to rescue attacked structures and harvesters, and avoids unreachable Hunt targets. Dune2R stops buying workers for exhausted spice fields.
+- Game setup remembers offline/online choices and the selected mod through map selection. Duplicate local/server maps are consolidated, and the repair sidebar layout is improved.
+
+Multiplayer protocol is now 27; all players in a match need compatible updated clients. Save format remains 9846. Desktop updates preserve saves, settings and user mods.
+
+---
+
 # DuneCity Tornie Edition Release Notes
 
 ## Version 1.0.520

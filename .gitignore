@@ -30,6 +30,7 @@ docs/*
 !docs/style.css
 !docs/dunecity-graphics-skins.md
 !docs/spectator-transfer.md
+!docs/city-scenarios.md
 !docs/img/
 missing
 aclocal.m4

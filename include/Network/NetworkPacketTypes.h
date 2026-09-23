@@ -79,7 +79,10 @@
 // Version 22: Sustainable policing budgets and core-first spice expansion.
 // Version 23: Earned credits share refinery/silo capacity and are capped immediately.
 // Version 24: Three-turret expansion sequencing, funding smoothing and source-aware refunds.
-#define NETWORK_PROTOCOL_VERSION            24
+// Version 25: Map deduplication and mature AI storage prioritization.
+// Version 26: AI progression, aircraft rescue and terrain-reachable Hunt targets.
+// Version 27: Combined AI changes and Dynasty turret/launcher cadence.
+#define NETWORK_PROTOCOL_VERSION            27
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

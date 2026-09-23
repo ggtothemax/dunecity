@@ -1,3 +1,312 @@
+## 2026-09-24 — All local work integrated and installed on the MacBook Air
+
+User authorized combining the local branch work and installing it. New checkout
+`/Users/stefan/Documents/projects/dunecity-all-local`, branch
+`integrate/all-local-773`, version 1.0.773, protocol 27. Base `610ddca4` includes
+the latest AI/map/menu work; aircraft-AA merged at `2c260400`, all city scenarios
+at `52da93bc`, historical carryall release notes at `40f82be9`. The older Starport
+recovery is already present byte-identically; play-mode commits are patch-equivalent.
+No local gameplay fix was omitted. Save layout unchanged. No push/PR/public release.
+
+Fresh native build and all 37 CTest tests passed. All city maps validate; all
+227 packaged maps match source. The 552-row aircraft audit matches the earlier
+cadence-fix results. Packaged with cmake --install (bundled dylibs, verified
+signature), transferred by SSH, installed at `/Applications/dunecity.app` on
+`Stefans-MacBook-Air.local`. Installed version 1.0.773, binary SHA-256
+`125a45097557c76f97af732eca3dc8c7a950673b926f72bc7832cda9798b6e3d`, signature
+and hidden-window runtime/rendering verified on the Air after replacement.
+Old 1.0.768 retained at `/Applications/.dunecity-backup-before-773-cf537620/dunecity.app`.
+No running game was interrupted, no profile/save edited, no game launched.
+
+Detailed inclusion table and evidence: docs/local-build-773.md. Receipts/package
+in `/Users/stefan/Documents/projects/outputs/all-local-773/`. Claude subscription
+worker audited branch completeness and packaging read-only; Codex integrated,
+reviewed, built/tested, packaged and verified the actual MBA installation.
+
+## 2026-09-24 — QuantBot progression, air rescue and unreachable Hunt targets
+
+Local worktree `/Users/stefan/Documents/projects/dunecity-vanilla-ai`, branch
+`fix/vanilla-ai-progression`, based on `a242f85c` plus the two setup commits
+`b4578eb7`/`7f2bc6a7`. Version 1.0.772, lockstep protocol 26; save layout unchanged.
+No publishing or replacement of the running MacBook Air game was performed.
+
+The captured 1.0.768 Brutal Vanilla match had Mercenary High Tech/IX orders at
+35.65/35.68 minutes, no silo through 40.9 minutes, and 13 windtraps. Runtime turret
+power was incorrectly enabled although the active Vanilla defaults disable it.
+New custom games now reload the chosen mod's defaults even if it is already
+active; deliberate overrides survive Back/Next. The integrated map-selection
+fix preserves that choice when loading an authored map.
+
+QuantBot reserves its first production core, available IX and needed refinery
+capacity ahead of repeated counter-air turret construction, retaining the first
+two defensive rockets. Worker/field targets and pending refinery orders still
+bound expansion. Existing early storage priority now counts the capacity of
+queued refineries instead of vetoing every silo during refinery expansion.
+Non-city turret headroom uses actual turret draw instead of the old 225 reserve.
+The newly enabled Dune2R spending probe also exposed its legacy worker branch
+buying harvesters with no spice left; both legacy purchase branches now stop
+when the surveyed field is exhausted.
+
+Ornithopters prioritize actual attackers of owned structures/harvesters above
+raids and speculative contacts, including AA-covered attackers. Damage callbacks
+recall eligible aircraft through the existing two-second district debounce;
+periodic targeting also recognizes active attacks. Human orders and aircraft
+reserved for repair retain their exclusions. Ordinary raids still avoid AA.
+
+Autonomous vehicle Hunt rejects terrain-disconnected targets at selection and
+before deferred pathfinding. It accepts reachable firing positions, infantry,
+flyers and explicit forced orders. A lazy, shared eight-neighbour terrain cache
+is rebuilt only when mountain topology changes, not on traffic revisions. No
+reachable target returns Hunt to Guard. Deferred paths safely handle a target
+that died after the request was queued. Dynamic occupancy remains the ordinary
+pathfinder's responsibility. Regression probes cover all three shipped modes,
+1000 traffic revisions without a cache rebuild, zero A* expansions for rejected
+hunts, opening/reclosing a detour, and expired target handles.
+
+Validation artifacts and captured live evidence are outside the repository at
+`/Users/stefan/Documents/projects/quantbot-live-20260924/`. The reported map's
+SHA-256 matches the installed MacBook Air map. Focused menu, Hunt, air-defense
+and economy probes pass. The final 40-minute simulation completed: Mercenary
+High Tech/IX at 10.96/13.55 minutes, first silo at 19.04, 30 refineries at minute
+30 versus nine in the capture, and only the initial windtrap for both houses.
+Neither house recorded storage loss. The simulation logged 1107 active-attacker
+air rescue orders; the slowest instrumented A* search was 4.13 ms, with none
+over 33 ms. Target-queue processing peaked at 1.129 ms. This is a controlled
+same-map/seed run without human commands,
+not a deterministic replay of all inputs in the live match. Full CTest ran 36
+targets: 35 passed initially; the additional Dune2R spending target passed after
+the depleted-field fix. Affected Dune2R/shared-spending/Starport and unit tests
+were rerun after that correction. Native build and pre/post dependency checks
+passed; browser runtime and a packaged/public release were not exercised.
+
+## 2026-09-24 — The selected mod owns a new custom game
+
+Same branch and worktree, on top of the connection-choice commit below.
+Picking a mod in custom-game setup is now the decision: choosing a map, browsing
+maps, pressing Next or backing out never changes it, and the choice is stored as
+`General/Custom Game Mod` so it survives reopening the setup and a restart. Mods
+activated automatically — by a save, a join or a campaign — do not overwrite it.
+`CustomGameMenu::prepareSelectedMap` no longer activates a map's authored mod;
+`playCustomGame` and `CustomGameMenu::onNext` use the new
+`WorkshopGameContent::applyMapRevisionForSelectedMod`, which reuses a downloaded
+map's authored revision only when it belongs to the selected mod and otherwise
+lets `pin()` capture the same bytes as a revision of that mod, leaving the
+authored revision immutable. The now-unused strict `applyMapDependency` was
+removed; saves and joins still resolve their exact pinned mod via `resolveMod`.
+The player-screen mod picker is enabled for downloaded maps too. This also fixes
+the report that starting a game with Dune City selected ran with MOD: VANILLA.
+The menu probe gained a regression for it (local and downloaded Vanilla map with
+Dune City selected: identity, city flag, setup mod, pin/resolve, reopen and the
+saved configuration). No gameplay, protocol, save-format or version changes.
+Unit suite and menu navigation probe passed; logs in
+`/tmp/dunecity-remember-play-mode/`. Browser runtime not exercised.
+
+## 2026-09-24 — Remember campaign and custom-game connection choices
+
+Local branch `fix/remember-play-mode`, based on `224b4342` (1.0.769).
+Campaign and custom-game setup now persist their last user-selected Offline/Online
+mode separately in General settings. Changes save immediately, including when
+backing out without starting a game. Custom player setup shares the custom-game
+preference. Normal entry restores it; explicit Play Online entry still starts
+online. Fresh profiles retain the existing defaults. The existing web filesystem
+sync is invoked after saving. No gameplay, protocol, or save-format changes.
+
+Native app rebuilt in this worktree's `build/bin/dunecity.app`; Ninja dependency
+integrity, unit suite and menu navigation probe (three resolutions) passed.
+Browser runtime reload has not been exercised.
+No push or public release.
+## 2026-09-24 — Align turret and launcher cadence with Dynasty
+
+User authorized matching both after the engine-aware timing recheck. Shared
+rocket turret reload is now 170 cycles / 2.720 s; its close cannon scales the
+configured gun turret reload by 128/240 (2.048 s by default). Standalone gun
+turrets retain their reload. Standard/elite launchers use 750 cycles / 12 s
+from the second shot, with an 18-cycle / 0.288 s burst gap (12.288 s pair period).
+At <=50% HP they fire singles. Missed secondary opportunities are cancelled;
+the fallback primary cooldown remains live. Other units keep legacy timing.
+Values translate measured Dynasty intervals to 16 ms ticks rather than copying
+its 60/20 Hz counters. No new random draws or serialized fields. Protocol 25
+prevents lockstep mixing with earlier combat rules. No release/version bump,
+install, push or PR. Local app rebuilt in this checkout.
+
+Tornie has a separate ObjectData override: updated that and its integrity
+checksum too. Native CMake now relinks/recopies for bundled ObjectData and
+checksum changes; the initial regression caught stale copied data, then the
+missing checksum update. Source/bundle hashes now match and Tornie's entire
+checksum manifest verifies. See docs/weapon-cadence-alignment.md.
+
+Aircraft sim: 552 rows across Vanilla/DuneCity/Dune2R, identical mode replays.
+Powered three-turret attacking-ornithopter kills 12/18 -> 18/18; lone turret
+0/18 -> 2/18. Fast carryall crossings still 0/36 kills. Separate 64-case matrix:
+turret 16 -> 27 kills; launcher 15 -> 8, consistent with the slower launcher
+cadence. No aircraft HP, speed or missile motion changes. Receipts are in
+../outputs/aircraft-aa-alignment/; final weapon timestamp receipts in
+build/weapon-reload-probe/. Original Dynasty reference still passes ASan/UBSan.
+
+Claude subscription worker produced the bounded production patch but reached
+its turn cap without tests/final report. Codex reviewed and completed burst
+cancellation, runtime timing/edge tests, Tornie integration, packaging and
+verification. All 32 CTest tests passed across the full run and final focused
+reruns; native build/dependency audits passed. The final reload probe covers
+138 steady-fire cases and 15 interruption controls across four modes.
+
+## 2026-09-24 — Reload timing rechecked across both engines
+
+Follow-up on aircraft audit. Confirmed actual steady turret missiles every
+5.760 s in DuneCity versus 2.667–2.750 s in original Dynasty. These include
+engine scheduling, not equal numeric counter assumptions. Launcher result is
+the opposite: healthy pairs every 5.760 s (0.240 s within pair) versus Dynasty
+12.250–12.417 s (0.250–0.333 s within pair). Damaged launchers fire singles;
+exact 50% HP boundary differs. See docs/weapon-reload-comparison.md.
+
+New timestamp controls run 30 cases × 120 seconds per engine (DuneCity replayed
+in all 3 modes); native ASan/UBSan and host shot/timer cross-checks passed.
+Both ground/air targets, three seeds, 100/50/33% launcher HP. Normal timebase
+verified in source: host 62.5 Hz, Dynasty 60 Hz with 20 Hz unit cooldown counters
+and 5-game-tick script scheduling. Shared gameplay values remain unchanged.
+Receipts: ../outputs/reload-doublecheck/. Claude's independent read-only source
+audit hit its 32-turn cap without a final report; Codex performed and verified
+the actual runtime measurements and timebase/source checks.
+
+## 2026-09-24 — Aircraft anti-air audit (tests only)
+
+Branch `investigate/aircraft-aa`, checkout `dunecity-aircraft-aa`, based on
+origin/main `224b4342`. No production combat change, version/protocol change,
+installation, push or release. User requested Dynasty comparison and simulations.
+
+Confirmed a cadence mismatch: shared rocket turret reload is 360 x 16 ms =
+5.76 s. Original Dynasty unit/structure loops with UNIT.EMC/BUILD.EMC measured
+2.667–2.750 s between stationary-target turret shots (30 damage in both).
+The existing 64-case attacking-ornithopter matrix yields 16 kills per mode;
+a test-only 170-cycle reload raises that to 24, with launchers unchanged at 15.
+All three modes agree. This suggests correcting cadence before changing HP or
+missile speed, but is not a validated balance change for ground combat.
+
+Original-engine reference: 91 cases with ASan/UBSan; actual attack scripts,
+controlled stationary/flyby aircraft, separate repeated-shot control. It also
+shows weak aircraft interception. Carryalls retain Dynasty's 100 HP and 15
+tiles/s versus 11.25 tiles/s turret missiles; no inflated-HP defect found.
+Native reference must not be presented as an exactly matched flight-controller
+benchmark. See `docs/dynasty-aircraft-reference.md` for measurements/reproduction.
+
+Claude Max prepared the additional powered-turret aircraft matrix; Codex reviewed
+fixture semantics, supplied original-engine reference/cadence sensitivity runs,
+and independently verified the existing mechanics/combat/continuation probes.
+The initial worker's run1/run2 mislabelled orbiting aircraft as stationary and
+failed to end flybys; those outputs are superseded and are not final evidence.
+See `docs/aircraft-aa-audit.md` for corrected motion/power/shot accounting.
+Artifacts: `../outputs/aircraft-aa/`. Native build, dependency audit, existing
+three projectile CTest probes and cadence experiment passed.
+## 2026-09-24 — Habbanya-Penny-inspired pair, installed and published
+
+Added Habbanya Crescent (2P, Atreides township versus larger Harkonnen city)
+and Habbanya Narrows (3P, mobile Atreides colony versus mutually hostile
+Harkonnen/Ordos towns), both 128x128 single-player conquest maps. Original
+terrain follows Rippsblack's Habbanya-Penny geometry: enclosing mountain rim,
+paired C-shaped spice basins, curved battle lanes and open expansion shelves.
+Twelve neutral Fremen sandworms per map do not add a lobby/enemy slot. Actual
+Dune R/C/I roles, populated-zone power reserves, no population win condition.
+
+Generator: `scripts/gen_habbanya_scenarios.py`, reusing the existing city helpers.
+Checks include connected starts/shelves/basins/outer spice, spare buildable rock,
+legal worms, army/production asymmetry, plus the shared structural validator.
+Claude Max supplied the generator/maps (48-turn ceiling reached after files);
+Codex reviewed exact final bytes, previews, routes and real-engine behaviour.
+Both deterministically reproduce and load without warnings. Final 25-minute
+Medium helper versus Medium enemy runs survived in both maps with no unrest.
+Idle Crescent lost near minute 12; idle Narrows survived 12. No full human
+victory/balance claim. Final test evidence uses `release-*` directories; earlier
+probes in the same output folder concern superseded layout drafts.
+
+Published both as v1 to the production metaserver, verified live catalogue,
+complete downloads, manifest/file hashes and downloaded structural checks.
+Installed byte-identical user-map and built-app resources; codesign verification
+passes. Guide and default validator include both additions. No game source,
+version/protocol, release, push or PR changes. Evidence, preview, ZIP and receipts:
+`../outputs/habbanya-scenarios/` (live proof `publish/verified.json`).
+
+## 2026-09-24 — Ten redesigned city scenarios, published and verified
+
+Replaced Sihaya Basin, Ash Quarter and Coriolis Gap with irregular, tactical
+layouts; added Cielago Watch, Hagal Flats, Tuono Crossing, Carthag Vise,
+Arrakeen Blackout, Shield Wall Rift and Harg Pass Convoy. All ten are standalone
+Atreides-human single-player maps, with a proposed campaign order and briefings
+in `docs/city-scenarios.md`; no campaign menu registration. Preserved the
+separate SimCity spacing repair unchanged. No engine/protocol/release changes.
+
+Micropolis Detroit/Bern/Dullsville binary city layouts and existing All Against
+Atreides, Sardaukar Outpost and Alkozeltser maps informed the redesign. Terrain
+and streets now form islands, ribbons, gates, mesas, valleys and scattered towns.
+Ordinary Dune buildings count toward their actual R/C/I roles. Population is
+never a win condition; 5000 displayed population is only unrest eligibility.
+Hagal requires 24000 stored spice credits and starts with 12010 storage, so two
+more silos are needed. Cielago wins after 30 minutes; other missions use conquest.
+
+Claude Max implemented the generator/maps and static checks; its bounded run
+hit 96 turns after producing the patch. Codex reviewed/integrated it, corrected
+Hagal's already-satisfied storage capacity, reduced Ash's immediate squatter
+army so crime can mature, added targeted precincts, and ran real-engine probes.
+Power budgets include populated-zone demand except deliberate Arrakeen blackout.
+All ten deterministically regenerate, pass structural checks and load without
+warnings in the real engine. Ash's real hostile unrest occurred around minute
+five in both tested seeds (18 and 28 troops total over twelve idle minutes).
+Both starting MCVs in each expansion map have traversable paths to distant legal
+yard footprints. Active helper benchmarks sustained Sihaya for 35 minutes;
+Cielago and Coriolis lost before completing their objectives. These are mechanics
+and opening checks, not completed human balance playtests. Enemy-city unrest
+still occurs, but entrenched opponents retain much larger production and armies.
+
+Published Sihaya/Ash/Coriolis v2 under their existing identities and seven v1
+maps to the production metaserver, retaining the verified DuneCity dependency.
+Verified all ten live catalogue entries, complete downloads, manifest/file hashes
+and downloaded structural checks. SimCity remains v2. Installed local user and
+built-app copies; signed-bundle verification passes. No push/PR/game release.
+Evidence, telemetry, overview images, ZIP and publication receipts:
+`../outputs/city-scenarios-redesign/`; live proof `publish/verified.json`.
+
+## 2026-09-24 — City scenarios published to metaserver
+
+User explicitly requested publication. Used the existing Workshop API and
+publishing capability to publish Sihaya Basin v1, Ash Quarter v1, Coriolis Gap v1
+and SimCity v2 at `https://dunelegacy.com/p2p`. SimCity retains the original
+seeded item identity `bd959851733f7ed42f1401e1e4689717`; no third lineage added.
+All four retain the existing verified DuneCity mod dependency. Verified each
+live catalogue entry, downloaded manifest and complete map payload, checked
+SHA-256/byte equality and re-ran structural validation on downloaded maps.
+Evidence: `../outputs/city-scenarios/publish/verified.json`, upload/verify logs,
+and `download-validation.log`. No service deployment, game release or push.
+
+## 2026-09-24 — Compact city scenarios (local, unreleased)
+
+Branch `feat/compact-city-scenarios`, worktree `dunecity-city-scenarios`.
+Three standalone single-player Atreides maps: Sihaya Basin (60-minute conquest),
+Ash Quarter (damaged city recovery), Coriolis Gap (contested mountain corridor).
+Micropolis Dullsville, Detroit/Hamburg and Bern inspired the mission problems;
+existing DuneCity scenarios/campaign formats supplied supported mechanics.
+Briefings and proposed campaign order: `docs/city-scenarios.md`. Not wired into
+the campaign menu. SimCity is repacked into compact mixed neighbourhoods.
+
+Dune infrastructure contributes its actual R/C/I role. Silos, construction yards
+and starports provide industrial destinations without industrial pollution.
+Local trade works on both sides of Coriolis's tactical blockade. Removed the
+fixed 500-population win condition after real-engine probes showed it winning
+these prebuilt cities within seconds. No engine/protocol/version changes.
+
+Both generators reproduce byte-identical maps; structural validation passes.
+Native build, dependency audit, core CTest and signed-bundle verification pass.
+Real-engine initial traffic routes: Sihaya 237/237, Ash 315/315, Coriolis 432/432,
+SimCity 1222/1222 (original SimCity 487/1087). All three new maps ran 12 simulated
+minutes with no human/helper orders against Medium QuantBots; SimCity ran five.
+No map-loader warnings. These are one-seed opening smoke checks, not full human
+balance or victory playtests. Ash's missing police coverage is intentional.
+
+Installed copies in this host's Dune City `maps/singleplayer` user directory and
+in `build/bin/dunecity.app`. Evidence and downloadable map pack live in
+`../outputs/city-scenarios/`. Claude Max supplied generators/maps/validator;
+Codex reviewed real mechanics, corrected objectives and Coriolis local supply,
+unified the player house, verified the maps and integrated locally. No push,
+PR, campaign registration or release performed.
+
 ## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
 
 Follow-up to the live 763 budget complaint. Version 1.0.764, protocol 22;
@@ -206,6 +515,30 @@ factory queue. All 18 targets verified across the full and focused runs.
 Claude Max supplied the bounded recovery fixture; Codex reviewed, added the
 queued-cash case and ran verification. No push, public release or install onto
 the MacBook Air has been performed. Logs: ../outputs/ai-mcv/.
+## 2026-09-22 — Production 1.0.760 published
+
+User authorized production/website publication. PR #69 merged at 952bbbd6,
+tag v1.0.760. CI caught lowercase definitions.h in CarryallFlight.h on
+case-sensitive Linux/Emscripten; corrected to Definitions.h (12384f1d).
+Mac rebuild/dependency audits and carryall probe passed after that include-only fix.
+PR CI 35716132681 passed; stable release 35717278503 passed all platform/test,
+Apple signing/notarization, signed update feed and publication jobs.
+
+GitHub release has 13 assets (8 packages, 3 signed manifests, 2 appcasts).
+Downloaded release and independently verified all manifest signatures, archive
+sizes/hashes and both native appcast archive signatures against the checked-in key.
+SourceForge 35718535053 verified all uploaded checksums, source branch/tag and
+Windows/Mac/Linux defaults. No source archive uploaded.
+
+Website a9ed96e (deploy 35718632273) publishes tagged CI browser artifact,
+matching signaling package and current release prose on both download pages.
+All 7 public browser files match live 1.0.760 manifest hashes/source 952bbbd6;
+both public download pages point to 1.0.760. Redundant automatic browser build
+35718535065 cancelled after packaging the exact tagged artifact.
+Fresh Chrome startup reached the rendered main menu showing App v1.0.760;
+verification tab closed afterward. This was a startup smoke check, not a new
+multiplayer match. Evidence: ../outputs/release-760/. MBA remains locally
+installed 1.0.760.
 
 ## 2026-09-22 — Combined local test build 1.0.760 installed on MBA
 
@@ -8927,3 +9260,116 @@ Source and local app are 1.0.769; protocol 24 and save format 9846 unchanged.
 This change is committed locally on fix/automatic-update-prompt, not published
 or installed. Public release remains 1.0.768. Worker evidence is in
 ../outputs/update-prompt-769/claude.json; menu evidence is build/menu-probe/.
+
+## 2026-09-23 — 1.0.769 deployed and verified
+
+PR #72 merged at 224b43424e5d05ab5e8cf09f025b5783989a0c26 and was tagged
+v1.0.769. Independent Claude review found no blockers. PR CI 35861588457
+and stable release CI 35862919846 passed. Duplicate main build 35862892187
+was cancelled (force-cancel was needed for its always-running Mac job); the
+release used the Mac mini runner. No MBA or interactive/audio tests were run.
+
+All 13 public GitHub release assets passed size and SHA256 verification. Three
+update manifests and both Mac/Windows appcast archive signatures verified with
+the checked-in Ed25519 key. The Mac app and DMG passed independent notarization
+ticket checks; app codesign and Gatekeeper accepted the Notarized Developer ID.
+Their hashes match the published packages. SourceForge run 35864497542 passed
+all upload readback hashes and Windows/Mac/Linux default checks. Independent
+HTTPS Git refs confirm its dunecity branch and 1.0.769 tag at the release commit.
+
+Reused the exact stable CI browser artifact after bundled-mod checks, avoiding
+a redundant browser rebuild (35864497734 cancelled). Website b6d847d deployed
+successfully in 35864719716; Web security 35864719331 passed. Matching service
+packaging changed provenance only, not PHP implementation. Live play/build.json
+reports 1.0.769 and the release commit; all eight browser file hashes and both
+release landing pages verified. Verification used gzip delivery and hashed the
+decompressed bytes. No fresh interactive browser or multiplayer session was
+run for this desktop-only UI change. Existing menu probes cover the change.
+
+Release: https://github.com/ggtothemax/dunecity/releases/tag/v1.0.769
+Evidence: ../outputs/release-769/ (review.json, PR/release CI logs,
+published-verification.json, sourceforge.log, live-verification.json and website
+deployment log). This supersedes the prior local-only status. Existing clients
+need to install 1.0.769 before they gain the automatic update prompt.
+
+## 2026-09-23 — map copies, repair sidebar and silo priority (local 1.0.770)
+
+The custom-map chooser previously concatenated all four installed/user map
+directories without copy detection. Same-name, equivalent-content copies now
+collapse to the first stable path with the highest observed revision metadata.
+Files are untouched. BASIC gameplay rules (format, tech, win/loss flags, timeout,
+scale and unknown keys) remain part of identity; only explicit cosmetic/catalogue
+keys and Workshop bookkeeping are ignored. Effective map category/dependency
+also distinguish variants. Different terrain/units/buildings/rules remain listed.
+The actual MBA pair was not inspected; the duplicate mechanism was reproduced
+with real INI copies through the chooser on the mini.
+
+RepairYardInterface now stacks stats and a centred repair-unit progress portrait
+inside the sidebar. Shared city-stat text fits the actual font/column width using
+abbreviations and bounded fallback shortening. The live repair fixture checks
+both city and vanilla modes, including 640x480 and the normal 1024x768 profile;
+rendered portraits stay inside the right and bottom edges.
+
+QuantBot previously reached silos only after optional growth/defence choices, so
+a mature city could repeatedly fill its bank without increasing storage. Silos
+now receive early priority at 80 percent earned-storage usage, counting spice
+and tax income together. Preserve Stefan's correction: a heavy factory must
+exist first, and custom DuneCity also completes available high-tech/repair core
+buildings first. Queued silo/refinery capacity prevents duplicate yard orders.
+The 999999 ceiling stops further storage investment. Optional capital reserves
+cannot prevent an eligible yard from funding this storage purchase. Protocol25
+protects deterministic AI decisions; save format9846 is unchanged.
+
+Claude implemented the bounded UI patch/tests; Codex reviewed it, corrected BASIC
+rule/dependency identity, added minimum-window verification, and implemented the
+silo/protocol changes and real-order tests. Native build and dependency audits
+passed silently on claw.local. All31 CTest targets pass in aggregate: initial
+full run passed29; the two remaining fixture issues were corrected and passed
+a focused rerun. The 640-only repair check now exits before unrelated feedback
+button coordinates; policing fixtures use explicit starting funds instead of
+accidentally filling storage. Silo tests cover every difficulty in Vanilla and
+DuneCity, both income pools, core reconstruction priority, low usage, two yards
+and the hard ceiling. Menu probes pass640/854/1280. No MBA or audible tests.
+
+Source/local app1.0.770 is committed on fix/map-duplicates-repair-layout; not
+installed or deployed. Public release remains1.0.769. Evidence:
+../outputs/map-repair-770/ (Claude retry report, final-build.log, ai-tests.log,
+full-ctest.log and focused-rerun.log), build/command-probe/640/ and menu-probe/.
+
+## 2026-09-24 — offline custom-map collection (local 1.0.771)
+
+New offline CustomGame matches queue their original pinned scenario and exact selected
+mod revision after successful map loading. Replays, campaigns, loaded saves, network
+matches and cancelled setup are excluded. Original map files and sidecars are untouched.
+The existing persistent outbox now distinguishes collection from normal publication;
+offline game frames service it as well as menus. All new collection I/O failures are
+caught and network errors preserve the entry for retry without blocking the match.
+
+The service adds POST /v1/content/lookup, matching exact map-file hash plus mod revision
+across publisher identities. A hit writes a separate local collection receipt rather
+than inventing ownership/server version for a local revision. A miss uploads the mod
+dependency and map through existing bounded transfers. Begin/commit recheck collect=1
+under the service lock to handle concurrent collectors; old records lacking derived
+map metadata are checked through their small immutable manifests. Manual editor
+publication is unchanged. Map type remains separate from the selected mod dependency.
+
+Claude implemented the client/server path and tests; Codex reviewed and fixed legacy
+lookup, concurrent-upload duplication, malformed lookup replies and the outer launch
+exception boundary. Source/local app version is 1.0.771; protocol25/save9846 unchanged.
+Native build and before/after dependency audits passed. Final CTest unit suite and
+map_collection_tests passed (8 focused cases), server content29 tests passed, real
+client/PHP wire test passed cross-creator duplicate/new-map cases plus unavailable
+server -> persistent queue -> successful retry. Claude additionally ran combined
+content/signaling196 tests and network/security CTest targets before final refinements.
+No production fixture uploads, GUI games, MBA tests, push or deployment.
+Evidence: ../outputs/offline-map-collection/ (worker reports, final-build.log,
+final-server.log, final-ctest.log, final-wire.log).
+
+Rollout: deploy the checked-in metaserver router, rewrite and Content.php before
+releasing the client. An older service returns404 and maps remain queued until upgraded.
+See tools/p2p-signaling/README.md for the collection contract.
+
+The earlier MBA install request remains pending: signed/notarized1.0.770 was copied
+and verified on the MBA, staged at /Applications/.dunecity-install-770.vLeoFr/dunecity.app,
+but the installed1.0.768 process was running. It was not interrupted or replaced.
+No app was launched by this task.

@@ -115,7 +115,8 @@ void SinglePlayerMenu::onCampaign() {
 }
 
 void SinglePlayerMenu::playCampaign(bool showLobby) {
-  bool online = true;
+  // Hosting from the online lobby is always online; otherwise start from the last choice.
+  bool online = showLobby || settings.general.campaignOnline;
   bool keepRules = false;
   for(;;) {
     int player = HouseChoiceMenu(online, keepRules, showLobby).showMenu();

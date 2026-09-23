@@ -11,6 +11,8 @@
 #include <misc/OMemoryStream.h>
 #include <misc/IMemoryStream.h>
 #include <structures/BuilderBase.h>
+#include <structures/RepairYard.h>
+#include <GUI/ObjectInterfaces/RepairYardInterface.h>
 #include <Map.h>
 #include <ScreenBorder.h>
 #include <players/HumanPlayer.h>
@@ -194,6 +196,71 @@ int runOwnershipProbe() {
             auto citySidebar = renderReadSurface(renderer);
             SavePNG(citySidebar.get(), "skip-mission-city-sidebar.png");
             game->citySimEnabled_ = wasCity;
+        }
+        if(level == 4) {
+            // Repair yard sidebar. The repair-unit icon used to share a row
+            // with the city stat column; a stat line is wider than the whole
+            // sidebar, so while a unit was being repaired the icon was laid
+            // out past the sidebar's right edge. Checked with a real repairing
+            // unit, in city and in vanilla mode, at this build's resolution.
+            const bool wasCity = game->citySimEnabled_;
+            const Sint32 panel = SIDEBARWIDTH - 25;
+            const Coord yardSize = getStructureSize(Structure_RepairYard);
+            for(bool cityMode : {true, false}) {
+                game->citySimEnabled_ = cityMode;
+                Coord site = Coord::Invalid();
+                for(int y = 1; y < currentGameMap->getSizeY()-yardSize.y && !site.isValid(); ++y)
+                    for(int x = 1; x < currentGameMap->getSizeX()-yardSize.x; ++x)
+                        if(currentGameMap->okayToPlaceStructure(x,y,yardSize.x,yardSize.y,false,pLocalHouse)) { site = Coord(x,y); break; }
+                if(!site.isValid()) throw std::runtime_error("no repair yard fixture site");
+                auto* yard = dynamic_cast<RepairYard*>(pLocalHouse->placeStructure(NONE_ID,Structure_RepairYard,site.x,site.y,false,true));
+                auto* wounded = pLocalHouse->createUnit(Unit_Tank, true);
+                if(!yard || !wounded) throw std::runtime_error("repair yard fixture missing");
+                yard->assignUnit(ObjectPointer(wounded));
+                GameInterface sidebar;
+                game->getSelectedList().clear();
+                game->getSelectedList().insert(yard->getObjectID());
+                sidebar.updateObjectInterface();
+                auto* repairInterface = dynamic_cast<RepairYardInterface*>(sidebar.pObjectContainer);
+                if(!repairInterface) throw std::runtime_error("repair yard has no sidebar interface");
+                repairInterface->update();
+                if(!repairInterface->repairUnitProgressBar.isVisible())
+                    throw std::runtime_error("repairing unit has no progress icon");
+                // Worst-case city lines, measured with the real font.
+                if(cityMode) {
+                    auto& stats = repairInterface->cityStats_;
+                    stats.setFitted(stats.roleLabel_,        " Role: Residential");
+                    stats.setFitted(stats.populationLabel_,  " Pop: 12345 (lvl 12/16)");
+                    stats.setFitted(stats.landValueLabel_,   " Value: Middle Class");
+                    stats.setFitted(stats.pollutionLabel_,   " Pollution: Very Heavy (emits)");
+                    stats.setFitted(stats.emissionsLabel_,   " Local pollution: Very Heavy");
+                    stats.setFitted(stats.crimeLabel_,       " Crime: Dangerous");
+                    for(const Label* label : {&stats.roleLabel_, &stats.populationLabel_, &stats.landValueLabel_,
+                                              &stats.pollutionLabel_, &stats.emissionsLabel_, &stats.crimeLabel_})
+                        if(label->getMinimumSize().x > panel)
+                            throw std::runtime_error("city stat line is wider than the sidebar");
+                }
+                // Nothing in the panel may demand more width than the panel has.
+                for(const Widget* widget : {static_cast<const Widget*>(&repairInterface->mainHBox),
+                                            static_cast<const Widget*>(&repairInterface->textVBox),
+                                            static_cast<const Widget*>(&repairInterface->repairUnitRow),
+                                            static_cast<const Widget*>(&repairInterface->repairUnitProgressBar)})
+                    if(widget->getMinimumSize().x > panel || widget->getSize().x > panel)
+                        throw std::runtime_error("repair yard sidebar content is wider than the sidebar");
+                if(repairInterface->textVBox.getMinimumSize().y > repairInterface->textVBox.getSize().y)
+                    throw std::runtime_error("repair yard sidebar content is taller than the sidebar");
+                SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); SDL_RenderClear(renderer);
+                sidebar.draw(Point(0,0));
+                auto image = renderReadSurface(renderer);
+                SavePNG(image.get(), cityMode ? "repair-yard-city-sidebar.png" : "repair-yard-sidebar.png");
+                game->getSelectedList().clear();
+            }
+            game->citySimEnabled_ = wasCity;
+            SDL_Log("REPAIR_YARD_SIDEBAR_PROBE_PASS: repairing icon and worst-case city stats stay inside the sidebar in city and vanilla modes");
+            if(std::getenv("DUNECITY_REPAIR_SIDEBAR_ONLY")) {
+                game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+                return MENU_QUIT_DEFAULT;
+            }
         }
         {
             GameInterface interface;

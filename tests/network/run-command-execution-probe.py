@@ -72,5 +72,24 @@ if 'SIDEBAR_SKIP_PROBE_PASS:' not in text:
 for marker in ('SANDWORM_TARGET_PROBE_PASS:', 'OWNERSHIP_PROBE_PASS:', 'COMMAND_BATCH_PROBE_PASS:', 'RELAY_PAUSE_PROBE_PASS:', 'CAMPAIGN_SKIP_PROBE_PASS:', 'FEEDBACK_EDITOR_PROBE_PASS:', 'MAP_INPUT_PROBE_PASS:', 'FEEDBACK_SUBMISSION_PROBE_PASS:', 'UNIT_SELECTION_PROBE_PASS:', 'AI_PARTNER_PROBE_PASS:', 'BUILDING_SELECTION_PROBE_PASS:'):
     if marker not in text:
         raise RuntimeError('Missing completion marker: ' + marker)
+# Exercise the repaired sidebar at the minimum supported window as well.
+small = out / '640'
+small.mkdir(exist_ok=True)
+small_profile = small / 'profile'
+small_profile.mkdir(exist_ok=True)
+(small_profile / 'Dune City.ini').write_text(
+    '[Video]\nPhysical Width = 640\nPhysical Height = 480\nWidth = 640\nHeight = 480\n'
+    'Interface Height = 480\nFullscreen = false\n[General]\nPlay Intro = false\n')
+small_env = dict(env, DUNECITY_USERDIR=str(small_profile), DUNECITY_REPAIR_SIDEBAR_ONLY='1')
+with (small / 'run.log').open('w') as log:
+    subprocess.run([str(binary), '--window', '--showlog'], cwd=small, env=small_env,
+                   stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+for result in (out / 'run.log', small / 'run.log'):
+    if 'REPAIR_YARD_SIDEBAR_PROBE_PASS:' not in result.read_text():
+        raise RuntimeError('Missing repair sidebar bounds result: ' + str(result))
+import struct
+size = struct.unpack('>II', (small / 'repair-yard-city-sidebar.png').read_bytes()[16:24])
+if size != (640, 480):
+    raise RuntimeError('Small repair sidebar probe did not render at 640x480: ' + str(size))
 subprocess.run(['python3', str(root / 'scripts/check-build-deps.py'), str(build)], check=True, cwd=root)
 print('Real game command authorization and batch recovery passed. Logs: ' + str(out))

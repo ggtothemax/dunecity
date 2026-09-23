@@ -26,7 +26,15 @@ constexpr int MENU_SETUP_CHANGED = -20;
 constexpr int MENU_SETUP_HOST = -21;
 constexpr int MENU_SETUP_MAP = -22;
 constexpr int MENU_SETUP_PLAYERS = -23;
-void playCustomGame(bool online = false);
+// The Offline/Online choice is remembered separately for the campaign and for custom
+// games; the two menus are entered for different reasons and share no other state.
+enum class PlayModeScope { Campaign, CustomGame };
+void rememberPlayMode(PlayModeScope scope, bool online);
+// The mod a player picks for a custom game is remembered across maps, menus and
+// restarts. Mods activated automatically (a save, a join, a campaign) do not change it.
+void rememberCustomGameMod(const std::string& modName);
+SettingsClass::GameOptionsClass initialCustomGameRules();
+void playCustomGame(bool online);
 void showGameLibrary(bool replays = false);
 bool hasRecentGame();
 void continueRecentGame();

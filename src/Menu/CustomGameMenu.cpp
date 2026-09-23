@@ -36,6 +36,7 @@
 #include <misc/string_util.h>
 
 #include <INIMap/INIMapPreviewCreator.h>
+#include <INIMap/MapCatalogue.h>
 #include <GameInitSettings.h>
 #include <Network/WorkshopGameContent.h>
 #include <GUI/MsgBox.h>
@@ -72,8 +73,10 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         connectionChoice.addEntry(_("Offline"));
         connectionChoice.addEntry(_("Online"));
         connectionChoice.setSelectedItem(setup->online ? 1 : 0);
-        connectionChoice.setOnSelectionChange([this](bool) {
+        connectionChoice.setOnSelectionChange([this](bool interactive) {
             const bool online = connectionChoice.getSelectedIndex() == 1;
+            // Remember the player's own choice; a programmatic online flow keeps its preference.
+            if(interactive) rememberPlayMode(PlayModeScope::CustomGame, online);
             visibilityChoice.setVisible(online);
             visibilityChoice.setEnabled(online);
             allowJoinAfterStartCheckbox.setVisible(online);
@@ -236,8 +239,13 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         if(!interactive || choice < 0 || choice >= static_cast<int>(availableMods.size())) return;
         auto& manager = ModManager::instance();
         const auto previous = manager.getActiveModName();
-        if(previous == availableMods[choice].name) return;
+        if(previous == availableMods[choice].name) {
+            rememberCustomGameMod(availableMods[choice].name);
+            return;
+        }
         if(manager.setActiveMod(availableMods[choice].name)) {
+            // The player's own mod choice is what the next custom game starts from.
+            rememberCustomGameMod(availableMods[choice].name);
             currentGameOptions = effectiveGameOptions = manager.loadEffectiveGameOptions(settings.gameOptions);
             allowJoinAfterStartCheckbox.setEnabled(connectionChoice.getSelectedIndex() == 1 && OnlineModPolicy::approved());
             if(!OnlineModPolicy::approved()) allowJoinAfterStartCheckbox.setChecked(false);
@@ -363,6 +371,8 @@ void CustomGameMenu::onNext()
         if(mapIndex != setup->map || selectedMod != setup->mod) setup->players = ChangeEventList{};
         setup->map = mapIndex;
         setup->mod = selectedMod;
+        if(selectedMod >= 0 && selectedMod < static_cast<int>(setup->mods.size()))
+            rememberCustomGameMod(setup->mods[selectedMod].name);
         setup->online = connectionChoice.getSelectedIndex() == 1;
         setup->publicGame = visibilityChoice.getSelectedIndex() == 1;
         setup->allowJoinAfterStart = allowJoinAfterStartCheckbox.isChecked() && OnlineModPolicy::approved();
@@ -376,6 +386,7 @@ void CustomGameMenu::onNext()
     int modIndex = modDropDown.getSelectedIndex();
     if (modIndex >= 0 && modIndex < static_cast<int>(availableMods.size())) {
         ModManager::instance().setActiveMod(availableMods[modIndex].name);
+        rememberCustomGameMod(ModManager::instance().getActiveModName());
         // Reload effective game options with new mod
         effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     }
@@ -392,12 +403,9 @@ void CustomGameMenu::onNext()
     }
 
     try {
-        const auto selectedMod = ModManager::instance().getActiveModName();
-        if(WorkshopGameContent::applyMapDependency(mapFilename, gameInitSettings)
-           && selectedMod != ModManager::instance().getActiveModName()) {
-            effectiveGameOptions = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
-            gameInitSettings.setGameOptions(effectiveGameOptions);
-        }
+        // A downloaded map keeps its authored revision when it belongs to the selected
+        // mod; with another mod chosen, these bytes become a revision of that mod.
+        WorkshopGameContent::applyMapRevisionForSelectedMod(mapFilename, gameInitSettings);
     } catch(const std::exception& error) { openWindow(MsgBox::create(error.what())); return; }
 #ifdef __EMSCRIPTEN__
     // Browser build: the lobby-creation constructor below is a long
@@ -469,11 +477,15 @@ void CustomGameMenu::onMapTypeChange(int buttonID) {
                 if(mapBytes.find('\0')!=std::string::npos)continue;
                 INIFile ini(entry.path);entry.metadata=MapMetadata::read(ini,file.substr(0,file.size()-4));
                 if(entry.metadata.width<=0||entry.metadata.height<=0||entry.metadata.players<=0)continue;
-                if(std::filesystem::exists(entry.path+".workshop.ini")) {
+                // Identifies this file's playable content, so the same map
+                // found in several directories is listed once.
+                entry.contentKey=MapCatalogue::contentKey(mapBytes);
+                entry.hasSidecar=std::filesystem::exists(entry.path+".workshop.ini");
+                if(entry.hasSidecar) {
                     INIFile meta(entry.path+".workshop.ini");
                     entry.metadata.name=meta.getStringValue("Workshop","Name",entry.metadata.name);
                     entry.metadata.version=meta.getIntValue("Workshop","Version",entry.metadata.version);
-                    // The pinned mod is a gameplay dependency, not the map category.
+                    // The authored mod is recorded as the map's dependency, not as its category.
                     entry.metadata.dependency=MapMetadata::canonicalMod(meta.getStringValue("Workshop","Mod",entry.metadata.dependency));
                 }
                 mapEntries.push_back(std::move(entry));
@@ -483,7 +495,26 @@ void CustomGameMenu::onMapTypeChange(int buttonID) {
 #endif
         }
     }
+    dropDuplicateMapCopies();
     rebuildMapList();
+}
+
+void CustomGameMenu::dropDuplicateMapCopies() {
+    std::vector<MapCatalogue::Copy> copies;
+    copies.reserve(mapEntries.size());
+    for(const auto& entry:mapEntries)
+        copies.push_back({entry.metadata.name,entry.contentKey,entry.metadata.version,
+            entry.metadata.mod+":"+entry.metadata.dependency});
+    const auto kept=MapCatalogue::keptCopies(copies);
+    if(kept.size()==mapEntries.size())return;
+    std::vector<MapEntry> remaining;
+    remaining.reserve(kept.size());
+    for(const auto& row:kept) {
+        remaining.push_back(std::move(mapEntries[row.index]));
+        // The surviving path keeps the newest revision the copies reported.
+        remaining.back().metadata.version=row.version;
+    }
+    mapEntries=std::move(remaining);
 }
 
 void CustomGameMenu::rebuildMapList() {
@@ -535,22 +566,11 @@ bool CustomGameMenu::prepareSelectedMap() {
             entry.path=Workshop::installMap(Workshop::store().get(entry.revision.hash));
             if(setup && std::find(setup->maps.begin(),setup->maps.end(),entry.path)==setup->maps.end())setup->maps.push_back(entry.path);
         }
+        // The mod a map was authored with is recorded for information only. Picking a map
+        // never changes the mod the player chose for this game; a new game keeps playing
+        // the selected mod and captures its own map revision when the two differ.
         if(!entry.revision.modHash.empty())
             entry.metadata.dependency=MapMetadata::canonicalMod(Workshop::store().get(entry.revision.modHash).base);
-        // Gameplay follows the map's pinned mod dependency, never its category.
-        if(!entry.metadata.dependency.empty()) {
-            int choice=-1;
-            for(size_t j=0;j<availableMods.size();++j)
-                if(MapMetadata::canonicalMod(availableMods[j].name)==entry.metadata.dependency){choice=static_cast<int>(j);break;}
-            if(choice>=0) {
-                modDropDown.setSelectedItem(choice);
-                auto& manager=ModManager::instance();
-                if(manager.getActiveModName()!=availableMods[choice].name) {
-                    if(!manager.setActiveMod(availableMods[choice].name))throw std::runtime_error("The required map mod could not be activated.");
-                    currentGameOptions=effectiveGameOptions=manager.loadEffectiveGameOptions(settings.gameOptions);
-                }
-            } else if(entry.revision.modHash.empty()) throw std::runtime_error("Install the map's required mod before starting it: "+entry.metadata.dependency);
-        }
         return true;
     } catch(const std::exception& e){openWindow(MsgBox::create(e.what()));return false;}
 }

@@ -11,12 +11,14 @@ add_executable(dunelegacy_tests)
 target_sources(dunelegacy_tests
     PRIVATE
         WorkshopStoreTestCase.cpp
+        MapCollectionTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/mod/WorkshopStore.cpp
         SnapshotTransferTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/Network/SnapshotTransfer.cpp
         CoopGameSettingsTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/GameInitSettings.cpp
         ${CMAKE_SOURCE_DIR}/src/misc/IFileStream.cpp
+        MapCatalogueTestCase.cpp
         CityTrafficPolicyTestCase.cpp
         CitySpritePolicyTestCase.cpp
         RendererSizeTestCase.cpp
@@ -165,6 +167,7 @@ target_compile_options(dunelegacy_tests
 # Add test
 add_test(NAME dunelegacy_tests COMMAND dunelegacy_tests)
 add_test(NAME lobby_authorization_tests COMMAND dunelegacy_tests "[lobby][security][authorization]")
+add_test(NAME map_collection_tests COMMAND dunelegacy_tests "[mapcollection]")
 
 # Standalone network wire harness.
 #
@@ -359,7 +362,7 @@ if(NOT EMSCRIPTEN)
 endif()
 
 # Set test properties
-set_tests_properties(dunelegacy_tests lobby_authorization_tests PROPERTIES
+set_tests_properties(dunelegacy_tests lobby_authorization_tests map_collection_tests PROPERTIES
     ENVIRONMENT "DUNECITY_DATADIR=${CMAKE_SOURCE_DIR}/data;DUNE_CITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
 )
 
@@ -411,6 +414,11 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --build-dir ${CMAKE_BINARY_DIR} --continuation
             --output-dir ${CMAKE_BINARY_DIR}/unit-route-continuation-probe)
         set_tests_properties(unit_route_continuation_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        add_test(NAME weapon_reload_probe COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/units/run-unit-route-probe.py
+            --build-dir ${CMAKE_BINARY_DIR} --weapon-reloads
+            --output-dir ${CMAKE_BINARY_DIR}/weapon-reload-probe)
+        set_tests_properties(weapon_reload_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         foreach(projectile_probe IN ITEMS mechanics combat continuation)
             if(projectile_probe STREQUAL "mechanics")
                 set(projectile_flag --projectiles)
@@ -423,7 +431,7 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
                 --output-dir ${CMAKE_BINARY_DIR}/projectile-${projectile_probe}-probe)
             set_tests_properties(projectile_${projectile_probe}_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         endforeach()
-        foreach(ai_mod IN ITEMS vanilla dunecity)
+        foreach(ai_mod IN ITEMS vanilla dunecity Dune2R)
             foreach(ai_probe IN ITEMS air-defense shared-spending stats)
                 add_test(NAME quantbot_${ai_probe}_${ai_mod} COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --${ai_probe}-probe --repeatable
@@ -432,7 +440,7 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
                 set_tests_properties(quantbot_${ai_probe}_${ai_mod} PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
             endforeach()
         endforeach()
-        foreach(ai_mod IN ITEMS vanilla dunecity)
+        foreach(ai_mod IN ITEMS vanilla dunecity Dune2R)
             add_test(NAME quantbot_opening-economy_${ai_mod} COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --opening-economy-probe --repeatable
                 --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"

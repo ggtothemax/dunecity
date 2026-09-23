@@ -33,6 +33,14 @@ public:
     const ObjectBase* findTarget() const override;
     void attack() override;
 
+    /// Reload of the close-range cannon, scaled from the configured Gun-Turret reload.
+    int closeCannonReloadTime() const;
+
+    /// 128 of the gun turret's 240 cycles: 2.048 s, the interval Dynasty's turret
+    /// script reaches with its cannon. See docs/weapon-reload-comparison.md.
+    static constexpr int closeCannonReloadNumerator   = 128;
+    static constexpr int closeCannonReloadDenominator = 240;
+
 protected:
     /**
         Used for updating things that are specific to that particular structure. Is called from

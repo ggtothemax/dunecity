@@ -14,9 +14,13 @@
 #include <dunecity/CitySimulation.h>
 #include <dunecity/CityEffects.h>
 
+#include <GUI/GUIStyle.h>
 #include <GUI/Label.h>
 #include <GUI/Spacer.h>
 #include <GUI/VBox.h>
+#include <GUI/ObjectInterfaces/CityStatText.h>
+
+#include <Definitions.h>
 
 #include <misc/string_util.h>
 
@@ -37,13 +41,20 @@
  *   1) calling attachTo(textVBox, themeColor, isZone)
  *   2) calling update(pStructure) inside the interface's update()
  *
+ * Every line is shortened to the column width passed to attachTo() (the
+ * sidebar interior by default), so long values such as
+ * "Pollution: Very Heavy (emits)" no longer run past the sidebar's right edge
+ * or widen the column that holds them.
+ *
  * Pure presentation; no game state mutation. Safe to instantiate
  * even when city sim isn't initialized — labels just stay blank.
  */
 class CityStatsBox {
 public:
-    void attachTo(VBox& parent, Uint32 color, bool isZone = false, bool showEmissions = false) {
+    void attachTo(VBox& parent, Uint32 color, bool isZone = false, bool showEmissions = false,
+                  int columnWidth = SIDEBARWIDTH - 25) {
         forceShowPop_ = isZone;
+        columnWidth_  = columnWidth;
         // Vanilla has no city roles, population or municipal services.
         // Do not allocate empty rows or display invented city statistics.
         if (!currentGame || !currentGame->isCitySimEnabled()) return;
@@ -86,13 +97,13 @@ public:
             level = DuneCity::effectiveCityLevel(itemID, std::max(1, occupancy));
         }
 
-        roleLabel_.setText(" " + roleStringFor(itemID));
+        setFitted(roleLabel_, " " + roleStringFor(itemID));
 
         // Separate clean wind generation from pollution drifting in from nearby industry.
         const bool isWindtrap = itemID == Structure_WindTrap;
         emissionsLabel_.setVisible(isWindtrap);
         if (isWindtrap) {
-            emissionsLabel_.setText(" Emissions: "
+            setFitted(emissionsLabel_, " Emissions: "
                 + std::to_string(DuneCity::getPollutionEmission(itemID, level)));
         }
 
@@ -102,7 +113,7 @@ public:
         const bool showPop = forceShowPop_ || (role != DuneCity::CityRole::None);
         const bool isTurret = itemID == Structure_RocketTurret || itemID == Structure_GunTurret;
         populationLabel_.setVisible(showPop || isTurret);
-        if (isTurret) populationLabel_.setText("Police: 15%");
+        if (isTurret) setFitted(populationLabel_, "Police: 15%");
         if (showPop) {
             std::string text;
             if (itemID == Structure_Palace) {
@@ -116,7 +127,7 @@ public:
             if (maxLevel > 0 && !pZone) {
                 text += " (lvl " + std::to_string(level) + "/" + std::to_string(maxLevel) + ")";
             }
-            populationLabel_.setText(text);
+            setFitted(populationLabel_, text);
         }
 
         // Tile-local effects from the live city sim. We always show the
@@ -140,24 +151,33 @@ public:
             // Show this building's own emission alongside the tile total.
             const int ownEmission = DuneCity::getPollutionEmission(itemID, level);
 
-            landValueLabel_.setText(std::string(" Value: ") + DuneCity::landValueCategory(landValue));
+            setFitted(landValueLabel_, std::string(" Value: ") + DuneCity::landValueCategory(landValue));
             if (ownEmission > 0) {
-                pollutionLabel_.setText(std::string(" Pollution: ")
+                setFitted(pollutionLabel_, std::string(" Pollution: ")
                                         + DuneCity::pollutionCategory(pollution) + " (emits)");
             } else {
-                pollutionLabel_.setText(std::string(isWindtrap ? " Local pollution: " : " Pollution: ")
+                setFitted(pollutionLabel_, std::string(isWindtrap ? " Local pollution: " : " Pollution: ")
                                         + DuneCity::pollutionCategory(pollution));
             }
-            crimeLabel_   .setText(std::string(" Crime: ") + DuneCity::crimeCategory(crimeRate));
+            setFitted(crimeLabel_, std::string(" Crime: ") + DuneCity::crimeCategory(crimeRate));
         } else {
-            landValueLabel_.setText(" Value: \xE2\x80\x94");
-            pollutionLabel_.setText(std::string(isWindtrap ? " Local pollution: " : " Pollution: ")
+            setFitted(landValueLabel_, " Value: \xE2\x80\x94");
+            setFitted(pollutionLabel_, std::string(isWindtrap ? " Local pollution: " : " Pollution: ")
                                     + "\xE2\x80\x94");
-            crimeLabel_   .setText(" Crime: \xE2\x80\x94");
+            setFitted(crimeLabel_, " Crime: \xE2\x80\x94");
         }
     }
 
 private:
+    /// Show the longest form of this line that fits the sidebar column, so the
+    /// label neither draws past the right edge nor widens its container.
+    void setFitted(Label& label, const std::string& text) {
+        const int fontSize = label.getTextFontSize();
+        label.setText(CityStatText::fit(text, columnWidth_, [fontSize](const std::string& candidate) {
+            return GUIStyle::getInstance().getMinimumLabelSize(candidate, fontSize).x;
+        }));
+    }
+
     /// Human-readable SC Classic mapping per the spec discussion.
     static std::string roleStringFor(int itemID) {
         switch (itemID) {
@@ -193,6 +213,7 @@ private:
     Label emissionsLabel_;
     Label crimeLabel_;
     bool  forceShowPop_ = false;
+    int   columnWidth_  = SIDEBARWIDTH - 25;  ///< drawable width of the column these rows sit in
 };
 
 #endif // CITYSTATSBOX_H

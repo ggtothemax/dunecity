@@ -16,6 +16,7 @@ inline bool antiAir(int item) {
 // Unrelated ground units are never hunted across the map.
 constexpr int RaidRank = 1;
 constexpr int DefenseRank = 2;
+constexpr int UnderAttackRank = 3;
 inline int targetRank(bool structure, bool defensiveContact) {
     return defensiveContact ? DefenseRank : structure ? RaidRank : 0;
 }

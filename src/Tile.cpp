@@ -839,6 +839,10 @@ void Tile::unassignObject(Uint32 objectID) {
 
 
 void Tile::setType(int newType) {
+    if (currentGameMap && (type==Terrain_Mountain)!=(newType==Terrain_Mountain)) {
+        currentGameMap->invalidateTerrainConnectivity();
+        currentGameMap->incrementPathingRevision();
+    }
     type = newType;
     destroyedStructureTile = DestroyedStructure_None;
 

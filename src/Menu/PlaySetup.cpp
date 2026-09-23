@@ -12,9 +12,11 @@
 #include <misc/IMemoryStream.h>
 #include <misc/fnkdat.h>
 #include <misc/string_util.h>
+#include <misc/WebRuntime.h>
 #include <mod/ModManager.h>
 #include <Network/WorkshopGameContent.h>
 #include <globals.h>
+#include <main.h>
 #include <sand.h>
 #include <algorithm>
 #include <utility>
@@ -125,6 +127,32 @@ std::string recentGame() {
 }
 }
 
+void rememberPlayMode(PlayModeScope scope, bool online) {
+    const bool campaign = scope == PlayModeScope::Campaign;
+    bool& remembered = campaign ? settings.general.campaignOnline : settings.general.customGameOnline;
+    if(remembered == online) return;
+    remembered = online;
+    INIFile config(getConfigFilepath());
+    config.setBoolValue("General", campaign ? "Campaign Online" : "Custom Game Online", online);
+    if(!config.saveChangesTo(getConfigFilepath())) {
+        SDL_Log("Warning: could not save the Offline/Online choice to the configuration file");
+        return;
+    }
+    WebRuntime::syncPersistentFiles();
+}
+
+void rememberCustomGameMod(const std::string& modName) {
+    if(modName.empty() || settings.general.customGameMod == modName) return;
+    settings.general.customGameMod = modName;
+    INIFile config(getConfigFilepath());
+    config.setStringValue("General", "Custom Game Mod", modName);
+    if(!config.saveChangesTo(getConfigFilepath())) {
+        SDL_Log("Warning: could not save the custom game mod choice to the configuration file");
+        return;
+    }
+    WebRuntime::syncPersistentFiles();
+}
+
 void showGameLibrary(bool replays) { GameLibrary(replays).showMenu(); }
 bool hasRecentGame() { return !recentGame().empty(); }
 void continueRecentGame() {
@@ -133,11 +161,23 @@ void continueRecentGame() {
     else showGameLibrary();
 }
 
+SettingsClass::GameOptionsClass initialCustomGameRules() {
+    // Saves, joins and map previews can activate content without updating the
+    // menu's cached defaults. A NEW game must obtain rules from its actual mod,
+    // even when that mod is already active. Back/Next keeps setup.rules instead.
+    auto& mods = ModManager::instance();
+    const auto& preferred = settings.general.customGameMod;
+    if(!preferred.empty() && preferred != mods.getActiveModName() && mods.modExists(preferred))
+        mods.setActiveMod(preferred);
+    effectiveGameOptions = mods.loadEffectiveGameOptions(settings.gameOptions);
+    return effectiveGameOptions;
+}
+
 void playCustomGame(bool online) {
     CustomPlaySetup setup;
+    setup.rules = initialCustomGameRules();
     setup.maps = maps();
     setup.mods = ModManager::instance().listModChoices();
-    setup.rules = effectiveGameOptions;
     setup.online = online;
     // One controller per house is the legible default; advanced sharing stays available.
     setup.sharedHouse = false;
@@ -159,23 +199,12 @@ void playCustomGame(bool online) {
         }
         const auto path = setup.maps[setup.map];
         GameInitSettings init(getBasename(path, true), readCompleteFile(path), setup.sharedHouse, setup.rules);
-        // A downloaded map's sidecar pins the authored dependency. A changed working map
-        // is captured as a new revision instead of silently reusing stale metadata.
+        // A downloaded map's authored revision is reused when the selected mod is the one
+        // it was authored with. With another mod chosen, or after the working map changed,
+        // these bytes are captured as a new revision of the selected mod when the game starts.
         if(existsFile(path + ".workshop.ini")) {
-            try {
-                const auto selectedMod = mods.getActiveModName();
-                if(WorkshopGameContent::applyMapDependency(path, init)) {
-                    if(selectedMod != mods.getActiveModName()) {
-                        setup.rules = effectiveGameOptions = mods.loadEffectiveGameOptions(settings.gameOptions);
-                        init.setGameOptions(setup.rules);
-                    }
-                    // Keep the setup picker honest after loading the map's exact dependency.
-                    const auto active = mods.getActiveModName();
-                    auto entry = std::find_if(setup.mods.begin(), setup.mods.end(), [&](const ModInfo& info) { return info.name == active; });
-                    if(entry == setup.mods.end()) { setup.mods.push_back(mods.getModInfo(active)); setup.mod = static_cast<int>(setup.mods.size() - 1); }
-                    else setup.mod = static_cast<int>(entry - setup.mods.begin());
-                }
-            } catch(const std::exception& error) { PlayError(error.what()).showMenu(); chooseMap = true; continue; }
+            try { WorkshopGameContent::applyMapRevisionForSelectedMod(path, init); }
+            catch(const std::exception& error) { PlayError(error.what()).showMenu(); chooseMap = true; continue; }
         }
         int result;
         {
