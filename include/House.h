@@ -203,6 +203,12 @@ public:
     /// total, but small enough that the 32.32 fixed-point total cannot overflow.
     static constexpr int MAX_CITY_TAX_RECEIPTS = 1000000000;
     inline int getCredits() const { return lround(storedCredits+startingCredits+cityCredits); }
+    /// Credits the house earned this mission (refined spice plus city taxes).
+    /// These share the refinery/silo storage and never exceed getCapacity().
+    inline FixPoint getEarnedCredits() const { return storedCredits + cityCredits; }
+    /// How much more earned income the house can still store right now.
+    FixPoint getEarnedCreditRoom() const;
+    void enforceCreditCapacity();
     void addCredits(FixPoint newCredits, bool wasRefined = false);
     void addCityCredits(FixPoint amount);
     void addCityTaxReceipts(FixPoint grossAmount);
@@ -258,6 +264,16 @@ protected:
     bool autoRepairEnabled = false;
     void decrementHarvesters();
 
+    /**
+        Books as much of \a amount as the refinery/silo storage can still hold.
+        The rest is destroyed and reported as storage_lost; the caller adds the
+        returned amount to whichever earned pool it belongs to.
+    */
+    FixPoint acceptEarnedCredits(FixPoint amount);
+
+    /// Tells the local player that storage is full, at most once every 5 seconds.
+    void warnStorageFull();
+
     std::list<std::unique_ptr<Player> > players;        ///< List of associated players that control this house
 
     bool    ai;             ///< Is this an ai player?
@@ -282,6 +298,9 @@ protected:
     FixPoint startingCredits; ///< number of starting credits this player still has
     FixPoint cityCredits;     ///< spendable city tax income, excluded from the harvested-spice quota
     FixPoint cityTaxReceipts; ///< cumulative gross city tax collected this mission (statistic only: never spent, never reduced by police costs or credit caps)
+    /// Next game cycle at which the "storage is full" ticker may repeat.
+    /// Presentation only; it never influences the simulation.
+    Uint32 nextStorageWarningCycle;
     int oldCredits;           ///< amount of credits in the last game cycle (used for playing the credits tick sound)
 
     int maxUnits;             ///< maximum number of units this house is allowed to build

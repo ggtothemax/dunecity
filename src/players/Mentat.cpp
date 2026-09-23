@@ -2509,7 +2509,7 @@ void Mentat::handleCYProduction(const BuilderBase* pBuilder, const StructureBase
 					logDebug("***CampAI Build windtrap: power %d/%d", ctx.powerProduced, ctx.powerRequired);
 				}
 			}
-			else if ((getHouse()->getStoredCredits() > getHouse()->getCapacity() * 0.90_fix)
+			else if ((getHouse()->getEarnedCredits() > getHouse()->getCapacity() * 0.90_fix)
 				&& pBuilder->isAvailableToBuild(Structure_Silo)
 				&& findPlaceLocation(Structure_Silo).isValid()
 				&& pBuilder->getProductionQueueSize() == 0) {
@@ -2517,7 +2517,7 @@ void Mentat::handleCYProduction(const BuilderBase* pBuilder, const StructureBase
 				produceItemWithLogging(Structure_Silo);
 				ctx.itemCount[Structure_Silo]++;
 
-				logDebug("***CampAI Build A new Silo increasing count to: %d (credits: %d/%d)", ctx.itemCount[Structure_Silo], getHouse()->getStoredCredits().lround(), getHouse()->getCapacity());
+				logDebug("***CampAI Build A new Silo increasing count to: %d (credits: %d/%d)", ctx.itemCount[Structure_Silo], getHouse()->getEarnedCredits().lround(), getHouse()->getCapacity());
 			}
 			else if (ctx.money > 3000
 				&& pBuilder->isAvailableToBuild(Structure_RocketTurret)

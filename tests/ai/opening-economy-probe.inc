@@ -39,7 +39,7 @@ void runOpeningEconomyProbe(Game& game) {
         yard->updateBuildList();
     };
     auto build=[&](int credits) {
-        clearOrders();house->takeCredits(house->getCredits());house->addCredits(credits);
+        clearOrders();house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits; // Explicit scenario funding, not an over-capacity spice deposit.
         house->producedPower=10000;bot->lastCalculatedSpice=1300000;
         bot->build(5100);
         for(const auto& order:yard->currentProductionQueue)

@@ -60,6 +60,9 @@ House::House(int newHouse, int newCredits, int maxUnits, int maxHarvesters, Uint
     this->teamID = teamID;
 
     storedCredits = 0;
+    // Starting cash is deliberately not measured against the storage capacity:
+    // a house is created before its structures are placed, so at this point the
+    // capacity of every house on the map is still zero.
     startingCredits = newCredits;
     cityCredits = 0;
     cityTaxReceipts = 0;
@@ -100,6 +103,10 @@ House::House(InputStream& stream) : choam(this) {
     autoRepairEnabled = currentGame && currentGame->getLoadedSavegameVersion() >= 9824
         ? stream.readBool() : false;
 
+    // The pools are restored exactly as they were saved. The structures that
+    // carry the capacity are loaded after the houses, so nothing may be capped
+    // here; the running game enforces the limit once the capacity is registered
+    // (see House::update()).
     storedCredits = stream.readFixPoint();
     startingCredits = stream.readFixPoint();
     if (currentGame && currentGame->getLoadedSavegameVersion() >= 9817) {
@@ -192,6 +199,8 @@ void House::init() {
 
     capacity = 0;
     powerRequirement = 0;
+
+    nextStorageWarningCycle = 0;
 
     numVisibleEnemyUnits = 0;
     numVisibleFriendlyUnits = 0;
@@ -345,14 +354,75 @@ void House::setProducedPower(int newPower) {
 }
 
 
+FixPoint House::getEarnedCreditRoom() const {
+    // Refined spice and city taxes share one physical store, so they are
+    // measured against the capacity together. Starting cash is exempt, but it
+    // still counts towards the overall credit ceiling.
+    const FixPoint earned = getEarnedCredits();
+    const FixPoint storageRoom = FixPoint(capacity) - earned;
+    const FixPoint gameRoom = FixPoint(MAX_GAME_CREDITS) - (earned + startingCredits);
+    return std::max(FixPoint(0), std::min(storageRoom, gameRoom));
+}
+
+
+void House::enforceCreditCapacity() {
+    // Houses load before their structures register storage. Clamp only once
+    // reconstruction is complete, and immediately on subsequent capacity loss.
+    if(currentGame && currentGame->gameState == GameState::Loading) return;
+    const FixPoint limit = std::max(FixPoint(0), std::min(FixPoint(capacity),
+                                  FixPoint(MAX_GAME_CREDITS) - startingCredits));
+    const FixPoint excess = getEarnedCredits() - limit;
+    if(excess <= 0) return;
+    const FixPoint fromStored = std::min(excess, storedCredits);
+    storedCredits -= fromStored;
+    cityCredits -= excess - fromStored;
+    AITelemetry::log().account(houseID, "storage_lost", excess.getRawValue());
+    warnStorageFull();
+}
+
+
+FixPoint House::acceptEarnedCredits(FixPoint amount) {
+    if(amount <= 0) {
+        return 0;
+    }
+
+    enforceCreditCapacity();
+    const FixPoint accepted = std::min(amount, getEarnedCreditRoom());
+    const FixPoint lost = amount - accepted;
+    if(lost > 0) {
+        AITelemetry::log().account(houseID, "storage_lost", lost.getRawValue());
+        warnStorageFull();
+    }
+    return accepted;
+}
+
+
+void House::warnStorageFull() {
+    if((this != pLocalHouse) || (currentGame == nullptr)) {
+        return;
+    }
+
+    const Uint32 currentCycle = currentGame->getGameCycleCount();
+    if(currentCycle < nextStorageWarningCycle) {
+        return;
+    }
+    nextStorageWarningCycle = currentCycle + MILLI2CYCLES(5*1000);
+    currentGame->addToNewsTicker(_("@DUNE.ENG|145#As insufficient spice storage is available, spice is lost."));
+}
+
+
 void House::addCredits(FixPoint newCredits, bool wasRefined) {
     if(newCredits > 0) {
         if(wasRefined == true) {
+            // Gross statistic: what the refinery processed, before the storage
+            // limit decides how much of it the house gets to keep.
             harvestedSpice += newCredits;
             AITelemetry::log().account(houseID, "spice_refined", newCredits.getRawValue());
         }
 
-        storedCredits += newCredits;
+        const FixPoint accepted = acceptEarnedCredits(newCredits);
+        storedCredits += accepted;
+
         if(this == pLocalHouse) {
             if(((currentGame->winFlags & WINLOSEFLAGS_QUOTA) != 0) && (quota != 0)) {
                 if(storedCredits >= quota) {
@@ -367,20 +437,20 @@ void House::addCredits(FixPoint newCredits, bool wasRefined) {
 
 
 void House::addCityCredits(FixPoint amount) {
+    enforceCreditCapacity();
     const auto previous = cityCredits;
-    cityCredits += amount;
 
-    if(cityCredits < 0) {
-        cityCredits = 0;
-    }
-
-    const FixPoint totalCredits = storedCredits + startingCredits + cityCredits;
-    if(totalCredits > MAX_GAME_CREDITS) {
-        cityCredits -= totalCredits - MAX_GAME_CREDITS;
+    if(amount > 0) {
+        // Tax income is earned income: it needs storage like spice does.
+        cityCredits += acceptEarnedCredits(amount);
+    } else {
+        // Police funding can exceed the tax take; the city never goes negative.
+        cityCredits += amount;
         if(cityCredits < 0) {
             cityCredits = 0;
         }
     }
+
     AITelemetry::log().account(houseID, "city_net_applied", (cityCredits - previous).getRawValue());
 }
 
@@ -401,13 +471,9 @@ void House::addCityTaxReceipts(FixPoint grossAmount) {
 void House::returnCredits(FixPoint newCredits) {
     if(newCredits > 0) {
         AITelemetry::log().account(houseID, "refunded", newCredits.getRawValue());
-        FixPoint leftCapacity = capacity - storedCredits;
-        if(newCredits <= leftCapacity) {
-            addCredits(newCredits, false);
-        } else {
-            addCredits(leftCapacity, false);
-            startingCredits += (newCredits - leftCapacity);
-        }
+
+        // Refunds share storage too; never turn earned funds into starting cash.
+        addCredits(newCredits, false);
     }
 }
 
@@ -490,6 +556,7 @@ void House::updateBuildLists() {
 
 
 void House::update() {
+    enforceCreditCapacity();
     numVisibleEnemyUnits = 0;
     numVisibleFriendlyUnits = 0;
 
@@ -500,18 +567,6 @@ void House::update() {
         oldCredits = getCredits();
     }
 
-    if(storedCredits > capacity) {
-        const auto previousStored = storedCredits;
-        --storedCredits;
-        if(storedCredits < 0) {
-         storedCredits = 0;
-        }
-        AITelemetry::log().account(houseID, "storage_lost", (previousStored - storedCredits).getRawValue());
-
-        if(this == pLocalHouse) {
-            currentGame->addToNewsTicker(_("@DUNE.ENG|145#As insufficient spice storage is available, spice is lost."));
-        }
-    }
 
     powerUsageTimer--;
     if(powerUsageTimer <= 0) {
@@ -655,6 +710,7 @@ void House::incrementStructures(int itemID) {
 
     // change spice capacity
     capacity += currentGame->objectData.data[itemID][houseID].capacity;
+    enforceCreditCapacity();
 
     if(currentGame->gameState != GameState::Loading) {
         // do not check selection lists if we are loading
@@ -678,6 +734,7 @@ void House::decrementStructures(int itemID, const Coord& location, bool recordLo
 
     // change spice capacity
     capacity -= currentGame->objectData.data[itemID][houseID].capacity;
+    enforceCreditCapacity();
 
     if(currentGame->gameState != GameState::Loading) {
         // do not check selection lists if we are loading
@@ -714,6 +771,7 @@ void House::transformStructure(int oldItemID, int newItemID) {
         powerRequirement += newData.power;
     }
     capacity += newData.capacity - oldData.capacity;
+    enforceCreditCapacity();
 
     if(currentGame->gameState != GameState::Loading) {
         updateBuildLists();

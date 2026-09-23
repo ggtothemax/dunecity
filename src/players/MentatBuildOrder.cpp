@@ -650,11 +650,11 @@ const std::vector<MentatBuildStep>& QuantBot::getCYBuildOrder() {
     {"SILOS", anyMode(),
         [](QuantBot* bot, const BuilderBase* b, const QuantBotBuildContext& ctx) {
             return ctx.itemCount[Structure_HeavyFactory] > 0
-                && bot->getHouse()->getStoredCredits() > bot->getHouse()->getCapacity() * 0.80_fix
+                && bot->getHouse()->getEarnedCredits() > bot->getHouse()->getCapacity() * 0.80_fix
                 && b->isAvailableToBuild(Structure_Silo);
         },
         [](QuantBot* bot, const BuilderBase*, QuantBotBuildContext&) -> std::pair<Uint32, bool> {
-            bot->logDebug("Build Silo - storage at %d/%d", bot->getHouse()->getStoredCredits().lround(), bot->getHouse()->getCapacity());
+            bot->logDebug("Build Silo - storage at %d/%d", bot->getHouse()->getEarnedCredits().lround(), bot->getHouse()->getCapacity());
             return {Structure_Silo, false};
         }},
 

@@ -8747,3 +8747,33 @@ Installation follow-up: 1.0.766 is now installed on the MacBook Air at
 runtime initialization/rendering passed. All 512 tracked profile INIs were
 preserved byte-for-byte. Previous app: /tmp/dunecity-install-766/dunecity-previous.app.
 Receipt: ../outputs/map-types/install-766/receipt.json.
+
+## 2026-09-23 — Shared credit storage limit (local 1.0.767)
+
+House earned holdings (stored spice plus city credits) now share refinery/silo
+capacity. Income and refunds discard overflow immediately. Unspent starting cash
+remains exempt to allow opening construction; refunds never restore that exempt
+pool. Capacity loss/transformation clamps immediately; loading defers enforcement
+until structures are reconstructed and the game loop starts. No gameplay state
+or save serialization layout was added. Gross tax and harvested-spice statistics
+remain gross, while quota victory requires retained stored spice. Storage warnings
+are throttled presentation state. The storage meter and all existing AI silo
+thresholds use combined earned holdings. Protocol 23 prevents mixed-rule matches.
+
+Infantry capture transfers the storage share before removing the old capacity,
+preventing a double charge. It uses the correct captured structure capacity and
+includes city holdings. Real silo/refinery capture probes pass in both modes.
+Claude supplied the initial accounting patch and focused probes; Codex replaced
+its gradual leakage and unpersisted refund exemption with immediate caps, reviewed
+save/load behavior, and integrated UI/AI/protocol/capture changes.
+
+Verification: 31 CTest targets pass in aggregate. The full original 29-target run
+passed 25; four economy fixtures had injected over-capacity spice as scenario
+funding. They now explicitly supply starting funds and all four focused reruns
+pass. Two new storage probes pass in Vanilla and DuneCity, covering fractional
+amounts, deposits in either order, refunds, actual silo destruction and captures,
+capacity growth, loading reconstruction, in-memory House save/load, statistics,
+maximum credits and retained-only quotas. Dependency audits and packaged runtime
+initialization/rendering pass. Evidence: ../outputs/credit-storage.
+The 1.0.767 package is ready under ../outputs/credit-storage/install-767; it is
+not installed on the MBA yet. The last installed version remains 1.0.766.

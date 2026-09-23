@@ -77,7 +77,8 @@
 // Version 20: Proactive crime/rocket coverage, opening economy and air defence AI.
 // Version 21: Keep opening city growth alongside routine defence and supplier investment.
 // Version 22: Sustainable policing budgets and core-first spice expansion.
-#define NETWORK_PROTOCOL_VERSION            22
+// Version 23: Earned credits share refinery/silo capacity and are capped immediately.
+#define NETWORK_PROTOCOL_VERSION            23
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

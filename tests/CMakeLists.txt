@@ -469,6 +469,16 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --custom-attack-probe --repeatable
             --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/custom-attack-probe)
         set_tests_properties(quantbot_custom_attack PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        # Credit storage: refined spice and city taxes share the refinery/silo
+        # capacity, starting cash is exempt, and the overflow is destroyed at once.
+        # City tax only exists with the dunecity mod, so both mods are measured.
+        foreach(credit_mod IN ITEMS vanilla dunecity)
+            add_test(NAME house_credit_storage_${credit_mod} COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --credit-storage-probe --repeatable
+                --mod ${credit_mod} --build-dir ${CMAKE_BINARY_DIR}
+                --output-dir ${CMAKE_BINARY_DIR}/credit-storage-${credit_mod}-probe)
+            set_tests_properties(house_credit_storage_${credit_mod} PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        endforeach()
     endif()
 endif()
 

@@ -46,6 +46,8 @@ parser.add_argument('--opening-economy-probe', action='store_true')
 parser.add_argument('--starport-probe', action='store_true', help='Exercise reserved cash with above-normal Starport prices')
 parser.add_argument('--helper-economy-probe', action='store_true', help='Verify advanced campaign helper worker investment and paid imports')
 parser.add_argument('--city-campaign-probe', action='store_true', help='Verify campaign city limits, permissions, depletion and save/load')
+parser.add_argument('--credit-storage-probe', action='store_true',
+                    help='Verify the shared spice/tax storage limit, exempt starting cash and refunds')
 parser.add_argument('--stats-probe', action='store_true', help='Verify campaign results with a shared human/AI house')
 parser.add_argument('--nuclear-probe', action='store_true')
 parser.add_argument('--reactor-safety-probe', action='store_true')
@@ -198,6 +200,7 @@ if args.factory_recovery_probe: env['BALANCE_FACTORY_RECOVERY_PROBE'] = '1'
 if args.starport_probe: env['BALANCE_STARPORT_PROBE'] = '1'
 if args.helper_economy_probe: env['BALANCE_HELPER_ECONOMY_PROBE'] = '1'
 if args.city_campaign_probe: env['BALANCE_CITY_CAMPAIGN_PROBE'] = '1'
+if args.credit_storage_probe: env['BALANCE_CREDIT_STORAGE_PROBE'] = '1'
 if args.stats_probe: env['BALANCE_STATS_PROBE'] = '1'
 if args.pressure_probe: env['BALANCE_PRESSURE_PROBE'] = '1'
 if args.defence_probe: env['BALANCE_DEFENCE_PROBE'] = '1'

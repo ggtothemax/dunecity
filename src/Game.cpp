@@ -3284,6 +3284,7 @@ void Game::initializeGameLoop() {
     }
 
     gameState = GameState::Running;
+    for(auto& owner : house) if(owner) owner->enforceCreditCapacity();
     finishedLevel = false;
     bShowTime = winFlags & WINLOSEFLAGS_TIMEOUT;
 

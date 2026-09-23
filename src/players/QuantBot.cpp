@@ -6191,14 +6191,14 @@ void QuantBot::build(int militaryValue) {
 									logDebug("***CampAI Build windtrap: power %d/%d", getHouse()->getProducedPower(), getHouse()->getPowerRequirement());
 								}
 							}
-							else if ((getHouse()->getStoredCredits() > getHouse()->getCapacity() * 0.90_fix)  // Only build when 90% full
+							else if ((getHouse()->getEarnedCredits() > getHouse()->getCapacity() * 0.90_fix)  // Only build when 90% full
 								&& campaignAvailableToBuild(pBuilder,Structure_Silo)
 								&& findPlaceLocation(Structure_Silo).isValid()
 								&& pBuilder->getProductionQueueSize() == 0) {
 
 								if (produceItemWithLogging(Structure_Silo, __LINE__)) itemCount[Structure_Silo]++;
 
-								logDebug("***CampAI Build A new Silo increasing count to: %d (credits: %d/%d)", itemCount[Structure_Silo], getHouse()->getStoredCredits().lround(), getHouse()->getCapacity());
+								logDebug("***CampAI Build A new Silo increasing count to: %d (credits: %d/%d)", itemCount[Structure_Silo], getHouse()->getEarnedCredits().lround(), getHouse()->getCapacity());
 							}
 							else if (money > 3000
 								&& campaignAvailableToBuild(pBuilder,Structure_RocketTurret)
@@ -7299,10 +7299,10 @@ void QuantBot::build(int militaryValue) {
 					&& itemCount[Structure_HeavyFactory] > 0
 					&& itemCount[Structure_Silo] == getHouse()->getNumItems(Structure_Silo)
                     && itemCount[Structure_Refinery] == getHouse()->getNumItems(Structure_Refinery)
-                    && getHouse()->getStoredCredits() > getHouse()->getCapacity() * 0.80_fix
+                    && getHouse()->getEarnedCredits() > getHouse()->getCapacity() * 0.80_fix
 					&& campaignAvailableToBuild(pBuilder,Structure_Silo)) {
 									itemID = Structure_Silo; structureRule = "spice_storage";
-					logDebug("Build Silo - storage at %d/%d", getHouse()->getStoredCredits().lround(), getHouse()->getCapacity());
+					logDebug("Build Silo - storage at %d/%d", getHouse()->getEarnedCredits().lround(), getHouse()->getCapacity());
 								}
                 selectCrimeService("city_service_investment");
                 // Civic turrets use the shared investment comparison above.

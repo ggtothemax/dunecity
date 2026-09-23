@@ -64,7 +64,7 @@ void runSharedSpendingProbe(Game& game) {
         }
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
         bot->lastCalculatedSpice=spice;
-        house->producedPower=10000;house->takeCredits(house->getCredits());house->addCredits(credits);
+        house->producedPower=10000;house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits; // Explicit scenario funding, not an over-capacity spice deposit.
         structureList.clear();structureList.push_back(yard);structureList.push_back(heavy);structureList.push_back(refinery);
     };
     auto count=[&](BuilderBase* builder,Uint32 item) {
