@@ -8741,3 +8741,9 @@ packaged runtime initialization/rendering, and archive transfer hash checks pass
 The tested package/guarded installer are staged on the MacBook Air at
 /tmp/dunecity-install-766. Installation is pending the running game being closed
 (PID 95931 at last check); the existing app and profile are untouched.
+
+Installation follow-up: 1.0.766 is now installed on the MacBook Air at
+/Applications/dunecity.app. Archive hash and code signature verified; packaged
+runtime initialization/rendering passed. All 512 tracked profile INIs were
+preserved byte-for-byte. Previous app: /tmp/dunecity-install-766/dunecity-previous.app.
+Receipt: ../outputs/map-types/install-766/receipt.json.
