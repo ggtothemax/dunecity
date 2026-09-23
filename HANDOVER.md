@@ -1,3 +1,20 @@
+## 2026-09-23 — DuneCity authored assets and cache-safe Android upgrades
+
+The Dune2 presentation pack now includes the available 2x building Compacts,
+91:55 authored sidebar icons, police-station variants, and industrial growth /
+activity manifests. Existing desktop profiles refresh newer bundled graphics
+without replacing gameplay config. Android packaging fingerprints the graphics
+tree independently of the APK version, replaces only a stale graphics cache on
+launch, and exposes **Options > Advanced > Clear DuneCity Asset Cache** for
+manual recovery. Saves and settings remain untouched.
+
+Verified from an existing Android installation with `adb install -r`: first
+launch replaced the unversioned old cache and wrote fingerprint
+`271C6F0444097D54A5EFBB63`; the phone contained 32 authored icons, including a
+182x110 Harkonnen Residential icon, and the corresponding 128x128 final growth
+sprite. Second launch recognized the cache as current. Windows Release and
+Android arm64/APK builds passed; five focused Python packaging tests passed.
+
 ## 2026-09-18 — Authored Dune II-style DuneCity UI portraits
 
 Oathkeeper now owns a separate unit-level `Icon Sprite` lane for DuneCity

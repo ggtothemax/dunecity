@@ -84,6 +84,22 @@ a missing device as an error. `-SkipWindows` and `-SkipAndroid` are available
 for deliberate platform-specific iteration. `-PlanOnly` validates every current
 manifest-to-engine mapping without changing packages or starting either build.
 
+## Installed-cache upgrades and recovery
+
+Desktop profiles refresh the bundled DuneCity `graphics_skins` presentation
+tree during startup without reseeding the mod's gameplay configuration. Android
+packages compute a content fingerprint for that tree at build time. On launch,
+the app compares the bundled fingerprint with the marker in app storage and
+atomically replaces the exact graphics-cache subtree when an APK contains newer
+art. This check is independent of `versionName`, so an asset-only test APK also
+upgrades an existing installation. Saves, settings, and mod configuration are
+outside the replaced directory.
+
+If app storage is damaged or was populated by an older test build, use
+**Options > Advanced > Clear DuneCity Asset Cache**, then restart. The button
+removes only `<dunecity mod>/graphics_skins`; the current bundled payload is
+restored on the next launch.
+
 ## Icon sprites
 
 The construction list and selected-object properties panel resolve portraits
