@@ -161,20 +161,23 @@ void continueRecentGame() {
     else showGameLibrary();
 }
 
+SettingsClass::GameOptionsClass initialCustomGameRules() {
+    // Saves, joins and map previews can activate content without updating the
+    // menu's cached defaults. A NEW game must obtain rules from its actual mod,
+    // even when that mod is already active. Back/Next keeps setup.rules instead.
+    auto& mods = ModManager::instance();
+    const auto& preferred = settings.general.customGameMod;
+    if(!preferred.empty() && preferred != mods.getActiveModName() && mods.modExists(preferred))
+        mods.setActiveMod(preferred);
+    effectiveGameOptions = mods.loadEffectiveGameOptions(settings.gameOptions);
+    return effectiveGameOptions;
+}
+
 void playCustomGame(bool online) {
     CustomPlaySetup setup;
-    {
-        // Restore the mod the player last chose here. Saves, joins and campaigns activate
-        // their own mod; a custom game starts from the player's own choice again.
-        auto& mods = ModManager::instance();
-        const auto& preferred = settings.general.customGameMod;
-        if(!preferred.empty() && preferred != mods.getActiveModName() && mods.modExists(preferred)
-           && mods.setActiveMod(preferred))
-            effectiveGameOptions = mods.loadEffectiveGameOptions(settings.gameOptions);
-    }
+    setup.rules = initialCustomGameRules();
     setup.maps = maps();
     setup.mods = ModManager::instance().listModChoices();
-    setup.rules = effectiveGameOptions;
     setup.online = online;
     // One controller per house is the legible default; advanced sharing stays available.
     setup.sharedHouse = false;

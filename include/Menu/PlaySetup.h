@@ -33,6 +33,7 @@ void rememberPlayMode(PlayModeScope scope, bool online);
 // The mod a player picks for a custom game is remembered across maps, menus and
 // restarts. Mods activated automatically (a save, a join, a campaign) do not change it.
 void rememberCustomGameMod(const std::string& modName);
+SettingsClass::GameOptionsClass initialCustomGameRules();
 void playCustomGame(bool online);
 void showGameLibrary(bool replays = false);
 bool hasRecentGame();

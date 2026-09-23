@@ -170,6 +170,146 @@ void runOpeningEconomyProbe(Game& game) {
     destroyCore(Structure_HeavyFactory);
     require(storageBuild(35025,35023,0)!=Structure_Silo,"Storage displaced missing heavy factory/core infrastructure");
     SDL_Log("STORAGE_PRIORITY_PASS: core first, all difficulties, spice/tax capacity, pending orders and absolute ceiling");
+
+    // Vanilla and Dune2R progression. An enemy wing elsewhere on the map buys
+    // the baseline emplacements and then waits behind the production core and
+    // the advanced factories, instead of owning every slot for the whole game.
+    if(!game.isCitySimEnabled()) {
+        House* airEnemy=nullptr;
+        for(int h=0;h<NUM_HOUSES && !airEnemy;++h) {
+            House* other=game.getHouse(h);
+            if(other && other->getTeamID()!=house->getTeamID())airEnemy=other;
+        }
+        require(airEnemy,"No enemy house for air pressure");
+        yard->curUpgradeLev=std::max<Uint8>(yard->curUpgradeLev,2); // Emplacements already unlocked.
+        secondYard->curUpgradeLev=yard->curUpgradeLev;
+        secondYard->updateBuildList();
+        // IX requires a Starport even when this fixture has no import stock.
+        for(Uint32 item:{Structure_HeavyFactory,Structure_RepairYard,Structure_StarPort})
+            if(!house->getNumItems(item))place(item);
+        // Other non-city mods retain infantry prerequisites in their opening.
+        if(house->isPowerRequired())
+            for(Uint32 item:{Structure_Barracks,Structure_WOR})
+                if(!house->getNumItems(item))place(item);
+        if(house->getNumItems(Structure_HighTechFactory))destroyCore(Structure_HighTechFactory);
+        if(house->getNumItems(Structure_IX))destroyCore(Structure_IX);
+        while(house->getNumItems(Structure_RocketTurret)<2)place(Structure_RocketTurret);
+        // The unloading-queue fixture above has been made; empty its cargo so
+        // these decisions are about progression rather than trapped spice.
+        for(auto* unit:unitList) if(unit->getOwner()==house && unit->getItemID()==Unit_Harvester) {
+            auto* worker=static_cast<Harvester*>(unit);
+            worker->setAmountOfSpice(0);worker->setTarget(nullptr);
+        }
+        // Restore the finite-spice planning the harvester-cap fixture above
+        // deliberately starved, so refining decisions see a real field again.
+        clearOrders();bot->lastCalculatedSpice=1300000;bot->update();
+        require(bot->harvesterLimit>10,"Fixture could not restore a funded worker plan");
+        // Expire unrelated structure-loss recovery bookkeeping from fixture setup.
+        game.gameCycleCount+=MILLI2CYCLES(200000);
+        const int fieldWorkers=house->numItem[Unit_Harvester];
+        house->numItem[Unit_Harvester]=3; // The four bays already outrun this fleet.
+        airEnemy->numItem[Unit_Ornithopter]=6;
+        require(build(100000)==Structure_HighTechFactory,
+            "Distant enemy aircraft blocked the affordable missing production core");
+        place(Structure_HighTechFactory);
+        require(build(100000)==Structure_IX,"Distant enemy aircraft blocked affordable advanced tech");
+        // Earned credits at capacity are lost income now; that does not wait
+        // for tech the base has not finished.
+        require(storageBuild(35025,35023,0)==Structure_Silo,"Overflowing storage waited for optional tech");
+        place(Structure_IX);
+        require(build(100000)==Structure_RocketTurret,
+            "A finished core and IX did not release the counter-aircraft response");
+
+        // Tech this tree cannot reach never reserves a slot and never withholds
+        // the defence the base can actually build.
+        auto& advanced=game.objectData.data[Structure_HighTechFactory][HOUSE_ATREIDES];
+        auto& advancedTech=game.objectData.data[Structure_IX][HOUSE_ATREIDES];
+        const int savedTechLevel=game.techLevel;
+        const int loweredTech=std::max(1,std::min<int>(advanced.techLevel,advancedTech.techLevel)-1);
+        if(loweredTech>=game.objectData.data[Structure_RocketTurret][HOUSE_ATREIDES].techLevel) {
+            game.techLevel=loweredTech;
+            if(house->getNumItems(Structure_IX))destroyCore(Structure_IX);
+            if(house->getNumItems(Structure_HighTechFactory))destroyCore(Structure_HighTechFactory);
+            game.gameCycleCount+=MILLI2CYCLES(200000);
+            yard->updateBuildList();secondYard->updateBuildList();
+            const Uint32 lowTech=build(100000);
+            require(lowTech!=Structure_HighTechFactory && lowTech!=Structure_IX,
+                "Construction ordered advanced tech this tech level does not offer");
+            require(lowTech==Structure_RocketTurret,
+                "An unreachable advanced tree still withheld the defence the base could build");
+            game.techLevel=savedTechLevel;
+            yard->updateBuildList();secondYard->updateBuildList();
+            for(Uint32 item:{Structure_HighTechFactory,Structure_IX})
+                if(!house->getNumItems(item))place(item);
+            game.gameCycleCount+=MILLI2CYCLES(200000);
+        }
+        airEnemy->numItem[Unit_Ornithopter]=6;
+
+        // Processing capacity follows the worker fleet and the field, not a
+        // cash surplus: four bays are not a ceiling, and empty ones are not a
+        // reason to keep buying more.
+        house->numItem[Unit_Harvester]=15;
+        require(build(4000)==Structure_Refinery,
+            "A funded worker fleet did not grow refining capacity past four bays");
+        airEnemy->numItem[Unit_Ornithopter]=0;
+        house->numItem[Unit_Harvester]=3;
+        require(build(4000)!=Structure_Refinery,"Empty bays kept expanding without workers to fill them");
+
+        // A queued bay brings its own storage. Count that pending capacity
+        // rather than cancelling every silo a growing refinery base still needs.
+        const int bayCapacity=game.objectData.data[Structure_Refinery][HOUSE_ATREIDES].capacity;
+        require(bayCapacity>0,"Fixture needs refinery storage capacity");
+        auto storageWithPendingBay=[&](int capacity,int stored) {
+            clearOrders();
+            house->capacity=capacity;house->startingCredits=0;
+            house->storedCredits=stored;house->cityCredits=0;
+            house->producedPower=10000;bot->lastCalculatedSpice=1300000;
+            secondYard->doProduceItem(Structure_Refinery);
+            require(secondYard->getProductionQueueSize()>0,"Fixture could not queue the pending bay");
+            bot->build(5100);
+            int silos=0;
+            for(auto* builder:{yard,secondYard})for(const auto& order:builder->currentProductionQueue)
+                if(order.itemID==Structure_Silo)++silos;
+            return silos;
+        };
+        require(storageWithPendingBay(20000,19000)==1,
+            "A queued refinery cancelled the storage the bank still needed");
+        require(storageWithPendingBay(20000,(20000+bayCapacity)*79/100)==0,
+            "Pending refinery capacity was not counted before ordering another silo");
+
+        // Defence never invents a power buffer. With the option off no
+        // generator is bought at all; with it on, the emplacement's own draw is
+        // the requirement, and a real deficit still builds its generator.
+        const int turretPower=game.objectData.data[Structure_RocketTurret][HOUSE_ATREIDES].power;
+        auto pressuredBuild=[&](int credits,int power) {
+            clearOrders();house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
+            house->producedPower=power;bot->lastCalculatedSpice=1300000;
+            bot->build(5100);
+            for(const auto& order:yard->currentProductionQueue)
+                if(order.itemID!=Structure_Slab1 && order.itemID!=Structure_Slab4 && order.itemID!=Structure_Road)
+                    return order.itemID;
+            return Uint32(NONE_ID);
+        };
+        airEnemy->numItem[Unit_Ornithopter]=6;
+        const bool savedTurretPower=game.gameInitSettings.gameOptions.rocketTurretsNeedPower;
+        game.gameInitSettings.gameOptions.rocketTurretsNeedPower=false;
+        require(pressuredBuild(100000,house->getPowerRequirement())!=Structure_WindTrap,
+            "Defence bought a power buffer with the turret power option off");
+        game.gameInitSettings.gameOptions.rocketTurretsNeedPower=true;
+        require(pressuredBuild(100000,house->getPowerRequirement()+turretPower)!=Structure_WindTrap,
+            "A covered turret draw still reserved spare generation");
+        if(turretPower>0) {
+            const Uint32 deficitBuild=pressuredBuild(100000,house->getPowerRequirement());
+            require(deficitBuild==Structure_WindTrap || deficitBuild==Structure_NuclearPlant,
+                "A real turret power deficit no longer builds its generator");
+        }
+        game.gameInitSettings.gameOptions.rocketTurretsNeedPower=savedTurretPower;
+        airEnemy->numItem[Unit_Ornithopter]=0;
+        house->numItem[Unit_Harvester]=fieldWorkers;
+        clearOrders();
+        SDL_Log("VANILLA_PROGRESSION_PASS: core and IX before repeated cover, storage before tech, "
+            "worker-led refining, pending bay capacity, genuine turret power");
+    }
     SDL_Log("OPENING_ECONOMY_PASS: rich factory opening, poor economy opening, absent/sold-out/disabled markets, default/100/unlimited caps");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: level=0 seed=0 attack_percent=0 partner=brutal enemy=hard cycle=%u outcome=opening_economy_pass",game.getGameCycleCount());
 }

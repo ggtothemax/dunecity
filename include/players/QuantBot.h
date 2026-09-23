@@ -202,7 +202,8 @@ private:
     std::map<Uint32, int> idleHarvesterCounters; ///< Track idle time for each harvester (objectID -> cycle count)
     std::map<Uint32, int> harvesterMovingCounters; ///< Track continuous movement time (objectID -> cycle count)
 
-    void scrambleUnitsAndDefend(const ObjectBase* pIntruder, bool clearingSpice = false);
+    void scrambleUnitsAndDefend(const ObjectBase* pIntruder, bool clearingSpice = false,
+                                const ObjectBase* protectedAsset = nullptr);
 
 
     Coord findMcvPlaceLocation(const MCV* pMCV);
@@ -251,7 +252,7 @@ private:
     void kiteAwayFromThreat(const UnitBase* pUnit, const ObjectBase* pThreat, int desiredRange);
 
     bool tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettings& diffSettings,
-                                    const QuantBotConfig& config);
+                                    const QuantBotConfig& config, const ObjectBase* emergencyAttacker = nullptr);
 
     std::list<Coord> placeLocations;    ///< Where to place structures
     // Runtime-only plans; the legacy list above remains in the save layout.

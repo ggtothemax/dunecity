@@ -1,3 +1,59 @@
+## 2026-09-24 — QuantBot progression, air rescue and unreachable Hunt targets
+
+Local worktree `/Users/stefan/Documents/projects/dunecity-vanilla-ai`, branch
+`fix/vanilla-ai-progression`, based on `a242f85c` plus the two setup commits
+`b4578eb7`/`7f2bc6a7`. Version 1.0.772, lockstep protocol 26; save layout unchanged.
+No publishing or replacement of the running MacBook Air game was performed.
+
+The captured 1.0.768 Brutal Vanilla match had Mercenary High Tech/IX orders at
+35.65/35.68 minutes, no silo through 40.9 minutes, and 13 windtraps. Runtime turret
+power was incorrectly enabled although the active Vanilla defaults disable it.
+New custom games now reload the chosen mod's defaults even if it is already
+active; deliberate overrides survive Back/Next. The integrated map-selection
+fix preserves that choice when loading an authored map.
+
+QuantBot reserves its first production core, available IX and needed refinery
+capacity ahead of repeated counter-air turret construction, retaining the first
+two defensive rockets. Worker/field targets and pending refinery orders still
+bound expansion. Existing early storage priority now counts the capacity of
+queued refineries instead of vetoing every silo during refinery expansion.
+Non-city turret headroom uses actual turret draw instead of the old 225 reserve.
+The newly enabled Dune2R spending probe also exposed its legacy worker branch
+buying harvesters with no spice left; both legacy purchase branches now stop
+when the surveyed field is exhausted.
+
+Ornithopters prioritize actual attackers of owned structures/harvesters above
+raids and speculative contacts, including AA-covered attackers. Damage callbacks
+recall eligible aircraft through the existing two-second district debounce;
+periodic targeting also recognizes active attacks. Human orders and aircraft
+reserved for repair retain their exclusions. Ordinary raids still avoid AA.
+
+Autonomous vehicle Hunt rejects terrain-disconnected targets at selection and
+before deferred pathfinding. It accepts reachable firing positions, infantry,
+flyers and explicit forced orders. A lazy, shared eight-neighbour terrain cache
+is rebuilt only when mountain topology changes, not on traffic revisions. No
+reachable target returns Hunt to Guard. Deferred paths safely handle a target
+that died after the request was queued. Dynamic occupancy remains the ordinary
+pathfinder's responsibility. Regression probes cover all three shipped modes,
+1000 traffic revisions without a cache rebuild, zero A* expansions for rejected
+hunts, opening/reclosing a detour, and expired target handles.
+
+Validation artifacts and captured live evidence are outside the repository at
+`/Users/stefan/Documents/projects/quantbot-live-20260924/`. The reported map's
+SHA-256 matches the installed MacBook Air map. Focused menu, Hunt, air-defense
+and economy probes pass. The final 40-minute simulation completed: Mercenary
+High Tech/IX at 10.96/13.55 minutes, first silo at 19.04, 30 refineries at minute
+30 versus nine in the capture, and only the initial windtrap for both houses.
+Neither house recorded storage loss. The simulation logged 1107 active-attacker
+air rescue orders; the slowest instrumented A* search was 4.13 ms, with none
+over 33 ms. Target-queue processing peaked at 1.129 ms. This is a controlled
+same-map/seed run without human commands,
+not a deterministic replay of all inputs in the live match. Full CTest ran 36
+targets: 35 passed initially; the additional Dune2R spending target passed after
+the depleted-field fix. Affected Dune2R/shared-spending/Starport and unit tests
+were rerun after that correction. Native build and pre/post dependency checks
+passed; browser runtime and a packaged/public release were not exercised.
+
 ## 2026-09-24 — The selected mod owns a new custom game
 
 Same branch and worktree, on top of the connection-choice commit below.

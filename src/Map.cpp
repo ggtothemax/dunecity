@@ -57,6 +57,7 @@ Map::Map(int xSize, int ySize)
 Map::~Map() = default;
 
 void Map::load(InputStream& stream) {
+    invalidateTerrainConnectivity();
     sizeX = stream.readSint32();
     sizeY = stream.readSint32();
 
@@ -87,6 +88,59 @@ void Map::init_tile_location() {
 
 void Map::incrementPathingRevision() noexcept {
     ++pathingRevision;
+}
+
+void Map::ensureTerrainConnectivity() const {
+    if (!vehicleTerrainRegions.empty()) return;
+    vehicleTerrainRegions.assign(tiles.size(), 0);
+    ++terrainConnectivityBuilds;
+    std::vector<Coord> pending;
+    pending.reserve(tiles.size());
+    int region=0;
+    for (const auto& tile:tiles) {
+        if (tile.isMountain() || vehicleTerrainRegions[tile_index(tile.location.x,tile.location.y)]) continue;
+        ++region;
+        pending.clear();
+        pending.push_back(tile.location);
+        vehicleTerrainRegions[tile_index(tile.location.x,tile.location.y)]=region;
+        for (size_t i=0;i<pending.size();++i) {
+            const Coord point=pending[i];
+            // Match A*'s eight-neighbour movement, including diagonal openings.
+            for (int angle=0;angle<NUM_ANGLES;++angle) {
+                const Coord next=getMapPos(angle,point);
+                if (!tileExists(next)) continue;
+                const int index=tile_index(next.x,next.y);
+                if (vehicleTerrainRegions[index] || tiles[index].isMountain()) continue;
+                vehicleTerrainRegions[index]=region;
+                pending.push_back(next);
+            }
+        }
+    }
+}
+
+bool Map::terrainAttackReachable(const ObjectBase& seeker, const ObjectBase& target) const {
+    // Infantry climb mountains; flying/underground units have their own rules.
+    if (!seeker.isAGroundUnit() || seeker.isInfantry() || seeker.getItemID()==Unit_Sandworm) return true;
+    const Coord from=seeker.getLocation(), goal=target.getClosestPoint(from);
+    if (!tileExists(from) || !tileExists(goal)) return false;
+    const int range=seeker.getWeaponRange();
+    if (blockDistance(from,goal)<=range) return true; // Can already shoot across a ridge.
+    ensureTerrainConnectivity();
+    const int region=vehicleTerrainRegions[tile_index(from.x,from.y)];
+    if (!region) return false;
+    if (vehicleTerrainRegions[tile_index(goal.x,goal.y)]==region) return true;
+    // Reaching a firing position is sufficient: the target itself may stand
+    // on mountains, or a building may straddle several terrain components.
+    const Coord origin=target.getLocation();
+    const Coord size=target.isAStructure()
+        ? static_cast<const StructureBase&>(target).getStructureSize() : Coord(1,1);
+    for (int y=std::max(0,origin.y-range);y<std::min(sizeY,origin.y+size.y+range);++y)
+        for (int x=std::max(0,origin.x-range);x<std::min(sizeX,origin.x+size.x+range);++x) {
+            if (vehicleTerrainRegions[tile_index(x,y)]!=region) continue;
+            const Coord point(x,y);
+            if (blockDistance(point,target.getClosestPoint(point))<=range) return true;
+        }
+    return false;
 }
 
 void Map::createSandRegions() {

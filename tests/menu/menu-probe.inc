@@ -660,6 +660,28 @@ int runMenuProbe() {
         // A mod activated automatically - by a save, a join or a campaign - is not a choice.
         menuRequire(mods.setActiveMod("vanilla"),"Cannot restore the vanilla fixture");
         menuRequire(settings.general.customGameMod=="dunecity","Automatic mod activation overwrote the remembered choice");
+        // Reproduce the live Vanilla game carrying cached DuneCity turret rules.
+        settings.general.customGameMod="vanilla";
+        effectiveGameOptions.rocketTurretsNeedPower=true;
+        const auto vanillaRules=initialCustomGameRules();
+        menuRequire(!vanillaRules.rocketTurretsNeedPower && !effectiveGameOptions.rocketTurretsNeedPower,
+                    "A new Vanilla game inherited stale powered-turret rules");
+        auto rulesSetup=setup;
+        rulesSetup.rules=vanillaRules;
+        for(size_t i=0;i<rulesSetup.mods.size();++i)
+            if(rulesSetup.mods[i].name=="vanilla")rulesSetup.mod=static_cast<int>(i);
+        {
+            CustomGameMenu browser(false,false,&rulesSetup);
+            browser.onNext();
+            menuRequire(!rulesSetup.rules.rocketTurretsNeedPower,"Next restored stale turret rules");
+        }
+        // An explicit override belongs to this setup and survives Back/Next.
+        rulesSetup.rules.rocketTurretsNeedPower=true;
+        {
+            CustomGameMenu browser(false,false,&rulesSetup);
+            browser.onNext();
+            menuRequire(rulesSetup.rules.rocketTurretsNeedPower,"Back/Next erased an explicit turret-rule override");
+        }
         settings.general.customGameMod = rememberedBefore;
     }
     const auto map = setup.maps.front();

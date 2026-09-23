@@ -659,6 +659,16 @@ void UnitBase::engageTarget() {
         return;
     }
 
+    if (target && attackMode==HUNT && !forced && findTargetTimer==0
+        && !currentGameMap->terrainAttackReachable(*this,*target.getObjPointer())) {
+        // Drop an old hunt when its target moves behind an impassable ridge.
+        // Explicit player orders and booked transport are not autonomous hunts.
+        setGuardPoint(location);
+        releaseTarget();
+        clearPath();
+        return;
+    }
+
     if(target && !targetFriendly && !forced && !isInAttackRange(target.getObjPointer())) {
         // the (non-friendly) target left the attack mode range (and we were not forced to attack it)
         releaseTarget();
@@ -1782,6 +1792,12 @@ void UnitBase::resolvePendingTargetRequest() {
                 }
             }
 
+            if(pNewTarget==nullptr && attackMode==HUNT) {
+                // Match the synchronous targeting path. An empty reachable
+                // target set is not a mission to retry across the whole map.
+                setGuardPoint(location);
+                doSetAttackMode(GUARD);
+            }
             findTargetTimer = MILLI2CYCLES(1*1000);
         } else {
             findTargetTimer = MILLI2CYCLES(1*1000);
@@ -1803,6 +1819,16 @@ UnitBase::PathRequestStats UnitBase::resolvePendingPathRequest() {
         recalculatePathTimer = 0;
         stats.invalidDestination = true;
         return stats;
+    }
+
+    if (target && attackMode==HUNT && !forced) {
+        const ObjectBase* huntTarget=target.getObjPointer();
+        if (!huntTarget || !currentGameMap->terrainAttackReachable(*this,*huntTarget)) {
+            setGuardPoint(location);
+            releaseTarget();
+            clearPath();
+            return stats; // No A* budget spent on a missing or disconnected target.
+        }
     }
 
     // Jitter the cooldown by objectID to stagger re-requests across units,

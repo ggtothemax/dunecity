@@ -16,6 +16,7 @@
 #include <cmath>
 #include <sstream>
 #include <vector>
+#include "hunt-reachability.inc"
 
 int runUnitSpeedProbe() {
     const std::string mod = std::getenv("UNIT_SPEED_PROBE_MOD");
@@ -143,5 +144,6 @@ int runUnitSpeedProbe() {
     csv.close();
     SDL_Log("UNIT_SPEED_PROBE_PASS: %s saved routes",mod.c_str());
     game.reset();currentGame=nullptr;
+    runHuntReachabilityProbe(mod);
     return -1;
 }

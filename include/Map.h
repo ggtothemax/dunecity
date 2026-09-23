@@ -74,6 +74,10 @@ public:
     }
 
     void incrementPathingRevision() noexcept;
+    // Terrain-only connectivity is shared by all vehicles. Moving occupants do
+    // not invalidate it; detailed routes still use the ordinary pathfinder.
+    void invalidateTerrainConnectivity() noexcept { vehicleTerrainRegions.clear(); }
+    bool terrainAttackReachable(const ObjectBase& seeker, const ObjectBase& target) const;
     void restoreObserverPathingRevision(Uint32 revision) noexcept { pathingRevision=revision; }
 
     Sint32 getSizeX() const noexcept {
@@ -192,6 +196,9 @@ private:
     std::vector<Tile> tiles;                ///< the 2d-array containing all the tiles of the map
     ObjectBase* lastSinglySelectedObject;   ///< The last selected object. If selected again all units of the same type are selected
     Uint32 pathingRevision = 0;             ///< Bumps when long-lived blocking geometry changes to invalidate cached paths
+    mutable std::vector<int> vehicleTerrainRegions; // Derived; never serialized.
+    mutable unsigned terrainConnectivityBuilds = 0;
+    void ensureTerrainConnectivity() const;
 
     void init_tile_location();
 

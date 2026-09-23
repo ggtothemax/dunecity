@@ -426,7 +426,7 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
                 --output-dir ${CMAKE_BINARY_DIR}/projectile-${projectile_probe}-probe)
             set_tests_properties(projectile_${projectile_probe}_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         endforeach()
-        foreach(ai_mod IN ITEMS vanilla dunecity)
+        foreach(ai_mod IN ITEMS vanilla dunecity Dune2R)
             foreach(ai_probe IN ITEMS air-defense shared-spending stats)
                 add_test(NAME quantbot_${ai_probe}_${ai_mod} COMMAND ${Python3_EXECUTABLE}
                     ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --${ai_probe}-probe --repeatable
@@ -435,7 +435,7 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
                 set_tests_properties(quantbot_${ai_probe}_${ai_mod} PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
             endforeach()
         endforeach()
-        foreach(ai_mod IN ITEMS vanilla dunecity)
+        foreach(ai_mod IN ITEMS vanilla dunecity Dune2R)
             add_test(NAME quantbot_opening-economy_${ai_mod} COMMAND ${Python3_EXECUTABLE}
                 ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --opening-economy-probe --repeatable
                 --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
