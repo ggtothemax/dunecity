@@ -1,3 +1,29 @@
+## 2026-09-24 — QuantBot builds an empty-market Starport for late tech
+
+User observed House IX locked because QuantBot skipped an empty CHOAM Starport.
+At the existing House IX and Palace priority positions, QuantBot now orders one
+missing Starport when it is the configured missing prerequisite. The early
+import-priority rule is unchanged. Enabled flags, tech/yard-upgrade gates, other
+prerequisites, campaign restrictions, placement, money and pending orders remain
+respected. Queued ports prevent parallel-yard duplicates; the next planning pass
+after completion selects the intended tech building. No extra overdue override
+was added: the existing overdue timer only starts when the goal is buildable.
+
+Local candidate 1.0.774, network protocol28 (AI decisions changed), telemetry
+policy v77; save format unchanged. Built in `dunecity-ix-starport/build`.
+Regression uses the real QuantBot build path and real construction queues for IX
+and Palace, all four difficulties, Vanilla and DuneCity. Checks empty market,
+locked/disabled/upgrade-locked goals, absent configured dependency, queued-port
+deduplication and target selection after port completion. Fixtures use upgraded
+yards, exempt starting cash and available rock to isolate tech policy.
+
+Validation: native build, dependency audit, version consistency, diff check, and
+37/37 CTest passed (331.18s), including the expanded Starport probes and existing
+Vanilla/DuneCity/Dune2R opening/spending checks. Receipts:
+`/Users/stefan/Documents/projects/outputs/ix-live/`.
+Committed locally on `fix/ix-starport-prerequisite`; not pushed, released or
+installed over the user's game. Production remains 1.0.773.
+
 ## 2026-09-24 — All local work integrated and installed on the MacBook Air
 
 User authorized combining the local branch work and installing it. New checkout

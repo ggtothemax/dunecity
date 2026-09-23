@@ -1746,6 +1746,22 @@ bool needsGroundExit(Uint32 item) {
 bool blocksGroundAccess(Uint32 item) {
     return item != Structure_Road && item != Structure_Slab1 && item != Structure_Slab4;
 }
+// Check the real build-list gates while allowing only this missing prerequisite.
+bool prerequisiteBlocksBuild(const BuilderBase* builder, Uint32 goal, Uint32 prerequisite) {
+    if (!builder || !builder->getOwner() || !currentGame || goal >= Num_ItemID) return false;
+    const auto& data = currentGame->objectData.data[goal][builder->getOriginalHouseID()];
+    if (prerequisite >= data.prerequisiteStructuresSet.size()
+        || !data.enabled || data.builder != static_cast<int>(builder->getItemID())
+        || data.techLevel > currentGame->techLevel
+        || data.upgradeLevel > builder->getCurrentUpgradeLevel()
+        || !data.prerequisiteStructuresSet[prerequisite]
+        || builder->getOwner()->getNumItems(prerequisite) > 0) return false;
+    for (int item = ItemID_FirstID; item < std::min<int>(Num_ItemID, data.prerequisiteStructuresSet.size()); ++item) {
+        if (item != static_cast<int>(prerequisite) && isStructure(item)
+            && data.prerequisiteStructuresSet[item] && builder->getOwner()->getNumItems(item) <= 0) return false;
+    }
+    return true;
+}
 }
 
 void QuantBot::clearPlacementCache(bool geometryChanged, bool reuseForBuilder) {
@@ -7399,9 +7415,20 @@ void QuantBot::build(int militaryValue) {
 					itemID = Structure_HighTechFactory; structureRule = "air_production";
 					logDebug("Build first High Tech Factory... money: %d", money);
 				}
+                // Buy a prerequisite port at the tech goal's priority, even
+                // without imports. Count queued ports across all yards.
+				auto starportUnlocks = [&](Uint32 goal) {
+					return itemCount[Structure_StarPort] == 0
+						&& !orderedThisTick.count(Structure_StarPort)
+						&& campaignPermitsStructure(goal)
+						&& prerequisiteBlocksBuild(pBuilder,goal,Structure_StarPort)
+						&& campaignAvailableToBuild(pBuilder,Structure_StarPort)
+						&& money >= data[Structure_StarPort][houseID].price
+						&& findPlaceLocation(Structure_StarPort).isValid();
+				};
 				// 11. House IX (after essential production buildings)
 				if (itemID == NONE_ID && !skipRemainingStructureLogic
-					&& itemCount[Structure_IX] == 0 
+					&& itemCount[Structure_IX] == 0
 					&& itemCount[Structure_HeavyFactory] > 0
 					&& itemCount[Structure_HighTechFactory] > 0
 					&& itemCount[Structure_RepairYard] > 0
@@ -7419,6 +7446,17 @@ void QuantBot::build(int militaryValue) {
 					&& itemID != Structure_WindTrap
 					&& itemID != Structure_NuclearPlant) {
 					itemID = Structure_IX; structureRule = "advanced_tech";
+				}
+                // Missing prerequisites never start the IX overdue timer.
+				if (itemID == NONE_ID && !skipRemainingStructureLogic
+					&& itemCount[Structure_IX] == 0
+					&& itemCount[Structure_HeavyFactory] > 0
+					&& itemCount[Structure_HighTechFactory] > 0
+					&& itemCount[Structure_RepairYard] > 0
+					&& money > 1000
+					&& starportUnlocks(Structure_IX)) {
+					itemID = Structure_StarPort; structureRule = "starport_prerequisite";
+					logDebug("Build Starport as House IX prerequisite... money: %d", money);
 				}
 				// 12. Additional Heavy Factories (expansion).
 				//     Income supports steady expansion; large cash surpluses fund
@@ -7513,6 +7551,17 @@ void QuantBot::build(int militaryValue) {
 					&& itemID != Structure_WindTrap
 					&& itemID != Structure_NuclearPlant) {
 					itemID = Structure_Palace; structureRule = "palace_strategy";
+				}
+				// Same demand as the palace rules above, for a map whose Palace
+				// lists a Starport this base does not own.
+				if (itemID == NONE_ID && !skipRemainingStructureLogic
+					&& money > 5000
+					&& palaceAllowed
+					&& itemCount[Structure_HeavyFactory] > 0
+					&& itemCount[Structure_LightFactory] > 0
+					&& starportUnlocks(Structure_Palace)) {
+					itemID = Structure_StarPort; structureRule = "starport_prerequisite";
+					logDebug("Build Starport as Palace prerequisite... money: %d", money);
 				}
 				}
 				// Round out vanilla bases with regular turrets and short wall lines.

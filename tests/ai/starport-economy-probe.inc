@@ -361,5 +361,84 @@ void runStarportEconomyProbe(Game& game) {
         || optionalFactory->getProductionQueueSize()!=1 || queuedCashPort->okToOrder())
         throw std::runtime_error("Optional factory spending blocked emergency MCV recovery");
     SDL_Log("STARPORT_RECOVERY_QUEUED_CASH_PASS: unspent factory queue budget buys the emergency MCV");
+    // Real construction decisions with an empty CHOAM market. Isolate the
+    // tech priority from unrelated economic purchases, retaining real queues,
+    // configured prerequisites, placement, availability and all difficulties.
+    std::vector<StructureBase*> oldPorts;
+    for (auto* structure : structureList)
+        if (structure->getOwner()==house && structure->getItemID()==Structure_StarPort) oldPorts.push_back(structure);
+    for (auto* structure : oldPorts) structure->destroy();
+    market.availableItems.clear();
+    for(int y=0;y<currentGameMap->getSizeY();++y) for(int x=0;x<currentGameMap->getSizeX();++x)
+        if(!currentGameMap->getTile(x,y)->hasAStructure()) currentGameMap->getTile(x,y)->setType(Terrain_Rock);
+    auto* techYard=static_cast<BuilderBase*>(place(Structure_ConstructionYard));
+    auto* parallelYard=static_cast<BuilderBase*>(place(Structure_ConstructionYard));
+    for (Uint32 item : {Structure_WindTrap, Structure_Refinery, Structure_Radar,
+                       Structure_LightFactory, Structure_HeavyFactory, Structure_HighTechFactory, Structure_RepairYard})
+        if (!house->getNumItems(item)) place(item);
+    const auto originalData=game.objectData;
+    auto clearOrders=[&]() {
+        for (auto* yard : {techYard,parallelYard}) {
+            while (yard->getProductionQueueSize()) yard->doCancelItem(yard->currentProductionQueue.front().itemID);
+            yard->upgrading=false;yard->curUpgradeLev=3;
+        }
+        bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
+    };
+    auto countOrders=[&](Uint32 item) {
+        int count=0;
+        for (auto* yard : {techYard,parallelYard})
+            for (const auto& order : yard->currentProductionQueue) count+=order.itemID==item;
+        return count;
+    };
+    auto planTech=[&]() {
+        techYard->updateBuildList();parallelYard->updateBuildList();
+        if (!techYard->isAvailableToBuild(Structure_StarPort) && house->getNumItems(Structure_StarPort)==0)
+            throw std::runtime_error("Fixture Starport unavailable: tech="+std::to_string(game.techLevel)+" upgrade="+std::to_string(techYard->getCurrentUpgradeLevel()));
+        savedStructures=structureList;structureList.clear();
+        structureList.push_back(techYard);structureList.push_back(parallelYard);
+        try {bot->build(4000);}catch(...){structureList=savedStructures;throw;}
+        structureList=savedStructures;
+    };
+    for (Uint32 goal : {Structure_IX,Structure_Palace}) {
+        for (auto tier : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                          QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            game.objectData=originalData;
+            for (int item=ItemID_FirstID;item<Num_ItemID;++item)
+                game.objectData.data[item][HOUSE_HARKONNEN].enabled=false;
+            auto& goalData=game.objectData.data[goal][HOUSE_HARKONNEN];
+            auto& portData=game.objectData.data[Structure_StarPort][HOUSE_HARKONNEN];
+            goalData.enabled=true;portData.enabled=true;
+            clearOrders();bot->difficulty=tier;bot->lastCalculatedSpice=0;
+            house->producedPower=100000;house->takeCredits(house->getCredits());house->startingCredits=10000;
+            // Unreachable tech must not justify an empty port.
+            const int goalTech=goalData.techLevel;goalData.techLevel=game.techLevel+1;
+            planTech();
+            if(countOrders(Structure_StarPort)) throw std::runtime_error("Locked tech bought empty Starport");
+            clearOrders();goalData.techLevel=goalTech;
+            goalData.enabled=false;planTech();
+            if(countOrders(Structure_StarPort)) throw std::runtime_error("Disabled tech bought empty Starport");
+            clearOrders();goalData.enabled=true;
+            const int goalUpgrade=goalData.upgradeLevel;
+            goalData.upgradeLevel=techYard->getCurrentUpgradeLevel()+1;planTech();
+            if(countOrders(Structure_StarPort)) throw std::runtime_error("Upgrade-locked tech bought empty Starport");
+            clearOrders();goalData.upgradeLevel=goalUpgrade;
+            goalData.prerequisiteStructuresSet[Structure_StarPort]=false;planTech();
+            if(countOrders(Structure_StarPort)) throw std::runtime_error("Tech without Starport dependency bought empty port");
+            clearOrders();goalData.prerequisiteStructuresSet[Structure_StarPort]=true;
+            planTech();
+            if(countOrders(Structure_StarPort)!=1 || countOrders(goal))
+                throw std::runtime_error("Empty-market tech prerequisite did not order exactly one Starport");
+            planTech();
+            if(countOrders(Structure_StarPort)!=1) throw std::runtime_error("Pending Starport duplicated");
+            clearOrders();
+            auto* completedPort=place(Structure_StarPort);
+            planTech();
+            if(countOrders(goal)!=1 || countOrders(Structure_StarPort))
+                throw std::runtime_error("Tech goal did not resume after Starport completion");
+            clearOrders();completedPort->destroy();
+            SDL_Log("STARPORT_TECH_PREREQUISITE_PASS: goal=%u difficulty=%d empty market, one port, resumed goal",goal,int(tier));
+        }
+    }
+    game.objectData=originalData;
     SDL_Log("CAMPAIGN_BALANCE_RESULT: probe=starport outcome=passed");
 }
