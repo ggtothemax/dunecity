@@ -1,3 +1,38 @@
+## 2026-09-24 — Align turret and launcher cadence with Dynasty
+
+User authorized matching both after the engine-aware timing recheck. Shared
+rocket turret reload is now 170 cycles / 2.720 s; its close cannon scales the
+configured gun turret reload by 128/240 (2.048 s by default). Standalone gun
+turrets retain their reload. Standard/elite launchers use 750 cycles / 12 s
+from the second shot, with an 18-cycle / 0.288 s burst gap (12.288 s pair period).
+At <=50% HP they fire singles. Missed secondary opportunities are cancelled;
+the fallback primary cooldown remains live. Other units keep legacy timing.
+Values translate measured Dynasty intervals to 16 ms ticks rather than copying
+its 60/20 Hz counters. No new random draws or serialized fields. Protocol 25
+prevents lockstep mixing with earlier combat rules. No release/version bump,
+install, push or PR. Local app rebuilt in this checkout.
+
+Tornie has a separate ObjectData override: updated that and its integrity
+checksum too. Native CMake now relinks/recopies for bundled ObjectData and
+checksum changes; the initial regression caught stale copied data, then the
+missing checksum update. Source/bundle hashes now match and Tornie's entire
+checksum manifest verifies. See docs/weapon-cadence-alignment.md.
+
+Aircraft sim: 552 rows across Vanilla/DuneCity/Dune2R, identical mode replays.
+Powered three-turret attacking-ornithopter kills 12/18 -> 18/18; lone turret
+0/18 -> 2/18. Fast carryall crossings still 0/36 kills. Separate 64-case matrix:
+turret 16 -> 27 kills; launcher 15 -> 8, consistent with the slower launcher
+cadence. No aircraft HP, speed or missile motion changes. Receipts are in
+../outputs/aircraft-aa-alignment/; final weapon timestamp receipts in
+build/weapon-reload-probe/. Original Dynasty reference still passes ASan/UBSan.
+
+Claude subscription worker produced the bounded production patch but reached
+its turn cap without tests/final report. Codex reviewed and completed burst
+cancellation, runtime timing/edge tests, Tornie integration, packaging and
+verification. All 32 CTest tests passed across the full run and final focused
+reruns; native build/dependency audits passed. The final reload probe covers
+138 steady-fire cases and 15 interruption controls across four modes.
+
 ## 2026-09-24 — Reload timing rechecked across both engines
 
 Follow-up on aircraft audit. Confirmed actual steady turret missiles every

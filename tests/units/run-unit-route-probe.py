@@ -74,7 +74,8 @@ link = [str(obj) if arg.endswith('/main.cpp.o') else arg for arg in link]
 with (out / 'build.log').open('w') as log:
     subprocess.run(cc, cwd=build, stdout=log, stderr=subprocess.STDOUT, check=True)
     subprocess.run(link, cwd=build, stdout=log, stderr=subprocess.STDOUT, check=True)
-for mod in ('vanilla', 'dunecity', 'Dune2R'):
+modes = ('vanilla', 'dunecity', 'Dune2R', 'Tornie') if args.weapon_reloads else ('vanilla', 'dunecity', 'Dune2R')
+for mod in modes:
     env = dict(os.environ, DUNECITY_USERDIR=str(out / ('profile-' + mod)),
                SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy',
                UNIT_SPEED_PROBE_MOD=mod, UNIT_SPEED_PROBE_OUT=str(out),
@@ -91,4 +92,4 @@ for mod in ('vanilla', 'dunecity', 'Dune2R'):
 if len({(out / (mod + '.csv')).read_bytes() for mod in ('vanilla', 'dunecity', 'Dune2R')}) != 1:
     raise RuntimeError('The three modes produced different unit trajectories')
 subprocess.run(['python3', str(root / 'scripts/check-build-deps.py'), str(build)], check=True, cwd=root)
-print('Unit speed scenarios passed for all three modes. Logs: ' + str(out))
+print('Unit scenarios passed for modes ' + ', '.join(modes) + '. Logs: ' + str(out))

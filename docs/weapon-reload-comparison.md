@@ -1,7 +1,9 @@
 # Turret and launcher firing intervals: engine-aware recheck
 
 2026-09-24. Diagnostic simulations on the same DuneCity audit branch and pinned
-Dune Dynasty `4469449c` reference. No production weapon values changed.
+Dune Dynasty `4469449c` reference. This records the pre-fix measurements at
+`58bd45f4`; see [the subsequent alignment](weapon-cadence-alignment.md) for the
+authorized gameplay change and its validation.
 
 ## Verified result at each engine's normal speed
 

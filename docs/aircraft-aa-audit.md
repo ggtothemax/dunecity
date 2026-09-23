@@ -1,8 +1,9 @@
 # Rocket turret aircraft audit
 
 2026-09-24, based on DuneCity `224b4342` and original Dune Dynasty
-`4469449c75f51388ad2725297a95f09a6c601905`. Tests and documentation only;
-no shipped gameplay value, version, protocol, installation or release changed.
+`4469449c75f51388ad2725297a95f09a6c601905`. This is the pre-fix audit recorded at `72d8b8da`. That commit changed tests
+and documentation only. See [the subsequent alignment](weapon-cadence-alignment.md)
+for the authorized gameplay change and its validation.
 
 ## Finding
 
