@@ -17,8 +17,12 @@
 #include "sourceforge-regressions-probe.inc"
 #include "harvester-safety-probe.inc"
 #include "shared-spending-probe.inc"
+#include "police-placement-probe.inc"
+#include "police-budget-probe.inc"
+#include "city-growth-probe.inc"
 #include "opening-economy-probe.inc"
 #include "army-movement-probe.inc"
+#include "air-defense-probe.inc"
 #include "custom-attack-probe.inc"
 #include "custom-city-cap-probe.inc"
 #include "factory-recovery-probe.inc"
@@ -31,6 +35,9 @@
 #include "campaign-repair-probe.inc"
 #include "campaign-helper-economy-probe.inc"
 #include "city-income-probe.inc"
+#include "credit-storage-probe.inc"
+#include "credit-capture-probe.inc"
+#include "refund-provenance-probe.inc"
 #include "campaign-city-economy-probe.inc"
 
 int runCampaignBalanceProbe() {
@@ -52,6 +59,8 @@ int runCampaignBalanceProbe() {
     settings.general.playerName = "Campaign balance observer";
     settings.network.metaServer = "http://127.0.0.1:1/";
     settings.gameOptions.fogOfWar = false;
+    if (std::getenv("BALANCE_ROCKET_TURRETS_NEED_POWER"))
+        settings.gameOptions.rocketTurretsNeedPower=std::atoi(std::getenv("BALANCE_ROCKET_TURRETS_NEED_POWER"))!=0;
     settings.gameOptions.immortalHumanPlayer = false;
     if (std::getenv("BALANCE_DEGRADE_ON_CONCRETE"))
         settings.gameOptions.structuresDegradeOnConcrete=std::atoi(std::getenv("BALANCE_DEGRADE_ON_CONCRETE"))!=0;
@@ -116,6 +125,10 @@ int runCampaignBalanceProbe() {
         runCampaignCityEconomyProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
+    if (std::getenv("BALANCE_CREDIT_STORAGE_PROBE")) {
+        runCreditStorageProbe(*game);runCreditCaptureProbe(*game);runRefundProvenanceProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
     if (std::getenv("BALANCE_CITY_INCOME_PROBE")) {
         runCityIncomeProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
@@ -128,8 +141,24 @@ int runCampaignBalanceProbe() {
         runOpeningEconomyProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
+    if (std::getenv("BALANCE_POLICE_PLACEMENT_PROBE")) {
+        runPolicePlacementProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_POLICE_BUDGET_PROBE")) {
+        runPoliceBudgetProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_CITY_GROWTH_PROBE")) {
+        runCityGrowthProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
     if (std::getenv("BALANCE_SHARED_SPENDING_PROBE")) {
         runSharedSpendingProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_AIR_DEFENSE_PROBE")) {
+        runAirDefenseProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_ARMY_PROBE")) {

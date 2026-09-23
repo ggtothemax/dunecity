@@ -143,7 +143,7 @@ void playCustomGame(bool online) {
     setup.sharedHouse = false;
     for(size_t i = 0; i < setup.mods.size(); ++i)
         if(setup.mods[i].matchesSelectionName(ModManager::instance().getActiveModName())) setup.mod = static_cast<int>(i);
-    if(setup.maps.empty()) { PlayError(_("No custom maps found. Create a map in Workshop > Map Editor, then return here.")).showMenu(); return; }
+    if(setup.maps.empty()) { PlayError(_("No custom maps found. Create a map in Editors > Map Editor, then return here.")).showMenu(); return; }
     bool chooseMap = true;
     for(;;) {
         if(chooseMap) {

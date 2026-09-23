@@ -21,6 +21,14 @@ def manifest(files, kind='map', item='a' * 32, name='Shared dunes', base='', mod
                       for path, data in sorted(files.items()))).encode()
 
 
+def map_ini(size=(64, 64), players=2, mod=None):
+    """A saved map in the format the client writes: a format version, dimensions, player sections."""
+    basic = '[BASIC]\nVersion=2\nName=Shared dunes\n' + ('Mod=%s\n' % mod if mod is not None else '')
+    body = '[MAP]\nSizeX=%d\nSizeY=%d\n' % size
+    body += ''.join('\n[Player%d]\nBrain=Human\n' % (n + 1) for n in range(players))
+    return (basic + body).encode()
+
+
 class ContentTests(SignalingTestCase):
     def post(self, action, **form):
         return self.service.request('POST', '/v1/content/' + action, form)
@@ -209,6 +217,223 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(3, len(second.multi['item']))
         self.assertEqual('0', second.fields['next'])
         self.assertEqual('53', second.multi['item'][-1].split(',')[2])
+
+    # ------------------------------------------------------------------------------------
+    # Browsable map catalogue
+    # ------------------------------------------------------------------------------------
+
+    def catalogue(self, **form):
+        response = self.ok(self.post('list', catalogue='maps', **form))
+        return [row.split(',') for row in response.multi.get('item', [])], response.fields['next']
+
+    def test_catalogue_reports_map_metadata_and_keeps_legacy_rows(self):
+        self.share({'map.ini': map_ini(size=(128, 128), players=2)})
+        rows, next_cursor = self.catalogue()
+        self.assertEqual('0', next_cursor)
+        self.assertEqual(1, len(rows))
+        self.assertEqual(11, len(rows[0]))
+        kind, item, version, digest, name, base, mod, modname, width, height, players = rows[0]
+        self.assertEqual(['map', 'a' * 32, '1'], [kind, item, version])
+        self.assertEqual('Shared dunes', bytes.fromhex(name).decode())
+        self.assertEqual(['', '', 'vanilla'.encode().hex()], [base, mod, modname])
+        self.assertEqual(['128', '128', '2'], [width, height, players])
+        legacy = self.ok(self.post('list', kind='map')).multi['item']
+        self.assertEqual(1, len(legacy))
+        self.assertEqual(7, len(legacy[0].split(',')))
+        self.assertEqual(digest, legacy[0].split(',')[3])
+        # A map format version is not a content version: revision numbering stays server-assigned.
+        self.assertEqual('1', version)
+
+    def test_catalogue_shows_only_the_latest_revision_of_each_item(self):
+        self.share({'map.ini': map_ini(size=(64, 64), players=2)})
+        self.share({'map.ini': map_ini(size=(32, 32), players=3)})
+        self.share({'map.ini': map_ini(size=(128, 128), players=4)}, item='b' * 32)
+        self.assertEqual(3, len(self.ok(self.post('list', kind='map')).multi['item']))
+        rows, _ = self.catalogue()
+        self.assertEqual([['a' * 32, '2', '32', '32', '3'], ['b' * 32, '1', '128', '128', '4']],
+                         [[r[1], r[2], r[8], r[9], r[10]] for r in rows])
+
+    def test_catalogue_derives_legacy_seed_and_broken_map_dimensions(self):
+        seed = b'[BASIC]\nMapScale=1\n\n[MAP]\nSeed=1234\n\n[Atreides]\nQuota=0\n[Ordos]\nQuota=0\n'
+        self.share({'map.ini': seed})
+        self.share({'map.ini': b'[BASIC]\nMapScale=0\n[MAP]\nSeed=7\n[Player1]\n'}, item='b' * 32)
+        self.share({'map.ini': b'[MAP]\nSeed=7\n[Player1]\n[Player2]\n'}, item='c' * 32)
+        # An unusable map stays a visible row rather than hiding the rest of the catalogue.
+        self.share({'map.ini': b'\xff\xfe not an ini at all'}, item='d' * 32)
+        self.share({'map.ini': map_ini(size=(99999, 8), players=1)}, item='e' * 32)
+        rows, _ = self.catalogue()
+        self.assertEqual([['32', '32', '2'], ['62', '62', '1'], ['64', '64', '2'],
+                          ['0', '0', '0'], ['0', '0', '1']], [r[8:] for r in rows])
+
+    def test_catalogue_filters_by_mod_size_and_players(self):
+        self.share({'map.ini': map_ini(size=(64, 64), players=2)})
+        self.share({'map.ini': map_ini(size=(64, 64), players=4)}, item='b' * 32)
+        self.share({'map.ini': map_ini(size=(32, 32), players=2)}, item='c' * 32)
+        modraw, _ = self.share({'mod.ini': b'[Mod]\nName=Test'}, kind='mod', item='f' * 32, base='dunecity')
+        self.share({'map.ini': map_ini(size=(64, 64), players=2) + b'[STRUCTURES]\nID001=Atreides,Residential Zone,256,12\n'}, item='d' * 32, mod=sha(modraw))
+        # An absent or empty mod filter browses every mod, base game included.
+        self.assertEqual(4, len(self.catalogue()[0]))
+        self.assertEqual(4, len(self.catalogue(mod='')[0]))
+        self.assertEqual(['a' * 32, 'b' * 32, 'd' * 32], [r[1] for r in self.catalogue(size='64x64')[0]])
+        self.assertEqual(['a' * 32, 'c' * 32, 'd' * 32], [r[1] for r in self.catalogue(players='2')[0]])
+        self.assertEqual(['a' * 32], [r[1] for r in self.catalogue(size='64x64', players='2', mod='*')[0]])
+        self.assertEqual(['a' * 32, 'b' * 32, 'c' * 32], [r[1] for r in self.catalogue(mod='*')[0]])
+        self.assertEqual(['d' * 32], [r[1] for r in self.catalogue(mod='dunecity')[0]])
+        self.assertEqual(['d' * 32], [r[1] for r in self.catalogue(mod='DuneCity')[0]])
+        self.assertEqual([], self.catalogue(mod='dunecity', players='4')[0])
+        self.assertEqual([], self.catalogue(mod='?')[0])
+        for bad in [dict(size='64'), dict(size='64x'), dict(size='0x64'), dict(size='64 x 64'),
+                    dict(size='4096x4096'), dict(players='0'), dict(players='13'), dict(players='two'),
+                    dict(mod='../etc'), dict(mod='a/b'), dict(mod='x' * 65), dict(kind='mod')]:
+            with self.subTest(**bad):
+                response = self.post('list', catalogue='maps', **bad)
+                self.assertEqual(400, response.status, response.body)
+                self.assertEqual('bad_content', response.fields['code'])
+        self.assertEqual(400, self.post('list', catalogue='everything').status)
+
+    def test_catalogue_category_comes_from_buildings_not_tags_names_units_or_dependency(self):
+        modraw, _ = self.share({'mod.ini': b'[Mod]'}, kind='mod', item='f' * 32, base='dunecity')
+        self.share({'map.ini': map_ini(mod='DuneCity')}, mod=sha(modraw), name='SimCity')
+        self.share({'map.ini': map_ini(mod='somethingelse') + b'[UNITS]\nID000=Atreides,Rocket Trike,256,12\n'}, item='b' * 32)
+        self.share({'map.ini': map_ini(mod='vanilla') + b'[STRUCTURES]\nID000=Atreides,TechCenter,256,12\n'}, item='c' * 32)
+        self.share({'map.ini': map_ini(mod='tornie') + b'[STRUCTURES]\nGEN12=Atreides,Road\nID000=Atreides,Tech Center,256,14\n'}, item='d' * 32)
+        rows, _ = self.catalogue()
+        self.assertEqual(['vanilla','vanilla','tornie','dunecity'],[bytes.fromhex(r[7]).decode() for r in rows])
+        self.assertEqual(['a'*32,'b'*32],[r[1] for r in self.catalogue(mod='vanilla')[0]])
+        self.assertEqual(['a'*32,'b'*32],[r[1] for r in self.catalogue(mod='*')[0]])
+        self.assertEqual(['c'*32],[r[1] for r in self.catalogue(mod='tornie')[0]])
+        self.assertEqual([],self.catalogue(mod='?')[0])
+
+    def test_inline_comments_and_quoted_values_in_map_metadata(self):
+        data = (b'[BASIC]\nName="Desert; # City" ; title\n'
+                b'[MAP]\nSizeX=256 ; width\nSizeY="128" # height\n[Harkonnen]\n')
+        raw, _ = self.share({'map.ini': data})
+        self.share({'map.ini': b'[BASIC]\nName=Desert # City\n[MAP]\nSizeX=64\nSizeY=64\n'}, item='b'*32)
+        self.assertEqual(1, len(self.catalogue(mod='vanilla')[0]))
+        rows, _ = self.catalogue(mod='dunecity')
+        self.assertEqual(1, len(rows))
+        state_path = Path(self.service.state) / 'content/index.json'
+        state = json.loads(state_path.read_text())
+        meta = state['maps'][sha(raw)]
+        self.assertEqual((256, 128, 'dunecity'), (meta['width'], meta['height'], meta['mod']))
+        # Existing cached metadata is repaired without uploading the map again.
+        meta.update(schema=4, width=0, height=0, mod='vanilla')
+        state_path.write_text(json.dumps(state))
+        self.assertEqual(1, len(self.catalogue(mod='dunecity')[0]))
+        refreshed = json.loads(state_path.read_text())['maps'][sha(raw)]
+        self.assertEqual((5, 256, 128), (refreshed['schema'], refreshed['width'], refreshed['height']))
+
+    def test_sparse_city_named_starter_maps_remain_city(self):
+        for i,(count,name,expected) in enumerate([(4,'DuneCity','dunecity'),(5,'DuneCity','vanilla'),(0,'Twin Cities','dunecity'),(0,'Desert','vanilla')]):
+            data=map_ini().replace(b'Name=Shared dunes',('Name='+name).encode())
+            data+=b'[STRUCTURES]\n'+b''.join(('ID%d=Atreides,Const Yard,256,%d\n'%(j,j*10)).encode() for j in range(count))
+            self.share({'map.ini':data},item='%032x'%i)
+        rows,_=self.catalogue()
+        self.assertEqual(['dunecity','vanilla','dunecity','vanilla'],[bytes.fromhex(r[7]).decode() for r in rows])
+        self.share({'map.ini':b'[MAP]\nSizeX=64\nSizeY=64\n'},item='e'*32,name='City starter')
+        self.assertEqual('dunecity',bytes.fromhex(self.catalogue()[0][-1][7]).decode())
+
+    def test_catalogue_building_aliases_and_old_category_cache_migration(self):
+        fixtures = [('Nuclear Plant','dunecity'),('Police','dunecity'),('Zone Commercial','dunecity'),
+                    ('Powerline','dunecity'),('Advanced Wind Trap MK2','tornie'),
+                    ('Scout Post','tornie'),('Worfinery','tornie'),('WOR','vanilla')]
+        for i,(building,category) in enumerate(fixtures):
+            self.share({'map.ini':map_ini()+('[STRUCTURES]\nID001=Atreides, %s ,256,12\n'%building).encode()},item='%032x'%i)
+        index=Path(self.service.state)/'content/index.json'
+        state=json.loads(index.read_text())
+        for value in state['maps'].values():value.update(schema=2,mod='incorrect')
+        index.write_text(json.dumps(state))
+        rows,_=self.catalogue()
+        self.assertEqual([category for _,category in fixtures],[bytes.fromhex(r[7]).decode() for r in rows])
+
+    def test_catalogue_collapses_identical_map_files_for_the_same_mod(self):
+        data = map_ini(size=(64, 64), players=2)
+        self.share({'map.ini': data})
+        self.share({'map.ini': data}, item='b' * 32, name='Same dunes, other item')
+        modraw, _ = self.share({'mod.ini': b'[Mod]'}, kind='mod', item='f' * 32, base='dunecity')
+        self.share({'map.ini': data}, item='c' * 32, mod=sha(modraw))
+        self.share({'map.ini': map_ini(size=(64, 64), players=3)}, item='d' * 32)
+        # Both copies remain separately addressable revisions; the catalogue lists one of each.
+        self.assertEqual(4, len(self.ok(self.post('list', kind='map')).multi['item']))
+        rows, _ = self.catalogue()
+        self.assertEqual([('a' * 32, 'vanilla'), ('c' * 32, 'vanilla'), ('d' * 32, 'vanilla')],
+                         [(r[1], bytes.fromhex(r[7]).decode()) for r in rows])
+
+    def test_catalogue_rejects_dimensions_beyond_the_client_limit(self):
+        self.share({'map.ini': map_ini(size=(2048, 2048), players=2)})
+        self.share({'map.ini': map_ini(size=(2049, 64), players=2)}, item='b' * 32)
+        rows, _ = self.catalogue()
+        self.assertEqual([('2048', '2048'), ('0', '0')], [(r[8], r[9]) for r in rows])
+        self.assertEqual(['a' * 32], [r[1] for r in self.catalogue(size='2048x2048')[0]])
+
+    def test_catalogue_includes_host_uploads_and_stores_each_map_revision(self):
+        data = map_ini(size=(64, 64), players=2)
+        raw, _ = self.share({'map.ini': data}, item='b' * 32)
+        self.assertEqual('1', self.ok(self.begin(manifest({'map.ini': map_ini(size=(32, 32), players=3)}),
+                                                 source='host')).fields.get('version', '1'))
+        token = self.ok(self.begin(manifest({'map.ini': map_ini(size=(32, 32), players=3)}),
+                                   source='host', promoted='0')).fields['upload']
+        hosted = map_ini(size=(32, 32), players=3)
+        self.ok(self.post('chunk', upload=token, file=sha(hosted), offset=0, data=hosted.hex()))
+        self.ok(self.post('commit', upload=token))
+        rows, _ = self.catalogue()
+        self.assertEqual([('b' * 32, '64', '64', '2'), ('a' * 32, '32', '32', '3')],
+                         [(r[1], r[8], r[9], r[10]) for r in rows])
+        stored = Path(self.service.state) / 'content/maps' / (sha(raw) + '.ini')
+        self.assertEqual(data, stored.read_bytes())
+        self.assertFalse(stored.is_symlink())
+        metadata=json.loads(stored.with_suffix('.json').read_text())
+        self.assertEqual(1,metadata['version'])
+        self.assertEqual(sha(data),metadata['file_sha256'])
+        self.assertEqual(2,metadata['max_players'])
+        self.assertEqual(0o600, stored.stat().st_mode & 0o777)
+        state = json.loads((Path(self.service.state) / 'content/index.json').read_text())
+        self.assertEqual(2, len(state['maps']))
+        self.assertEqual({'schema': 5, 'width': 64, 'height': 64, 'players': 2, 'mod': 'vanilla', 'known': True, 'file': sha(data)},
+                         state['maps'][sha(raw)])
+
+    def test_catalogue_counts_extended_houses_and_refreshes_old_cache(self):
+        data = map_ini(size=(256,256), players=2) + b"[Rebels]\nBrain=CPU\n[Player12]\nBrain=CPU\n"
+        raw, _ = self.share({'map.ini': data})
+        index = Path(self.service.state) / 'content/index.json'
+        state = json.loads(index.read_text())
+        state['maps'][sha(raw)].pop('schema',None)
+        state['maps'][sha(raw)]['players'] = 2
+        index.write_text(json.dumps(state))
+        rows, _ = self.catalogue(players='4')
+        self.assertEqual(1,len(rows))
+        self.assertEqual('4',rows[0][10])
+
+    def test_catalogue_bootstraps_revisions_stored_before_the_map_index(self):
+        raw, _ = self.share({'map.ini': map_ini(size=(128, 128), players=4)})
+        self.share({'map.ini': map_ini(size=(64, 64), players=2)}, item='b' * 32)
+        # Simulate revisions committed by an older server: no maps folder, no cached metadata.
+        path = Path(self.service.state) / 'content/index.json'
+        state = json.loads(path.read_text())
+        del state['maps']
+        path.write_text(json.dumps(state))
+        for stored in (Path(self.service.state) / 'content/maps').iterdir():
+            stored.unlink()
+        rows, _ = self.catalogue()
+        self.assertEqual([('128', '128', '4'), ('64', '64', '2')], [(r[8], r[9], r[10]) for r in rows])
+        self.assertEqual(['a' * 32], [r[1] for r in self.catalogue(size='128x128')[0]])
+        restored = Path(self.service.state) / 'content/maps' / (sha(raw) + '.ini')
+        self.assertEqual(map_ini(size=(128, 128), players=4), restored.read_bytes())
+        state = json.loads(path.read_text())
+        self.assertEqual(2, len(state['maps']))
+
+    def test_catalogue_pagination_walks_every_item_once(self):
+        for n in range(52):
+            if n == 25 or n == 50:
+                (Path(self.service.state) / 'rate.json').unlink()
+            self.share({'map.ini': map_ini(size=(64, 64), players=2) + ('; variant %d\n' % n).encode()}, item='%032x' % n)
+        first, next_cursor = self.catalogue(players='2')
+        self.assertEqual(50, len(first))
+        self.assertEqual('50', next_cursor)
+        second, done = self.catalogue(players='2', cursor=next_cursor)
+        self.assertEqual(2, len(second))
+        self.assertEqual('0', done)
+        self.assertEqual(52, len({row[1] for row in first + second}))
 
     def test_inspect_private_code_before_content_download(self):
         admission, session = self.seat()

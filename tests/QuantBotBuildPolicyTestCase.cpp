@@ -1,3 +1,5 @@
+#include <players/CityServiceInvestmentPolicy.h>
+#include <players/RocketTurretPolicy.h>
 #include <players/CombatReward.h>
 #include <misc/OMemoryStream.h>
 #include <misc/IMemoryStream.h>
@@ -135,11 +137,18 @@ TEST_CASE("City opening grows beyond two workers before optional tech", "[quantb
         CHECK(preferFactoryHarvester(2,120,army,80000,300,true,true));
         CHECK(preferFactoryHarvester(3,120,army,80000,300,true,true));
     }
-    // Already queued workers count: do not duplicate the fourth from another factory.
-    CHECK_FALSE(openingWorkersNeeded(4,120));
-    CHECK_FALSE(preferFactoryHarvester(4,120,300,80000,300,true,true));
-    CHECK(preferFactoryHarvester(4,120,2400,80000,300,true,true));
+    // A spice-rich field funds a larger opening fleet before optional tech.
+    CHECK(openingWorkersNeeded(4,120));
+    CHECK(preferFactoryHarvester(4,120,300,80000,300,true,true));
+    // Already queued workers count at the floor: do not duplicate from another factory.
+    CHECK_FALSE(openingWorkersNeeded(8,120));
+    CHECK_FALSE(preferFactoryHarvester(8,120,300,80000,300,true,true));
+    CHECK(preferFactoryHarvester(8,120,4800,80000,300,true,true));
     CHECK(preferFactoryHarvester(60,120,80000,80000,300,true,true));
+    // A modest field keeps the established four-worker opening.
+    CHECK(openingWorkersNeeded(3,8));
+    CHECK_FALSE(openingWorkersNeeded(4,8));
+    CHECK_FALSE(preferFactoryHarvester(4,8,300,80000,300,true,true));
     // Lower map/spice targets remain authoritative, including exhausted fields.
     CHECK_FALSE(openingWorkersNeeded(2,2));
     CHECK_FALSE(openingWorkersNeeded(0,0));
@@ -1403,19 +1412,29 @@ TEST_CASE("Air coverage uses combat diagonal distance and clears with removed de
         CHECK_FALSE(AirStrikePolicy::antiAir(item));
 }
 
-TEST_CASE("Brutal compounds an eight-worker opening while lower difficulties keep four", "[quantbot][city]") {
+TEST_CASE("Opening fleet follows the field size and keeps the Brutal premium", "[quantbot][city]") {
     using namespace CityEconomyInvestmentPolicy;
+    // A rich field (target 120) doubles both openings: twelve Brutal, eight otherwise.
+    CHECK(openingWorkerFloor(120,true) == 12);
+    CHECK(openingWorkerFloor(120,false) == 8);
     for (int workers = 4; workers < 8; ++workers) {
         CHECK(openingWorkersNeeded(workers,120,true));
         CHECK(preferFactoryHarvester(workers,120,300,80000,300,true,true,true));
-        CHECK_FALSE(openingWorkersNeeded(workers,120));
-        CHECK_FALSE(preferFactoryHarvester(workers,120,300,80000,300,true,true));
+        CHECK(openingWorkersNeeded(workers,120));
+        CHECK(preferFactoryHarvester(workers,120,300,80000,300,true,true));
     }
-    CHECK_FALSE(openingWorkersNeeded(8,120,true));
-    CHECK(preferFactoryHarvester(8,120,2400,80000,300,true,true,true));
-    CHECK_FALSE(preferFactoryHarvester(9,120,2400,80000,300,true,true,true));
+    CHECK(openingWorkersNeeded(8,120,true));
+    CHECK_FALSE(openingWorkersNeeded(8,120));
+    CHECK_FALSE(openingWorkersNeeded(12,120,true));
+    CHECK(preferFactoryHarvester(12,120,3600,80000,300,true,true,true));
+    CHECK_FALSE(preferFactoryHarvester(13,120,2400,80000,300,true,true,true));
     CHECK(preferFactoryHarvester(40,120,12000,80000,300,true,true,true));
+    // A modest field keeps the established four/eight openings, and an
+    // exhausted one never demands workers it cannot sustain.
+    CHECK(openingWorkerFloor(8,false) == 4);
+    CHECK(openingWorkerFloor(16,true) == 8);
     for (int target : {0,1,2,5}) {
+        CHECK(openingWorkerFloor(target,true) == target);
         CHECK_FALSE(openingWorkersNeeded(target,target,true));
         CHECK_FALSE(preferFactoryHarvester(target,target,80000,80000,300,true,true,true));
     }
@@ -1432,9 +1451,13 @@ TEST_CASE("Brutal can choose a profitable third refinery with a worker-capable f
     CHECK(preferRefinery(refinery,zone,considerRefinery(false,true,true,
         openingRefineryInvestment(true,4,120,2)),false));
     CHECK_FALSE(preferRefinery(refinery,zone,true,true)); // Keep first residential hedge.
-    CHECK_FALSE(openingRefineryInvestment(false,4,120,2));
-    CHECK_FALSE(openingRefineryInvestment(true,8,120,2));
-    CHECK_FALSE(openingRefineryInvestment(true,4,120,3)); // No unlimited spare bays.
+    CHECK(openingRefineryInvestment(false,4,120,2));
+    CHECK(openingRefineryInvestment(true,8,120,2));
+    CHECK_FALSE(openingRefineryInvestment(true,12,120,2));
+    CHECK(openingRefineryInvestment(false,3,120,3)); // Fourth rich-field bay on Medium too.
+    CHECK(openingRefineryInvestment(true,4,120,4)); // Profitable fifth bay can supply the opening fleet.
+    CHECK(openingRefineryInvestment(false,6,120,6));
+    CHECK_FALSE(openingRefineryInvestment(false,8,120,8)); // Worker floor ends opening priority.
     CHECK_FALSE(openingRefineryInvestment(true,2,2,2));
     refinery.projectedProceeds=300;
     CHECK_FALSE(preferRefinery(refinery,zone,true,false)); // Bad/risky trips still lose.
@@ -1488,8 +1511,8 @@ TEST_CASE("Expansion chooses safe reachable new rock rather than adjacent yards"
     CHECK_FALSE(choose(w,h,tiles,{23*w+12},{23*w+0},{}).valid());
 }
 
-TEST_CASE("Air raids prefer buildings and only intercept defensive ground contacts", "[quantbot][air]") {
-    CHECK(AirStrikePolicy::targetRank(true,false)>AirStrikePolicy::targetRank(false,true));
+TEST_CASE("Air defence preempts building raids without hunting unrelated ground units", "[quantbot][air]") {
+    CHECK(AirStrikePolicy::targetRank(false,true)>AirStrikePolicy::targetRank(true,false));
     CHECK(AirStrikePolicy::targetRank(false,false)==0);
     CHECK(AirStrikePolicy::targetRank(false,true)>0);
     CHECK(AirStrikePolicy::safetyRange(7)==12);
@@ -1597,4 +1620,91 @@ TEST_CASE("Custom attacks commit a strict share of the owned ground army", "[qua
     REQUIRE(customAttack(18850,0,25,reversed)==customAttack(18850,0,25,infantry));
     // The deliberately lenient campaign helper remains separate.
     REQUIRE(limitedAttack(300,0,25,{{7,300,0}})==std::vector<uint32_t>{7});
+}
+
+TEST_CASE("City policing fits early and established recurring budgets", "[ai][city][budget]") {
+    using namespace CityServiceInvestmentPolicy;
+    CHECK(policingBudgetPercent(1000,600,50,300)==33);
+    CHECK(policingBudgetPercent(5000,600,50,300)==50);
+    CHECK(policingBudgetPercent(1000,1000,50,300)==50);
+    CHECK(policingAllowance(600,50,33)==181);
+    CHECK(affordablePoliceFunding(600,50,300,33)==60);
+    CHECK(affordablePoliceFunding(600,50,300,50)==91);
+    CHECK(affordablePoliceFunding(0,50,300,33)==0);
+    CHECK(affordablePoliceFunding(600,50,0,33)==100);
+}
+
+TEST_CASE("Police funding cuts apply at once and increases wait for review", "[ai][city][budget]") {
+    using namespace CityServiceInvestmentPolicy;
+    // Enforcing the 33%/50% recurring limit is never delayed.
+    CHECK(smoothedPoliceFunding(100,60,1000,900)==60);
+    CHECK(smoothedPoliceFunding(60,0,1000,999)==0);
+    // Unchanged funding stays unchanged whatever the clock says.
+    CHECK(smoothedPoliceFunding(60,60,1000,999)==60);
+    // An increase inside the review interval is held, whatever its size.
+    CHECK(smoothedPoliceFunding(60,100,1000,900)==60);
+    CHECK(smoothedPoliceFunding(60,63,1000+kPoliceIncreaseReviewCycles,1000)==60);
+    // Sustained headroom past the interval, beyond the deadband, is applied.
+    CHECK(smoothedPoliceFunding(60,100,1000+kPoliceIncreaseReviewCycles,1000)==100);
+    CHECK(smoothedPoliceFunding(60,100,1000+kPoliceIncreaseReviewCycles-1,1000)==60);
+    // Demand that flips on every build pass used to move funding every pass:
+    // 1,028 changes on Medium and 1,275 on Hard in the reviewed run. Cuts stay
+    // immediate, so the level still follows the limit down, but the reversals
+    // are now bounded by the review cadence.
+    int funding=100, changes=0;
+    Uint32 lastChange=5000, cycle=5000;
+    for(int pass=0;pass<60;++pass) {
+        const int target=pass%2 ? 100 : 40;   // alternating demand, every build pass
+        const int applied=smoothedPoliceFunding(funding,target,cycle,lastChange);
+        if(applied!=funding) { funding=applied; lastChange=cycle; ++changes; }
+        cycle+=100;                            // 1.6 game-seconds per build pass
+    }
+    CHECK(changes<=8);
+    CHECK(changes>0);
+    // A rewound or reloaded clock must not unlock an early increase.
+    CHECK(smoothedPoliceFunding(40,100,900,5000)==40);
+}
+
+TEST_CASE("New expansion yards demand three turrets and are covered first", "[ai][city][defense]") {
+    using namespace RocketTurretPolicy;
+    // Tier 0 Easy, 1 Medium, 2 Hard, 3 Brutal.
+    for(int tier : {0,1,2,3}) {
+        CHECK(desiredCoverage(Structure_ConstructionYard,tier,true)==3);
+        CHECK(desiredCoverage(Structure_ConstructionYard,tier,true)
+              >= desiredCoverage(Structure_ConstructionYard,tier,false));
+    }
+    // Other buildings retain their difficulty-scaled goals.
+    CHECK(desiredCoverage(Structure_Refinery,1,true)==desiredCoverage(Structure_Refinery,1,false));
+    CHECK(desiredCoverage(Structure_ZoneResidential,1,true)==desiredCoverage(Structure_ZoneResidential,1,false));
+    CHECK(desiredCoverage(Structure_RocketTurret,2,true)==0);
+
+    // The exposed expansion outranks the rest of the core, which outranks
+    // ordinary buildings, which never claim first-cover priority at all.
+    CHECK(firstCoverPriority(Structure_ConstructionYard,true)
+          > firstCoverPriority(Structure_Refinery,false));
+    CHECK(firstCoverPriority(Structure_Refinery,false) > 0);
+    CHECK(firstCoverPriority(Structure_ZoneResidential,true)==0);
+    CHECK(firstCoverPriority(Structure_ConstructionYard,true)
+          > 2*firstCoverPriority(Structure_HeavyFactory,false));
+
+    // A site giving an uncovered expansion yard its first turret beats a
+    // central site that only adds more cover to an already defended district.
+    Score exposedYard; exposedYard.critical=firstCoverPriority(Structure_ConstructionYard,true);
+    exposedYard.defense=3;
+    Score crowdedCentre; crowdedCentre.defense=40; crowdedCentre.junction=8; crowdedCentre.amenity=30;
+    CHECK(exposedYard.betterThan(crowdedCentre));
+    CHECK_FALSE(crowdedCentre.betterThan(exposedYard));
+    CHECK(exposedYard.useful());
+    Score localExpansion;localExpansion.expansion=1;localExpansion.defense=3;
+    Score remoteCore;remoteCore.critical=100;remoteCore.defense=100;
+    CHECK(localExpansion.betterThan(remoteCore));
+    // The expansion keeps a lower-weight priority for its second and third
+    // turret, and a turret that covers nothing is still not worth buying.
+    Score secondYardTurret; secondYardTurret.critical=1; secondYardTurret.defense=3;
+    CHECK(secondYardTurret.betterThan(crowdedCentre));
+    CHECK(exposedYard.betterThan(secondYardTurret));
+    CHECK_FALSE(Score().useful());
+    // The interim ceiling still scales with demand rather than jumping.
+    CHECK(coverageTurretCap(12)==5);
+    CHECK(coverageTurretCap(15)>coverageTurretCap(12)-1);
 }

@@ -152,8 +152,11 @@ void StarPort::doProduceItem(Uint32 itemID, bool multipleMode) {
 
                 if((owner->getCredits() >= (int) buildItem.price)) {
                     buildItem.num++;
-                    currentProductionQueue.emplace_back(itemID,buildItem.price );
-                    owner->takeCredits(buildItem.price);
+                    // The order is paid in full now, so remember how much of
+                    // it came from exempt starting cash; cancelling returns
+                    // exactly that part to the same pool.
+                    const auto payment = owner->payCredits(buildItem.price);
+                    currentProductionQueue.emplace_back(itemID,buildItem.price,payment.fromStarting);
 
                     if(choam.setNumAvailable(itemID, numAvailable - 1) == false) {
                         // sold out
@@ -190,7 +193,8 @@ void StarPort::doCancelItem(Uint32 itemID, bool multipleMode) {
 
                     // Cancel the best found item if any was found
                     if(iterMostExpensiveItem != currentProductionQueue.end()) {
-                        owner->returnCredits(iterMostExpensiveItem->price);
+                        owner->returnCredits(iterMostExpensiveItem->price,
+                                             iterMostExpensiveItem->startingCreditsPaid);
                         currentProductionQueue.erase(iterMostExpensiveItem);
                     }
                 }

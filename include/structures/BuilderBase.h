@@ -63,23 +63,21 @@ public:
 
     }
 
-    ProductionQueueItem(Uint32 _ItemID, Uint32 _price)
-     : itemID(_ItemID), price(_price) {
+    ProductionQueueItem(Uint32 _ItemID, Uint32 _price, FixPoint _startingCreditsPaid = 0)
+     : itemID(_ItemID), price(_price), startingCreditsPaid(_startingCreditsPaid) {
 
     }
 
-    void save(OutputStream& stream) const {
-        stream.writeUint32(itemID);
-        stream.writeUint32(price);
-    }
+    void save(OutputStream& stream) const;
 
-    void load(InputStream& stream) {
-        itemID = stream.readUint32();
-        price = stream.readUint32();
-    }
+    void load(InputStream& stream);
 
     Uint32 itemID;
     Uint32 price;
+    /// For builders that charge the whole price when the order is queued
+    /// (Starport, Love Factory): how much of it came from the owner's exempt
+    /// starting cash, so cancelling returns it there.
+    FixPoint startingCreditsPaid = 0;
 };
 
 
@@ -191,6 +189,10 @@ public:
     bool isWaitingToPlace() const;
     bool isUnitLimitReached(Uint32 itemID) const;
     inline FixPoint getProductionProgress() const { return productionProgress; }
+    /// The part of the current production progress that was paid out of the
+    /// owner's storage-exempt starting cash; a refund returns exactly this
+    /// much to that pool.
+    inline FixPoint getProductionProgressFromStartingCredits() const { return productionProgressFromStartingCredits; }
     inline const std::list<BuildItem>& getBuildList() const { return buildList; }
 
     virtual inline bool isAvailableToBuild(Uint32 itemID) const {
@@ -243,7 +245,16 @@ protected:
     bool     bCurrentItemOnHold;     ///< Is the currently produced item on hold?
     Uint32   currentProducedItem;    ///< The ItemID of the currently produced item
     FixPoint productionProgress;     ///< The current state of the production progress (measured in money spent)
+    FixPoint productionProgressFromStartingCredits; ///< Part of productionProgress paid from exempt starting cash
     Uint32   deployTimer;            ///< Timer for deploying a unit
+
+    /// Clear the progress and the payment provenance together: money already
+    /// spent is gone, so a later refund must not claim a starting-cash share
+    /// of it.
+    void clearProductionProgress() { productionProgress = 0; productionProgressFromStartingCredits = 0; }
+    /// Refund the whole progress of the item being produced to the pools that
+    /// paid for it, then clear both.
+    void refundProductionProgress();
 
     FixPoint buildSpeedLimit;        ///< Limit the build speed to that percentage [0;1]. This may be used by the AI to make it weaker.
 

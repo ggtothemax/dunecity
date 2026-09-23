@@ -33,6 +33,7 @@ parser.add_argument('--house', choices=tuple(h for h in house_names if h!='neutr
 parser.add_argument('--roster', help='Explicit custom-map house:team slots in lobby order, comma-separated')
 parser.add_argument('--harvester-limit', type=int, choices=range(-1,101), default=-1)
 parser.add_argument('--structures-degrade-on-concrete', action=argparse.BooleanOptionalAction, default=None)
+parser.add_argument('--rocket-turrets-need-power', action=argparse.BooleanOptionalAction, default=None)
 parser.add_argument('--partner-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
 parser.add_argument('--enemy-ai', choices=('quantbot','ai-player'), default='quantbot', help='Enemy controller family; AI Player has Easy/Medium/Hard')
 parser.add_argument('--enemy-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
@@ -45,11 +46,18 @@ parser.add_argument('--opening-economy-probe', action='store_true')
 parser.add_argument('--starport-probe', action='store_true', help='Exercise reserved cash with above-normal Starport prices')
 parser.add_argument('--helper-economy-probe', action='store_true', help='Verify advanced campaign helper worker investment and paid imports')
 parser.add_argument('--city-campaign-probe', action='store_true', help='Verify campaign city limits, permissions, depletion and save/load')
+parser.add_argument('--credit-storage-probe', action='store_true',
+                    help='Verify the shared spice/tax storage limit, exempt starting cash and refunds')
 parser.add_argument('--stats-probe', action='store_true', help='Verify campaign results with a shared human/AI house')
 parser.add_argument('--nuclear-probe', action='store_true')
 parser.add_argument('--reactor-safety-probe', action='store_true')
 parser.add_argument('--radar-probe', action='store_true')
 parser.add_argument('--army-probe', action='store_true')
+parser.add_argument('--air-defense-probe', action='store_true')
+parser.add_argument('--police-placement-probe', action='store_true')
+parser.add_argument('--police-budget-probe', action='store_true')
+parser.add_argument('--city-growth-probe', action='store_true',
+                    help='Verify continuous city growth while proactive defence/supplier goals are unmet')
 parser.add_argument('--custom-attack-probe', action='store_true')
 parser.add_argument('--factory-recovery-probe', action='store_true')
 parser.add_argument('--pressure-probe', action='store_true', help='Verify campaign wave readiness, survivor independence and save state')
@@ -161,6 +169,8 @@ env = dict(os.environ,DUNECITY_USERDIR=str(out/'profile'),SDL_VIDEODRIVER='dummy
            BALANCE_ATTACK_PERCENT=str(args.attack_percent),BALANCE_ENEMY=args.enemy_difficulty,BALANCE_ENEMY_AI=args.enemy_ai,
            BALANCE_HOUSE=str(house_names.index(args.house)),BALANCE_HARVESTER_LIMIT=str(args.harvester_limit))
 env['BALANCE_CAPTURE_MIB'] = str(args.capture_mib)
+if args.rocket_turrets_need_power is not None:
+    env['BALANCE_ROCKET_TURRETS_NEED_POWER'] = str(int(args.rocket_turrets_need_power))
 if args.structures_degrade_on_concrete is not None:
     env['BALANCE_DEGRADE_ON_CONCRETE'] = str(int(args.structures_degrade_on_concrete))
 if args.custom_map:
@@ -181,11 +191,16 @@ if args.nuclear_probe or args.reactor_safety_probe: env['BALANCE_NUCLEAR_PROBE']
 if args.reactor_safety_probe: env['BALANCE_REACTOR_SAFETY_PROBE'] = '1'
 if args.radar_probe: env['BALANCE_RADAR_PROBE'] = '1'
 if args.army_probe: env['BALANCE_ARMY_PROBE'] = '1'
+if args.air_defense_probe: env['BALANCE_AIR_DEFENSE_PROBE'] = '1'
+if args.police_placement_probe: env['BALANCE_POLICE_PLACEMENT_PROBE'] = '1'
+if args.police_budget_probe: env['BALANCE_POLICE_BUDGET_PROBE'] = '1'
+if args.city_growth_probe: env['BALANCE_CITY_GROWTH_PROBE'] = '1'
 if args.custom_attack_probe: env['BALANCE_CUSTOM_ATTACK_PROBE'] = '1'
 if args.factory_recovery_probe: env['BALANCE_FACTORY_RECOVERY_PROBE'] = '1'
 if args.starport_probe: env['BALANCE_STARPORT_PROBE'] = '1'
 if args.helper_economy_probe: env['BALANCE_HELPER_ECONOMY_PROBE'] = '1'
 if args.city_campaign_probe: env['BALANCE_CITY_CAMPAIGN_PROBE'] = '1'
+if args.credit_storage_probe: env['BALANCE_CREDIT_STORAGE_PROBE'] = '1'
 if args.stats_probe: env['BALANCE_STATS_PROBE'] = '1'
 if args.pressure_probe: env['BALANCE_PRESSURE_PROBE'] = '1'
 if args.defence_probe: env['BALANCE_DEFENCE_PROBE'] = '1'

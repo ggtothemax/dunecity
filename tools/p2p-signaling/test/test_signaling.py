@@ -422,6 +422,9 @@ class ServiceFixture:
             "}\nrequire " + php_literal(os.path.join(ROOT, "bin", "router.php")) + ";\n")
         self.proc = subprocess.Popen(
             [PHP_BIN, "-d", "error_log=" + os.path.join(self.tmp, "php-error.log"),
+             # Tests rewrite config.php between requests; host OPcache settings
+             # must not delay those fixture changes in persistent PHP workers.
+             "-d", "opcache.enable=0", "-d", "opcache.enable_cli=0",
              "-S", "127.0.0.1:%d" % self.port, "-t", os.path.join(ROOT, "public"),
              router],
             env=env, stdout=subprocess.DEVNULL, stderr=self.server_log, start_new_session=(os.name == "posix"))

@@ -281,6 +281,19 @@ private:
 
     std::vector<RecentStructureLoss> recentStructureLosses;
     bool nearRecentStructureLoss(int x, int y, int width, int height) const;
+    /// The house's oldest surviving construction yard: the main base anchor.
+    Uint32 mainConstructionYardID() const;
+    bool expansionDefenceReady() const;
+    int expansionTurretsMissing(const StructureBase* yard, bool planned = true) const;
+    /// Is this construction yard (or planned yard, NONE_ID) an expansion
+    /// outside the main base rather than the base's own anchor?
+    static bool isExpansionYard(Uint32 item, Uint32 objectID, Uint32 mainYardID);
+    /// Construction yards lost within \a radius tiles in the retained history.
+    int lostYardsNear(int x, int y, int radius) const;
+    /// A site that already swallowed this many yards is not expanded onto
+    /// again while the loss is still remembered.
+    static constexpr int kRepeatedYardLossLimit = 2;
+    static constexpr int kRepeatedYardLossRadius = 6;
     Uint32 planningBuilder = NONE_ID;
     bool overlapsReservedStructure(int x, int y, int width, int height) const;
     OrnithopterStrikeTeam ornithopterStrikeTeam;

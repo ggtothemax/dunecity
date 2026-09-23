@@ -140,7 +140,10 @@ TEST_CASE("Service investment compares economic return without bypassing emergen
 TEST_CASE("Dangerous developed districts reserve a share of construction", "[city][placement]") {
     using namespace QuantBotBuildPolicy;
     REQUIRE(crimeServiceOrderInterval(0, 0) == 0);
-    REQUIRE(crimeServiceOrderInterval(100, 24) == 0);
+    REQUIRE(crimeServiceOrderInterval(100, 0) == 0);
+    REQUIRE(crimeServiceOrderInterval(100, 1) == 4);
+    REQUIRE(crimeServiceOrderInterval(100, 24) == 4);
+    REQUIRE(crimeServiceOrderInterval(100, 0, 25) == 6);
     REQUIRE(crimeServiceOrderInterval(100, 25) == 4);
     REQUIRE(crimeServiceOrderInterval(100, 50) == 4);
     REQUIRE(crimeServiceOrderInterval(100, 51) == 2);
@@ -566,4 +569,16 @@ TEST_CASE("Placement fields are rebuilt after a reservation changes", "[ai][plac
     REQUIRE(next.get(2,3)==7);
     REQUIRE(first.get(9,7)==5);
     REQUIRE(next.get(9,7)==0);
+}
+
+TEST_CASE("Police placement removes the most occupied-building crime before tax or spacing preferences", "[city][placement]") {
+    using CityServiceInvestmentPolicy::Value;
+    Value centre, fringe;
+    centre.crime=900;centre.dangerousRelief=150;centre.buildCost=500;centre.overlapPenalty=300;
+    fringe.crime=300;fringe.dangerousRelief=100;fringe.buildCost=500;fringe.tax=1000;
+    CHECK(centre.betterPoliceSiteThan(fringe));
+    CHECK_FALSE(fringe.betterPoliceSiteThan(centre));
+    // Equal total relief breaks toward the more dangerous neighbourhood.
+    fringe.crime=900;
+    CHECK(centre.betterPoliceSiteThan(fringe));
 }

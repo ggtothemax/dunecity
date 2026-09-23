@@ -11,6 +11,8 @@ struct File { std::string path, hash; uint64_t size = 0; };
 struct Revision {
     std::string kind, id, name, base, hash, modHash;
     unsigned version = 0;
+    std::string mapMod;
+    unsigned mapWidth=0, mapHeight=0, mapPlayers=0;
     std::string directory;
     std::vector<File> files;
     std::string manifest;
@@ -50,7 +52,8 @@ Revision receiveMap(const std::string& name, const std::string& data,
 std::string installMod(const Revision& revision);
 std::string installMap(const Revision& revision);
 bool activateModRevision(const std::string& hash);
-void openCommunityMenu();
+void openMetaserverMods();
+std::string loadMapFromMetaserver();
 void shareRevision(const Revision& revision);
 }
 #endif

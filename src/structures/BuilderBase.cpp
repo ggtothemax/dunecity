@@ -111,6 +111,36 @@ void logTechCenterBuildGate(const BuilderBase* builder,
 }
 }
 
+// SAVEGAMEVERSION 9846 persists which part of a payment came from exempt
+// starting cash. Older saves have no provenance: their progress counts as
+// earned income, which refunds conservatively instead of inventing exempt
+// cash the house never had.
+//
+// The fields are written only once SAVEGAMEVERSION actually reaches 9846, so
+// this build stays byte-compatible with the save format it declares until the
+// version bump lands. Both sides of the stream use the same constant.
+static constexpr Uint32 kCreditProvenanceSaveVersion = 9846;
+static constexpr bool kSavesCreditProvenance = SAVEGAMEVERSION >= kCreditProvenanceSaveVersion;
+
+static bool savegameHasCreditProvenance() {
+    return kSavesCreditProvenance
+        && (currentGame == nullptr || currentGame->getLoadedSavegameVersion() >= kCreditProvenanceSaveVersion);
+}
+
+void ProductionQueueItem::save(OutputStream& stream) const {
+    stream.writeUint32(itemID);
+    stream.writeUint32(price);
+    if(kSavesCreditProvenance) {
+        stream.writeFixPoint(startingCreditsPaid);
+    }
+}
+
+void ProductionQueueItem::load(InputStream& stream) {
+    itemID = stream.readUint32();
+    price = stream.readUint32();
+    startingCreditsPaid = savegameHasCreditProvenance() ? stream.readFixPoint() : FixPoint(0);
+}
+
 BuilderBase::BuilderBase(House* newOwner) : StructureBase(newOwner) {
     BuilderBase::init();
 
@@ -120,7 +150,7 @@ BuilderBase::BuilderBase(House* newOwner) : StructureBase(newOwner) {
 
     currentProducedItem = ItemID_Invalid;
     bCurrentItemOnHold = false;
-    productionProgress = 0;
+    clearProductionProgress();
     deployTimer = 0;
 
     buildSpeedLimit = 1.0_fix;
@@ -136,6 +166,7 @@ BuilderBase::BuilderBase(InputStream& stream) : StructureBase(stream) {
     bCurrentItemOnHold = stream.readBool();
     currentProducedItem = stream.readUint32();
     productionProgress = stream.readFixPoint();
+    productionProgressFromStartingCredits = savegameHasCreditProvenance() ? stream.readFixPoint() : FixPoint(0);
     deployTimer = stream.readUint32();
 
     buildSpeedLimit = stream.readFixPoint();
@@ -172,6 +203,9 @@ void BuilderBase::save(OutputStream& stream) const {
     stream.writeBool(bCurrentItemOnHold);
     stream.writeUint32(currentProducedItem);
     stream.writeFixPoint(productionProgress);
+    if(kSavesCreditProvenance) {
+        stream.writeFixPoint(productionProgressFromStartingCredits);
+    }
     stream.writeUint32(deployTimer);
 
     stream.writeFixPoint(buildSpeedLimit);
@@ -222,8 +256,9 @@ void BuilderBase::removeItem(std::list<BuildItem>& buildItemList, std::list<Buil
 
             // is this item currently produced?
             if(currentProducedItem == itemID) {
-                owner->returnCredits(productionProgress);
-                productionProgress = 0;
+                // Losing a prerequisite cancels the order: pay the owner back
+                // into the pools that funded it.
+                refundProductionProgress();
                 currentProducedItem = ItemID_Invalid;
             }
 
@@ -245,7 +280,22 @@ void BuilderBase::removeItem(std::list<BuildItem>& buildItemList, std::list<Buil
 }
 
 
+void BuilderBase::refundProductionProgress() {
+    if(owner != nullptr) {
+        owner->returnCredits(productionProgress, productionProgressFromStartingCredits);
+    }
+    clearProductionProgress();
+}
+
+
 void BuilderBase::setOwner(House *no) {
+    // The money already sunk into the current order was paid by the previous
+    // owner. Keep the progress, but drop its claim on the new owner's exempt
+    // starting cash, so capturing a builder cannot mint starting credits.
+    if(no != this->owner) {
+        productionProgressFromStartingCredits = 0;
+        for(auto& order : currentProductionQueue) order.startingCreditsPaid = 0;
+    }
     this->owner = no;
 }
 
@@ -283,7 +333,9 @@ void BuilderBase::updateProductionProgress() {
                 FixPoint totalBuildCosts = tmp->price;
                 FixPoint buildCosts = totalBuildCosts - productionProgress;
 
-                productionProgress += owner->takeCredits(buildCosts);
+                const auto payment = owner->payCredits(buildCosts);
+                productionProgress += payment.total;
+                productionProgressFromStartingCredits += payment.fromStarting;
             } else {
 
                 FixPoint buildSpeed = std::min( getHealth() / getMaxHealth(), buildSpeedLimit);
@@ -295,7 +347,9 @@ void BuilderBase::updateProductionProgress() {
                 FixPoint totalBuildGameTicks = buildTime * 15;
                 FixPoint buildCosts = totalBuildCosts / totalBuildGameTicks;
 
-                productionProgress += owner->takeCredits(buildCosts*buildSpeed);
+                const auto payment = owner->payCredits(buildCosts*buildSpeed);
+                productionProgress += payment.total;
+                productionProgressFromStartingCredits += payment.fromStarting;
 
                 /* That was wrong. Build speed does not depend on power production
                 if (getOwner()->hasPower() || (((isCampaignGameType(currentGame->gameType)) || ((currentGame->gameType == GameType::Skirmish || currentGame->gameType == GameType::SkirmishCoop))) && getOwner()->isAI())) {
@@ -355,7 +409,7 @@ void BuilderBase::produceNextAvailableItem() {
         currentProducedItem = currentProductionQueue.front().itemID;
     }
 
-    productionProgress = 0;
+    clearProductionProgress();
     bCurrentItemOnHold = false;
 }
 
@@ -653,7 +707,7 @@ bool BuilderBase::update() {
 }
 
 void BuilderBase::removeBuiltItemFromProductionQueue() {
-    productionProgress = 0;
+    clearProductionProgress();
 
     auto currentBuildItemIter = std::find_if(   buildList.begin(),
                                                 buildList.end(),
@@ -727,7 +781,7 @@ void BuilderBase::doProduceItem(Uint32 itemID, bool multipleMode) {
                 buildItem.num++;
                 currentProductionQueue.emplace_back(itemID, buildItem.price );
                 if(currentProducedItem == ItemID_Invalid) {
-                    productionProgress = 0;
+                    clearProductionProgress();
                     currentProducedItem = itemID;
                 }
 
@@ -757,7 +811,7 @@ void BuilderBase::doCancelItem(Uint32 itemID, bool multipleMode) {
 
                     if(queueItemIter != currentProductionQueue.rend()) {
                         if(buildItem.num == 0 && bCancelCurrentItem) {
-                            owner->returnCredits(productionProgress);
+                            refundProductionProgress();
                         } else {
                             bCancelCurrentItem = false;
                         }

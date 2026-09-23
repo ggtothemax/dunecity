@@ -50,24 +50,16 @@ private:
     HBox            headerHBox;
 
     Label           headerLabelDummy;
-    Label           headerLabel1;
-    Label           headerLabel2;
-    Label           headerLabel3;
+    Label           headers[4];
+    bool            showTaxStatistics = false;
 
     class HouseStat {
     public:
         HBox            houseHBox;
         Label           houseName;
-
-        Label           value1;
-        VBox            vBox1;
-        ProgressBar     progressBar1;
-        Label           value2;
-        VBox            vBox2;
-        ProgressBar     progressBar2;
-        Label           value3;
-        VBox            vBox3;
-        ProgressBar     progressBar3;
+        Label           values[4];
+        VBox            metricBoxes[4];
+        ProgressBar     progressBars[4];
     };
 
     HouseStat               houseStat[NUM_HOUSES];

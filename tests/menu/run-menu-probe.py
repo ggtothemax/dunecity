@@ -12,6 +12,7 @@ parser = argparse.ArgumentParser(description="Render real menus and check setup 
 parser.add_argument('--build-dir', type=Path, default=root / 'build')
 parser.add_argument('--output-dir', type=Path, required=True)
 parser.add_argument('--audio-failure', action='store_true', help='Verify startup recovery when the audio driver cannot open')
+parser.add_argument('--metaserver-maps', action='store_true', help='Read-only live catalogue and download smoke test in isolated profile')
 args = parser.parse_args()
 build, out = args.build_dir.resolve(), args.output_dir.resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -56,18 +57,19 @@ link = [str(obj) if arg.endswith('/main.cpp.o') else arg for arg in link]
 with (out/'build.log').open('w') as log:
     subprocess.run(compile_command,cwd=build,stdout=log,stderr=subprocess.STDOUT,check=True)
     subprocess.run(link,cwd=build,stdout=log,stderr=subprocess.STDOUT,check=True)
-for width, height in ((640, 480), (854, 480), (1280, 720)):
+for width, height in (((1280, 720),) if args.metaserver_maps else ((640, 480), (854, 480), (1280, 720))):
     profile = out / ('profile-' + str(width))
     profile.mkdir(exist_ok=True)
     (profile/'Dune City.ini').write_text('[Video]\nPhysical Width = '+str(width)+'\nPhysical Height = '+str(height)+'\nWidth = '+str(width)+'\nHeight = '+str(height)+'\nInterface Height = '+str(height)+'\nFullscreen = false\n[General]\nPlay Intro = false\nPlayer Name = Menu tester\n')
     env = dict(os.environ, DUNECITY_USERDIR=str(profile), SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='unavailable-test-driver' if args.audio_failure else 'dummy', MENU_PROBE_OUT=str(out), MENU_PROBE_WIDTH=str(width), MENU_PROBE_HEIGHT=str(height))
+    if args.metaserver_maps: env['MENU_LIVE_MAPS']='1'
     logpath = out / ('run-' + str(width) + '.log')
     with logpath.open('w') as log:
-        subprocess.run([str(binary), '--window', '--showlog'], cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=120)
-    results = [line for line in logpath.read_text().splitlines() if 'MENU_PROBE_PASS:' in line]
+        subprocess.run([str(binary), '--window', '--showlog'], cwd=out, env=env, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=720 if args.metaserver_maps else 120)
+    results = [line for line in logpath.read_text(errors="replace").splitlines() if 'MENU_PROBE_PASS:' in line]
     if len(results) != 1: raise RuntimeError('Missing menu test result; see '+str(logpath))
     if args.audio_failure:
-        text = logpath.read_text()
+        text = logpath.read_text(errors="replace")
         if 'Continuing with silent audio' not in text or 'Audio driver: dummy' not in text:
             raise RuntimeError('Missing silent audio recovery evidence; see '+str(logpath))
     print(results[0])

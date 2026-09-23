@@ -72,7 +72,8 @@ ModEditorMenu::ModEditorMenu(const std::string& name) : modName(name), modPath(M
     statusLabel.setText(_("Save creates a version only when content changes."));
     windowWidget.addWidget(&statusLabel, Point(x,y+338), Point(width,46));
     saveButton.setText(_("Save Version"));
-    shareButton.setText(_("Save & Share"));
+    shareButton.setText(_("Save to metaserver"));
+    shareButton.setTooltipText(_("Save a version and publish that exact version to the metaserver"));
     backButton.setText(_("Back"));
     saveButton.setOnClick([this]() { save(false); });
     shareButton.setOnClick([this]() { save(true); });
@@ -240,7 +241,8 @@ void ModEditorMenu::save(bool share) {
         committed = true;
         modified = false; changed.fill(false);
         std::error_code ignored; fs::remove_all(staging, ignored);
-        statusLabel.setText(_("Saved version ") + std::to_string(revision.version) + "\n" + _("Sharing this saved content keeps the same version."));
+        statusLabel.setText(_("Saved version ") + std::to_string(revision.version) + "\n"
+            + (share ? _("Publishing uploads this exact saved version.") : _("Publishing later uploads this exact saved version.")));
         if(share) Workshop::shareRevision(revision);
     } catch(const std::exception& error) {
         std::string message = error.what();
@@ -254,7 +256,7 @@ void ModEditorMenu::save(bool share) {
             // Keep recovery copies only when restoring the original files failed.
             if(restored) { std::error_code ignored; fs::remove_all(staging, ignored); }
         }
-        openWindow(MsgBox::create(std::string(committed ? _("Saved, but sharing failed: ") : _("Save failed: ")) + message));
+        openWindow(MsgBox::create(std::string(committed ? _("Saved, but uploading to the metaserver failed: ") : _("Save failed: ")) + message));
     }
 }
 void ModEditorMenu::quit(int returnVal) {

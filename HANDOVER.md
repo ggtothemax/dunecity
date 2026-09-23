@@ -1,3 +1,212 @@
+## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
+
+Follow-up to the live 763 budget complaint. Version 1.0.764, protocol 22;
+save format unchanged. Same branch/worktree. No push, PR or public release.
+Live Alkozeltser 4 telemetry, seed 1952910083, showed policing at 56–70% of
+annual tax for five houses around minute 15, despite only 1–3 stations. The
+Budget police line also includes turret upkeep. User explicitly requested
+33% early / 50% established spending, core factories before extra rockets,
+and continued profitable refinery expansion beyond the four-bay opening.
+
+The AI now caps funded policing (stations, gun and rocket turrets, including
+queued commitments) at 33% of annual tax after power costs. Healthy uncommitted
+cash >=5000 or annual tax surplus after power and nominal policing >=500 permits
+50%. Cash does not count as recurring revenue. Funding can fall to zero when
+there is no sustainable city income; there is no emergency spending bypass.
+Custom AI applies its own funding directly during deterministic house updates.
+The old same-cycle command was added AFTER Game had executed that cycle's
+commands, so intended AI budget changes never affected the actual bill. Tests
+now verify applied state and the real budget charge, not merely queued intent.
+Human/helper and campaign budgets remain under their existing control.
+
+An underfunded existing/pending station blocks further station purchases: a
+funding cut must not cause a loop buying more permanent capacity. At full
+funding, stations still require dangerous-crime relief and prefer a useful
+cheaper turret when full-strength station upkeep exceeds the allowance.
+No change to the game's player-facing police prices or coverage strength.
+
+Custom city AI keeps the first two rockets, then completes Heavy Factory,
+High Tech Factory and Repair Yard (including prerequisites/power) before more
+rockets. Enemy aircraft elsewhere no longer override this core progression.
+Unavailable tech is excluded; completed core infrastructure releases the
+existing difficulty-scaled overlapping coverage policy. R/C/I seeds and
+independent-yard city growth are preserved.
+
+The four-refinery opening eligibility cutoff is removed. A profitable refinery
+and its included worker can keep competing through the opening workforce phase
+(eight on rich Medium/Hard fields, twelve Brutal), subject to remaining spice,
+worker limits, placement, power and expected return. After that phase, workers
+and actual processing pressure still govern capacity; this is not a fixed cap
+on total refineries. Medium had the same old four-refinery threshold as Hard.
+
+Final same-map/seed/roster 24-minute powered-rocket simulations:
+- Medium: all six houses reached 8 refineries; every third rocket followed
+  completion of all three core facilities. Zero crime outbreaks or yard losses.
+  Maximum observed actual policing/tax ratio 44.60%; 904 funding changes, none
+  exceeded the applicable 33%/50% allowance.
+- Hard: all six houses reached 8 refineries; third-rocket ordering also passed.
+  Zero crime outbreaks; maximum observed actual policing/tax ratio 46.34%;
+  1265 funding changes, none exceeded the allowance. Combat/expansion still
+  lost construction yards (11 total); these runs do not establish loss immunity.
+These are bounded single-seed balance checks. Intermediate runs measuring only
+queued budget commands are invalid budget evidence and were superseded.
+
+Claude Max supplied the bounded police-budget fixture after the first read-only
+run exhausted its turn limit. Codex implemented/reviewed production changes,
+corrected fixture assumptions and tested applied charges and underfunded-station
+feedback. Release build, pre/post Ninja dependency audits and all 29 CTest
+targets passed (231.68s), followed by all five affected real-engine tests after
+the final station feedback guard (31.61s). Packaged signature, SDL initialization
+and hidden-window rendering passed. Source version metadata agrees.
+Evidence: ../outputs/ai-police-excess/, especially final-comparison.json.
+
+Final archive: ../outputs/ai-police-excess/install-764/dunecity-1.0.764.zip
+SHA256: 3ec6ffbe0d99cf4bcfe748683285063ce72209569c52caacec1deb81e374c25f
+Binary SHA256: 051e16f5936a25b0afa352e1f8c23c359e86c879d7cd96538d3bce399c6e32b5
+Installation pending: Air became unreachable; user was asked to save/close the
+running 763 game and wake the Air. Do not replace a running game. The final
+packaged app is in install-764/final-stage; earlier stage/archive is intermediate.
+
+## 2026-09-23 — Restore early city growth and sustain rocket coverage (local 1.0.763)
+
+Follow-up to the user's 762 regression report. Version 1.0.763, protocol 21;
+save format unchanged. Branch/worktree remain fix/ai-crime-air-economy /
+dunecity-ai-defense. No push, PR or public release.
+
+Live Medium telemetry on Alkozeltser 4 (seed 324192283, powered rockets enabled)
+showed repeated core-defence/supplier savings monopolizing the single yard.
+The 762 reproduction had no R/C/I at six minutes; first zoning was delayed
+9.6–14.1 minutes for five houses and beyond sixteen for Harkonnen. Earlier
+762 validation measured late aggregate income/defence and missed this opening
+regression, as well as the user's powered-rocket option.
+
+Peaceful core coverage no longer takes an unconditional emergency reserve.
+Proactive savings permit a small city opening, then pace further plots against
+services so cheap lots cannot starve rocket upgrades or the worker supplier.
+After two refineries, a single yard seeds missing positive-demand R/C/I and
+its power before optional upgrades. Urgent protection, transport capacity,
+blackouts, population limits, campaign rules and legal placement still apply;
+multiple yards retain their existing dedicated-growth allocation. Powered
+rockets reserve their actual draw plus a small plot instead of two extra
+windtraps. The peaceful coverage claim is bounded by actual base demand.
+
+Police investment requires meaningful dangerous-crime relief at occupied
+properties; routine relief prefers multipurpose rocket turrets. Medium and
+above now also seek two overlapping covers for ordinary districts as they
+grow. Core overlap remains two on Medium/Hard and three on Brutal. Placement
+still values construction yards, refineries and factories most, and counts
+pending emplacements. Fixed the service-order counter's unreachable six-order
+interval. Existing aircraft defence, MCV recovery and yellow/tax results remain.
+
+Final powered-rocket runs use the same map/seed/roster as the regression:
+- Medium, 16 minutes: 75 R/C/I built versus 20 in 762; 44 rockets versus 36.
+  All houses start residential at 1.15–1.20 minutes and industry at 1.33–1.39;
+  commercial follows positive demand at 5.56–11.20. Rockets start 4.32–4.93.
+- Medium, 32 minutes: 226 zones, 229 rockets built (225 remaining), 14 police,
+  50 refineries and 212 harvesters across six houses; zero crime outbreaks.
+  One construction yard was lost; the run does not establish immunity to losses.
+- Hard, 16 minutes: 74 zones, 48 rockets, 12 police, 24 refineries, 63 harvesters;
+  zero crime outbreaks or construction-yard losses.
+These are bounded single-seed simulations, not a universal balance guarantee.
+
+Claude subscription worker supplied the initial savings/coverage patch and
+city-growth fixture; it reached its turn limit. Codex reviewed and completed
+opening priorities, power, police preference, district coverage and validation.
+Real-engine tests now cover routine turrets vs dangerous-crime police, optimal
+station placement, all-tier core/district overlap and reserved coverage, and
+single-yard growth vs funded defence and emergency reserves. The harness can
+explicitly enable powered rockets. Evidence: ../outputs/ai-opening-regression/.
+
+Release build, Ninja dependency audits and all 28 CTest targets passed
+(227.39 seconds).
+Packaged runtime initialization, hidden rendering and signature checks passed.
+Archive: ../outputs/ai-opening-regression/install-763/dunecity-1.0.763.zip
+SHA256: 3dd48147b5d2a8149e1223dd71e7b1046d97dd7bdc5a59c8e574ae24c061ca09
+Binary SHA256: a5fd5650f0959b2a54aac7d20f66b93e670809a3c593956b13df871e19688e42
+Installed on Stefans-MacBook-Air.local at /Applications/dunecity.app after the
+user requested installation with the game closed. Transfer and installed binary
+hashes match the verified package above; signature and packaged SDL startup /
+hidden rendering passed on the Air. All 511 checked profile INIs are unchanged.
+Previous app retained at /Applications/.dunecity-763-w5PQF9/dunecity-previous.app.
+Receipt: ../outputs/ai-opening-regression/install-763/mba-receipt.json.
+
+## 2026-09-23 — Proactive city defence and opening economy (local 1.0.762)
+
+Branch `fix/ai-crime-air-economy`, worktree `dunecity-ai-defense`, based on
+1.0.760 plus emergency Starport MCV recovery (original commit 66624b15).
+Version 1.0.762, protocol 20; save format unchanged. No push, PR or public release.
+Installed on Stefans-MacBook-Air.local at /Applications/dunecity.app after the
+user saved/closed the game. Packaged runtime rendering and signature checks
+passed on the Air; binary SHA256 matches the local package:
+cf6418c14a8f58e4234e6c2f0cefc8cfcb1ae2d16495e1a4e7506007fb304387.
+All 511 checked profile INIs remained unchanged. Previous app retained at
+/Applications/.dunecity-762-KSxU7E/dunecity-previous.app; installation receipt
+in ../outputs/ai-defense/install-762/mba-receipt.json.
+
+The live Alkozeltser 4 telemetry confirmed late rocket construction, crime
+outbreaks destroying the Rebels construction yard, and aircraft raids
+outnumbering defensive sorties. Police and turret placement now compare all
+owned neighbourhoods within one cached planning pass instead of a rotating
+map stripe. Police sites maximize marginal crime relief at occupied buildings,
+including existing/pending coverage. Pre-outbreak relief qualifies for urgent
+investment; service savings survive cheap fallback zoning.
+
+Medium and Hard aim for two overlapping rocket covers of construction yards,
+refineries and other core production assets; Brutal aims for three. Ordinary
+buildings still demand coverage, and pending turrets prevent duplicate plans.
+The opening unlocks rocket prerequisites after three refineries; after two
+emplacements it funds the fourth refinery and a worker supplier before finishing
+peaceful overlap. Observed air threats and urgent crime retain priority.
+Rich-field opening worker priority rises to eight (twelve Brutal), bounded by
+remaining spice, unit limits, processing throughput and useful returns. Supplier
+upgrades/savings no longer wait for a factory to exist to recognize missing
+workers. Higher-priority transport investment keeps its funding.
+
+Ornithopters intercept attackers threatening their own base or harvesters before
+raiding exposed enemy buildings. Anti-air avoidance, campaign wave restrictions,
+repair and human orders remain respected. Custom results restore the classic
+yellow wallpaper and show gross Tax Collected separately from Harvested Spice;
+the tax column is city-content-only and fits the 640px minimum window.
+
+Native Release build, Ninja dependency audit and all 27 CTest targets passed
+(222.57 seconds). Version metadata agrees on 1.0.762; gameplay protocol is 20.
+Validation evidence is in `../outputs/ai-defense/`. Real-engine regressions cover
+police placement across scan phases, overlapping/reserved rocket coverage on all
+difficulties, defensive aircraft targeting, spending, opening economy, MCV
+recovery and both results modes. Results were rendered at 640, 854 and 1280px.
+
+Same-map/seed 16-minute six-house simulations (Alkozeltser 4, seed 704066612):
+1.0.760 Hard had 8 outbreaks/95 rebels, 2 rockets built, 1 yard lost, 70 surviving
+harvesters and 98,675 spice refined. Final Hard had 0 outbreaks, 44 rockets,
+0 yards lost, 75 harvesters and 103,548 spice refined. Final Medium had 0
+outbreaks, 43 rockets, 0 yards lost and 72 harvesters. All final houses built
+four refineries. First final rockets completed around 3.4–3.9 game minutes;
+baseline only two houses had rockets by 15.4–15.9 minutes. These are bounded
+single-seed regressions, not a claim that outbreaks or losses are impossible.
+
+## 2026-09-23 — Emergency Starport MCV recovery (local 1.0.761)
+
+QuantBot now recovers a missing construction yard through an available Starport
+on Easy, Medium, Hard and Brutal. Previously Easy/Medium were excluded outright;
+Hard/Brutal attempted the purchase only after optional spending reserves were
+withheld. Recovery now runs before those reserves and optional builder orders,
+uses actual unspent cash even when committed to gradual factory production,
+and saves while the MCV is unaffordable or temporarily sold out. Existing units,
+factory queues and paid Starport cargo prevent duplicate replacement orders.
+This is missing-yard recovery, not a change to normal expansion policy.
+
+Version 1.0.761, network protocol 19 (AI lockstep orders changed), save schema
+unchanged. Native app is built at build/bin/dunecity.app in the isolated checkout
+/Users/stefan/Documents/projects/dunecity-ai-mcv. All 16 existing CTest targets
+pass, including the updated protocol expectation. Both newly registered Starport
+CTest probes pass (classic and city mode, campaign level 9 setup): all four
+difficulties, one credit short, exact price, sold-out/restock, two-port and
+pending-delivery deduplication, plus actual cash reserved by an unpaid light
+factory queue. All 18 targets verified across the full and focused runs.
+Claude Max supplied the bounded recovery fixture; Codex reviewed, added the
+queued-cash case and ran verification. No push, public release or install onto
+the MacBook Air has been performed. Logs: ../outputs/ai-mcv/.
+
 ## 2026-09-22 — Combined local test build 1.0.760 installed on MBA
 
 Merged helper population-cap commits b8d78daf and b9266479 with the local
@@ -8447,3 +8656,201 @@ The 2026-09-18 all-assets test deployment synchronized 20 packages (16 zones and
 Android builds completed from that package tree; the Android APK assembled as
 version 0.2.26 with DuneCity payload 1.0.708. ADB had no authorized device at the
 end of the run, so installation was skipped without invalidating either build.
+
+## 2026-09-23 — Metaserver map library (local 1.0.765)
+
+Adds a Metaserver Maps tab to the custom-game chooser, combined mod/size/player
+filters for local and remote maps, preview/download and version/mod details.
+Workshop list retains its old wire response; catalogue=maps adds validated map
+metadata and latest-revision/file deduplication. The private service maps folder
+holds immutable INIs plus JSON metadata for later release curation. Map names
+and installed filenames remain stable; revision numbers live in metadata.
+Editor saves write BASIC.Mod and BASIC.MapVersion without repurposing format
+BASIC.Version. Standard approved mods no longer bypass background map collection;
+online hosted maps, including room sessions, use the durable publication outbox.
+The map seeder inventories bundled/custom profile maps and reuses verified mod
+snapshots. No saves or replay command streams are seeded.
+
+Implementation/check evidence lives in ../outputs/metaserver-maps. Claude supplied
+the bounded server catalogue patch; Codex reviewed it, completed sidecars and tests,
+and implemented/reviewed client metadata, filters, uploads and seed preparation.
+
+Follow-up: the user-facing Workshop hub is removed. Editors opens the map, mod
+and asset editors directly; maps/mods have metaserver loaders, and editor saves
+can upload the exact saved revision. The internal immutable content wire/cache
+format stays compatible. Map editor loading confirms unsaved edits before changing
+the active mod, then rebuilds the editor palette after input callbacks return.
+Its unit palette scrolls to fit the metaserver controls at 640x480.
+
+The website service source is deployed from dunelegacy.com commit 157d8f9;
+map metadata cache schema 2 includes Rebels, custom houses and Player7-12.
+Live verification found all 127 seeded distinct maps in a 139-map catalogue.
+Alkozeltser 4 Cities matches DuneCity / 256x256 / 6 players. Its local Air copy
+now has explicit Mod/MapVersion metadata, with the original backed up beside it.
+Native menu probes pass 640x480, 854x480 and 1280x720; the content service has
+25 passing integration tests including cached player-count migration.
+
+Final native regression run: all 29 CTest targets passed (241.26 seconds), and
+all three menu sizes passed the editor load/palette and scrolling checks.
+Installed 1.0.765 on the MacBook Air at /Applications/dunecity.app; archive SHA256
+02fe12f397ab04254bb2835fe444994a49bb83506af86fb75e0364301b18873b.
+Signature/runtime checks passed on the Air; 512 profile INIs were preserved.
+Previous app is /tmp/dunecity-install-765/dunecity-previous.app. Game code is
+committed locally; no public game release or game-source push was performed.
+Fresh-profile live smoke test also passed: real catalogue pagination and combined
+filters, SHA-verified map plus full DuneCity dependency download, stable installed
+filename, preview, exact mod activation and transition to player setup.
+
+## 2026-09-23 — Map categories and editor conversion (local 1.0.766)
+
+Map categories are Vanilla, Tornie and DuneCity. Classification uses placed
+buildings rather than old tags, selected mod, or unit types. City structures
+win on mixed maps; otherwise Tornie-specific buildings select Tornie. A name
+containing city/cities with at most max(4, 2 * players) functional buildings
+also selects DuneCity (walls/slabs excluded); other maps select Vanilla.
+Exact gameplay dependencies remain separate and preserved in revision metadata.
+Save writes the inferred category; Save As updates BASIC.Name. MapVersion is
+revision metadata and BASIC.Version remains the file format.
+
+Map Settings provides an explicit Convert button with an incompatible-content
+preview and cancel-default confirmation. It changes the active editor palette,
+removes incompatible placed objects, reinforcements and starport entries, and
+supports undo/redo of both objects and mod. Terrain/spice/players are retained.
+Empty converted maps remain Vanilla until appropriate buildings or the sparse
+city-name exception apply. Settings scrolls at 640x480. Regression testing also
+caught and fixed stale INI value bounds after repeated writes, which could
+corrupt category strings and other changed values across successive saves.
+
+Server schema 4 and seeder changes are committed in 9dba8818/d8ecc4ac. Website
+service deployment 564e6d4 completed successfully (Actions 35806457305 and
+associated checks). Live catalogue verification: 139 maps, 129 Vanilla and 10
+DuneCity; all 127 seeded latest map hashes/category values verified. Existing
+immutable map payloads remain preserved. Two sparse city starters have new
+version 3 metadata; the mixed 4 corners map is DuneCity version 2 while retaining
+its exact Tornie gameplay dependency. Names contain no added version suffix.
+Evidence and seed receipts: ../outputs/map-types. Server suite: 220 tests passed;
+content suite: 27 passed; seeder classifier: 4 passed.
+
+Native verification: all 29 CTest targets pass in aggregate. The initial menu
+run found a regression-fixture collision between resolution profiles; filenames
+now include the resolution, and its focused CTest rerun passed all three sizes
+(99.72 seconds). The other 28 targets passed in the full run (219.78 seconds).
+Live native catalogue/download/player-setup smoke test passed. Dependency audits,
+packaged runtime initialization/rendering, and archive transfer hash checks pass.
+1.0.766 archive SHA256: 8f4d96c6dea1b76bfd84a3ea2859f3d9d315987e612c70d6ff78035b800b1dca.
+The tested package/guarded installer are staged on the MacBook Air at
+/tmp/dunecity-install-766. Installation is pending the running game being closed
+(PID 95931 at last check); the existing app and profile are untouched.
+
+Installation follow-up: 1.0.766 is now installed on the MacBook Air at
+/Applications/dunecity.app. Archive hash and code signature verified; packaged
+runtime initialization/rendering passed. All 512 tracked profile INIs were
+preserved byte-for-byte. Previous app: /tmp/dunecity-install-766/dunecity-previous.app.
+Receipt: ../outputs/map-types/install-766/receipt.json.
+
+## 2026-09-23 — Shared credit storage limit (local 1.0.767)
+
+House earned holdings (stored spice plus city credits) now share refinery/silo
+capacity. Income and refunds discard overflow immediately. Unspent starting cash
+remains exempt to allow opening construction; refunds never restore that exempt
+pool. Capacity loss/transformation clamps immediately; loading defers enforcement
+until structures are reconstructed and the game loop starts. No gameplay state
+or save serialization layout was added. Gross tax and harvested-spice statistics
+remain gross, while quota victory requires retained stored spice. Storage warnings
+are throttled presentation state. The storage meter and all existing AI silo
+thresholds use combined earned holdings. Protocol 23 prevents mixed-rule matches.
+
+Infantry capture transfers the storage share before removing the old capacity,
+preventing a double charge. It uses the correct captured structure capacity and
+includes city holdings. Real silo/refinery capture probes pass in both modes.
+Claude supplied the initial accounting patch and focused probes; Codex replaced
+its gradual leakage and unpersisted refund exemption with immediate caps, reviewed
+save/load behavior, and integrated UI/AI/protocol/capture changes.
+
+Verification: 31 CTest targets pass in aggregate. The full original 29-target run
+passed 25; four economy fixtures had injected over-capacity spice as scenario
+funding. They now explicitly supply starting funds and all four focused reruns
+pass. Two new storage probes pass in Vanilla and DuneCity, covering fractional
+amounts, deposits in either order, refunds, actual silo destruction and captures,
+capacity growth, loading reconstruction, in-memory House save/load, statistics,
+maximum credits and retained-only quotas. Dependency audits and packaged runtime
+initialization/rendering pass. Evidence: ../outputs/credit-storage.
+The 1.0.767 package is ready under ../outputs/credit-storage/install-767; it is
+not installed on the MBA yet. The last installed version remains 1.0.766.
+
+Absolute-ceiling follow-up: total credits, including starting cash, may never
+exceed 999999. New starting funds are clamped, and loaded credit pools are bounded
+individually before summing to avoid overflow and enforce the ceiling even while
+storage is being reconstructed. Storage enforcement also applies this hard cap
+before its Loading guard. Statistics remain untouched. Added tests for a 2-million
+starting allowance, a 2.4-million loaded balance, actual underlying pool values,
+and ceiling enforcement during loading. Unit suite and both complete storage/
+capture probes pass (3 targeted CTest targets, 12.79 seconds). The pending 1.0.767
+package is refreshed with this follow-up; it has not been installed yet.
+
+## 2026-09-23 — Pre-release follow-ups (local 1.0.768)
+
+Approved fixes from the 767 review: new expansions target three rocket turrets
+on every difficulty; necessary police funding cuts remain immediate while
+increases wait 30 game-seconds and clear a five-point deadband; Save As forks
+map identity/revision lineage; metaserver INI metadata understands inline
+comments; refunds preserve the starting-cash part of their actual payment.
+
+Expansion placement scores the producing expansion's own coverage first and
+keeps priority through the third turret. Its turret upgrades and construction
+have a bounded capital reservation so cheap zoning cannot repeatedly spend
+that money. Core Heavy/High Tech/Repair Yard completion precedes new custom
+city expansion; the next MCV waits for three completed covers at existing
+expansions. Planned turrets prevent duplicate orders but do not unlock the
+next expansion. Repeatedly lost sites remain excluded during retained loss
+history. Main-base opening, shared budgets and 33%/50% recurring policing
+limits remain in place. This is not a guarantee that a yard cannot be killed.
+
+Refundable progressive construction and prepaid Starport/Love Factory orders
+record starting-cash contributions, return only that share to the exempt pool,
+and keep earned refunds capacity-limited. Cancellation, prerequisite loss,
+completion and capture clear the appropriate provenance; capture cannot mint
+the prior owner's exemption. All balances stay <=999999. Save format 9846 adds
+these fields; legacy orders have no recorded provenance and conservatively
+remain capacity-limited on refund. Protocol 24 excludes mixed-rule peers.
+
+Save As starts a distinct map ID at MapVersion 1; ordinary Save retains its ID
+and increments metadata. Editing immutable shared content also forks identity.
+Server metadata schema 5 reparses older cached entries lazily and preserves
+quoted comment markers. Server source commit e6f6309d is packaged in website
+commit 82398cc; that server deployment is pending the explicit push approval
+requested in this task. No game push, PR, public release or MBA installation.
+
+Claude subscription worker supplied the initial AI/accounting patch and hit its
+turn bound; Codex completed integration, expansion reservations/sequencing,
+provenance capture cleanup and regression coverage. Evidence is under
+../outputs/release-fixes-768/. The final 24-minute same-map/seed six-house
+Alkozeltser 4 checks kept all houses alive, all with eight refineries:
+- Medium: zero yard losses, 423 funding changes (767: 1028), 13–25 R/C/I
+  buildings per house, 8–36 rockets. Three crime outbreaks (3, 4, 11 hostiles).
+- Hard: two yard losses (767: 12), 351 funding changes (767: 1275), 13–35 R/C/I
+  buildings per house, 2–29 rockets. Three crime outbreaks (3, 6, 17 hostiles).
+These are one-seed bounded runs, not universal balance or performance proof.
+
+Validation: clean full 31-target CTest pass (279.66 seconds), plus 221 server
+integration tests and the focused content parser/cache tests. The placement
+probe checks three covers on all four difficulties and verifies that plans do
+not release the next MCV before all three turrets are actually completed.
+Refund probes cover real opening cancellation, mixed/fractional payments,
+prerequisite removal, completion, capture, full builder save/load cancellation,
+prepaid queue serialization and legacy queue field alignment in Vanilla and
+DuneCity. Menu probes verify distinct Save As IDs, ordinary-save lineage, and
+immutable-source forks across resolutions. Native builds, dependency audits,
+version agreement and the website service snapshot installer/security checks
+passed. Final candidate still needs platform CI and live multiplayer release
+checks; no broader release-readiness claim is made here.
+
+Production follow-up (user authorized deployment): website commit 82398cc was
+rebased over the hourly statistics update to b9ea124 and pushed to main. Deploy
+run 35852799408 succeeded. Production installed service snapshot
+ a6c72446afe7c11a37108e064dd672f5e58448511333e2d24dc197d843635bb6,
+matching the locally verified package. Live /p2p/v1/health returned status=ok;
+all 139 catalogue maps remain available (129 Vanilla, 10 DuneCity), all 127
+seeded latest revisions/category values verified, and mod-filter counts match.
+Evidence: ../outputs/release-fixes-768/deployment.log and
+production-catalogue.json. Game release and MBA installation were not performed.

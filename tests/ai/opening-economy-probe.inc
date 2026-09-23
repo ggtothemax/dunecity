@@ -14,12 +14,21 @@ void runOpeningEconomyProbe(Game& game) {
         if(structure->getOwner()==house && structure->getItemID()==Structure_ConstructionYard)
             yard=static_cast<BuilderBase*>(structure);
     require(bot && yard,"Missing opening controller/yard");
+    // This fixture compares economic tech routes in isolation; proactive
+    // rocket technology/coverage is exercised by the defence fixtures.
+    if(game.isCitySimEnabled()) {
+        game.objectData.data[Structure_RocketTurret][HOUSE_ATREIDES].enabled=false;
+        yard->updateBuildList();
+    }
     game.gameCycleCount=123;bot->update();
     require(house->getNumItems(Structure_HeavyFactory)==0,"Opening must start without heavy production");
     for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x)
         if(!currentGameMap->getTile(x,y)->hasAStructure())currentGameMap->getTile(x,y)->setType(Terrain_Slab);
     auto clearOrders=[&] {
-        while(yard->getProductionQueueSize())yard->doCancelItem(yard->getCurrentProducedItem());
+        for(auto* structure:structureList)if(structure->getOwner()==house && structure->isABuilder()) {
+            auto* builder=static_cast<BuilderBase*>(structure);
+            while(builder->getProductionQueueSize())builder->doCancelItem(builder->getCurrentProducedItem());
+        }
         yard->upgrading=false;yard->setHealth(yard->getMaxHealth());
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
     };
@@ -30,7 +39,7 @@ void runOpeningEconomyProbe(Game& game) {
         yard->updateBuildList();
     };
     auto build=[&](int credits) {
-        clearOrders();house->takeCredits(house->getCredits());house->addCredits(credits);
+        clearOrders();house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits; // Explicit scenario funding, not an over-capacity spice deposit.
         house->producedPower=10000;bot->lastCalculatedSpice=1300000;
         bot->build(5100);
         for(const auto& order:yard->currentProductionQueue)

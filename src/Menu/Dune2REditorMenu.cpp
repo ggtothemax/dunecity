@@ -195,7 +195,7 @@ Dune2REditorMenu::Dune2REditorMenu() {
     backButton.setOnClick(std::bind(&Dune2REditorMenu::onBack, this));
     saveVersionButton.setText(_("Save Version"));
     saveVersionButton.setOnClick([this]() { onSaveVersion(false); });
-    shareButton.setText(_("Save & Share"));
+    shareButton.setText(_("Save to metaserver"));
     shareButton.setOnClick([this]() { onSaveVersion(true); });
     windowWidget.addWidget(&saveVersionButton, Point(originX + 25, originY + panelHeight - 80), Point(245,28));
     windowWidget.addWidget(&shareButton, Point(originX + 284, originY + panelHeight - 80), Point(245,28));

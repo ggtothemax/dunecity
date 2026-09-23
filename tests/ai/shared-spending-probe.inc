@@ -64,7 +64,7 @@ void runSharedSpendingProbe(Game& game) {
         }
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
         bot->lastCalculatedSpice=spice;
-        house->producedPower=10000;house->takeCredits(house->getCredits());house->addCredits(credits);
+        house->producedPower=10000;house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits; // Explicit scenario funding, not an over-capacity spice deposit.
         structureList.clear();structureList.push_back(yard);structureList.push_back(heavy);structureList.push_back(refinery);
     };
     auto count=[&](BuilderBase* builder,Uint32 item) {
@@ -72,6 +72,13 @@ void runSharedSpendingProbe(Game& game) {
             [&](const auto& order){return order.itemID==item;});
     };
     const int price=game.objectData.data[Unit_Harvester][HOUSE_HARKONNEN].price;
+    const bool originalRocketEnabled=game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].enabled;
+    // Isolate generic parallel spending from the new proactive core defence.
+    // Dedicated coverage/crime cases below restore the normal turret rules.
+    if(game.isCitySimEnabled()) {
+        game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].enabled=false;
+        yard->updateBuildList();secondYard->updateBuildList();
+    }
     try {
         reset(price,1000000);bot->build(10000);
         require(count(heavy,Unit_Harvester)==1,"Next worthwhile worker lost its exact purchase budget");
@@ -107,11 +114,16 @@ void runSharedSpendingProbe(Game& game) {
             reset(price+1000,1000000);
             structureList.push_back(secondYard);
             bot->build(10000);
+            bool parallelZone=false;
             for (auto* builder:{yard,secondYard}) {
-                bool zone=false;
-                for (const auto& order:builder->currentProductionQueue) zone|=DuneCity::isCityZoneStructure(order.itemID);
-                require(zone,"Funded second construction yard failed to grow R/I/C in parallel");
+                bool economy=false;
+                for (const auto& order:builder->currentProductionQueue) {
+                    parallelZone|=DuneCity::isCityZoneStructure(order.itemID);
+                    economy|=DuneCity::isCityZoneStructure(order.itemID) || order.itemID==Structure_Refinery;
+                }
+                require(economy,"Funded parallel yard failed to grow the tax or spice economy");
             }
+            require(parallelZone,"Profitable refinery displaced every dedicated city-growth slot");
             require(count(heavy,Unit_Harvester)==1,"Parallel yards consumed the worker reserve");
 
             const int firstGrowthUpgrade=yard->curUpgradeLev, secondGrowthUpgrade=secondYard->curUpgradeLev;
@@ -170,6 +182,10 @@ void runSharedSpendingProbe(Game& game) {
                 "Funded city expansion waited for the opening harvester target");
             heavy->curUpgradeLev=heavyUpgrade;heavy->updateBuildList();
             bot->militaryValueLimit=20000;
+            game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].enabled=originalRocketEnabled;
+            for(auto* builder:{yard,secondYard}) {
+                builder->curUpgradeLev=builder->getMaxUpgradeLevel();builder->updateBuildList();
+            }
             setCrime(250);
             reset(2000,0);structureList.push_back(secondYard);
             bot->build(10000);

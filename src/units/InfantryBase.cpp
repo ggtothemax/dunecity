@@ -218,10 +218,11 @@ void InfantryBase::checkPos() {
 
                     UnitBase* pContainedUnit = nullptr;
 
-                    if(pCapturedStructure->getItemID() == Structure_Silo) {
-                        capturedSpice = currentGame->objectData.data[Structure_Silo][originalHouseID].capacity * (pOwner->getStoredCredits() / pOwner->getCapacity());
-                    } else if(pCapturedStructure->getItemID() == Structure_Refinery) {
-                        capturedSpice = currentGame->objectData.data[Structure_Silo][originalHouseID].capacity * (pOwner->getStoredCredits() / pOwner->getCapacity());
+                    if((targetID == Structure_Silo || targetID == Structure_Refinery) && pOwner->getCapacity() > 0) {
+                        capturedSpice = currentGame->objectData.data[targetID][pOwner->getHouseID()].capacity
+                            * (pOwner->getEarnedCredits() / pOwner->getCapacity());
+                    }
+                    if(targetID == Structure_Refinery) {
                         Refinery* pRefinery = static_cast<Refinery*>(pCapturedStructure);
                         if(pRefinery->isFree() == false) {
                             pContainedUnit = pRefinery->getContainedHarvester();
@@ -276,6 +277,10 @@ void InfantryBase::checkPos() {
                     }
 
 
+                    // Transfer its share before removing capacity, so it is not
+                    // discarded by the cap and then charged a second time.
+                    capturedSpice = pOwner->takeCredits(capturedSpice);
+
                     // destroy captured structure ...
                     pCapturedStructure->setHealth(0);
                     delete pCapturedStructure;
@@ -320,7 +325,6 @@ void InfantryBase::checkPos() {
                     }
 
                     // steal credits
-                    pOwner->takeCredits(capturedSpice);
                     owner->addCredits(capturedSpice, false);
                     owner->updateBuildLists();
 

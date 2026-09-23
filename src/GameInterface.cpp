@@ -458,7 +458,7 @@ void GameInterface::draw(Point position) {
     if (pLocalHouse->getCapacity() == 0) {
         yCount2 = 0;
     } else {
-        yCount2 = lround((pLocalHouse->getStoredCredits()/pLocalHouse->getCapacity())*spiceIndicatorPos.h);
+        yCount2 = lround((pLocalHouse->getEarnedCredits()/pLocalHouse->getCapacity())*spiceIndicatorPos.h);
     }
 
     if (yCount2 > spiceIndicatorPos.h + 1) {

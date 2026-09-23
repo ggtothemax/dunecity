@@ -27,6 +27,9 @@
 #include <FileClasses/INIFile.h>
 #include <FileClasses/LoadSavePNG.h>
 
+#include <INIMap/MapMetadata.h>
+#include <dunecity/CityConstants.h>
+
 #include <structures/Wall.h>
 
 #include <misc/FileSystem.h>
@@ -206,11 +209,20 @@ void MapEditor::RunEditor() {
         int frameStart = SDL_GetTicks();
 
         processInput();
+        refreshInterfaceIfNeeded();
         drawScreen();
 
         // VSync is controlled via SDL_HINT_RENDER_VSYNC in main.cpp
         // No software frame limiting needed in map editor
     }
+}
+
+void MapEditor::refreshInterfaceIfNeeded() {
+    if(!refreshInterface) return;
+    refreshInterface=false;
+    // Defer destruction until the old interface's input callbacks have returned.
+    pInterface=std::make_unique<MapEditorInterface>(this);
+    pInterface->onNewMap();
 }
 
 void MapEditor::setMap(const MapData& mapdata, const MapInfo& newMapInfo) {
@@ -487,6 +499,21 @@ void MapEditor::saveMap(const std::string& filepath) {
         loadedINIFile = std::make_unique<INIFile>(false, comment);
     }
 
+    // Save As creates an independent catalogue item, including converted copies.
+    // Ordinary saves retain their identity and revision history.
+    bool forkShared = !lastSaveName.empty() && filepath != lastSaveName;
+    for (const auto& source : {lastSaveName, filepath}) {
+        if(!source.empty() && std::filesystem::exists(source + ".workshop.ini")) {
+            INIFile previous(source + ".workshop.ini");
+            forkShared = forkShared || previous.getBoolValue("Workshop", "Immutable", false);
+        }
+    }
+    if(forkShared || loadedINIFile->getStringValue("Workshop", "ID", "").empty()) {
+        loadedINIFile->removeSection("Workshop");
+        loadedINIFile->setStringValue("Workshop", "ID", Workshop::newID());
+        loadedINIFile->setIntValue("BASIC", "MapVersion", 0);
+    }
+    loadedINIFile->setIntValue("BASIC", "MapVersion", loadedINIFile->getIntValue("BASIC", "MapVersion", 0)+1);
     int version = (mapInfo.mapSeed == INVALID) ? 2 : 1;
 
     if(version > 1) {
@@ -816,6 +843,23 @@ void MapEditor::saveMap(const std::string& filepath) {
         }
     }
 
+    // The category is derived from the buildings just written, so an empty map
+    // is vanilla even when it was drawn with the city palette. Only the file
+    // name can still speak for a map that places (almost) nothing, so the stem
+    // goes in as the classifier's fallback name.
+    const std::string filenameStem = getBasename(filepath, true);
+
+    // Save As explicitly renames the map, including the name used to classify
+    // sparse city starters. An ordinary save preserves its displayed name.
+    if(filepath != lastSaveName || loadedINIFile->getStringValue("BASIC", "Name", "").empty()) {
+        loadedINIFile->setStringValue("BASIC", "Name", filenameStem, false);
+    }
+
+    const std::string derivedCategory = MapMetadata::inferMod(*loadedINIFile, filenameStem);
+
+    // The exact gameplay dependency is saved separately in the revision manifest.
+    loadedINIFile->setStringValue("BASIC", "Mod", derivedCategory);
+
     if(reinforcements.empty()) {
         loadedINIFile->removeSection("REINFORCEMENTS");
     } else {
@@ -833,13 +877,6 @@ void MapEditor::saveMap(const std::string& filepath) {
         }
     }
 
-    bool forkShared = false;
-    if(std::filesystem::exists(filepath + ".workshop.ini")) {
-        INIFile previous(filepath + ".workshop.ini");
-        forkShared = previous.getBoolValue("Workshop", "Immutable", false);
-    }
-    if(forkShared || loadedINIFile->getStringValue("Workshop", "ID", "").empty())
-        loadedINIFile->setStringValue("Workshop", "ID", Workshop::newID());
     const std::string stagedPath = filepath + ".saving";
     if(!loadedINIFile->saveChangesTo(stagedPath, getMapVersion() < 2))
         throw std::runtime_error("The map could not be saved. Check the destination and free disk space.");
@@ -848,6 +885,229 @@ void MapEditor::saveMap(const std::string& filepath) {
 
     lastSaveName = filepath;
     bChangedSinceLastSave = false;
+}
+
+namespace {
+
+// Vanilla content fits everywhere. Conversion removes content exclusive to
+// another gameplay mode even when mixed map classification would prefer city.
+bool categoryAccepts(const std::string& target, const std::string& itemCategory) {
+    if(itemCategory == MapMetadata::ModVanilla) return true;
+    return target == itemCategory;
+}
+
+class MapEditorModOperation final : public MapEditorOperation {
+    std::string modName;
+public:
+    explicit MapEditorModOperation(std::string name) : modName(std::move(name)) {}
+    std::unique_ptr<MapEditorOperation> perform(MapEditor* editor) override {
+        auto& manager=ModManager::instance();
+        const auto previous=manager.getActiveModName();
+        if(!manager.setActiveMod(modName)) throw std::runtime_error("Could not load the conversion's target mod.");
+        effectiveGameOptions=manager.loadEffectiveGameOptions(settings.gameOptions);
+        editor->requestInterfaceRefresh();
+        return std::make_unique<MapEditorModOperation>(previous);
+    }
+};
+
+bool isFoundationOnly(int itemID) {
+    return (itemID == Structure_Wall) || (itemID == Structure_Slab1) || (itemID == Structure_Slab4);
+}
+
+} // anonymous namespace
+
+std::string MapEditor::getItemCategory(int itemID) {
+    if((isStructure(itemID) && DuneCity::isCityOnlyStructure(itemID)) || isAmbientUnit(itemID)) {
+        return MapMetadata::ModDuneCity;
+    }
+
+    if(isTornieExclusiveItem(itemID)) {
+        return MapMetadata::ModTornie;
+    }
+
+    return MapMetadata::ModVanilla;
+}
+
+bool MapEditor::isCityMapName(const std::string& name) {
+    const std::string trimmed = MapMetadata::trimmedLower(name);
+    return trimmed.find("city")!=std::string::npos || trimmed.find("cities")!=std::string::npos;
+}
+
+std::string MapEditor::getEffectiveMapName() const {
+    if(loadedINIFile) {
+        const std::string storedName = loadedINIFile->getStringValue("BASIC", "Name", "");
+        if(!storedName.empty()) {
+            return storedName;
+        }
+    }
+
+    // Until the map is saved the classifier has no name to look at; the file
+    // stem the user picks then becomes the fallback.
+    return lastSaveName.empty() ? "" : getBasename(lastSaveName, true);
+}
+
+int MapEditor::countFunctionalBuildings(const std::vector<int>& ignoredStructureIDs) const {
+    int count = 0;
+
+    for(const Structure& structure : structures) {
+        if(isFoundationOnly(structure.itemID)) {
+            continue;
+        }
+
+        if(std::find(ignoredStructureIDs.begin(), ignoredStructureIDs.end(), structure.id) != ignoredStructureIDs.end()) {
+            continue;
+        }
+
+        count++;
+    }
+
+    return count;
+}
+
+int MapEditor::getFunctionalBuildingCount() const {
+    return countFunctionalBuildings({});
+}
+
+int MapEditor::getCityNameBuildingLimit() const {
+    const int numPlayers = (int) std::count_if( players.begin(),
+                                                players.end(),
+                                                [](const MapEditor::Player& player) {
+                                                    return player.bActive;
+                                                });
+
+    return std::max(4, 2*numPlayers);
+}
+
+std::string MapEditor::getBuiltMapType(const std::vector<int>& ignoredStructureIDs) const {
+    bool tornie = false;
+
+    for(const Structure& structure : structures) {
+        if(std::find(ignoredStructureIDs.begin(), ignoredStructureIDs.end(), structure.id) != ignoredStructureIDs.end()) {
+            continue;
+        }
+
+        const std::string category = getItemCategory(structure.itemID);
+
+        // City content decides immediately; Tornie content only decides once no
+        // city building showed up at all. Units never decide the category.
+        if(category == MapMetadata::ModDuneCity) {
+            return MapMetadata::ModDuneCity;
+        } else if(category == MapMetadata::ModTornie) {
+            tornie = true;
+        }
+    }
+
+    return tornie ? MapMetadata::ModTornie : MapMetadata::ModVanilla;
+}
+
+std::string MapEditor::getMapType() const {
+    const std::string built = getBuiltMapType({});
+
+    if(built == MapMetadata::ModDuneCity) {
+        return built;
+    }
+
+    // A map called "City" that is barely built on is a city map by name alone.
+    if(built == MapMetadata::ModVanilla && isCityMapName(getEffectiveMapName()) && (getFunctionalBuildingCount() <= getCityNameBuildingLimit())) {
+        return MapMetadata::ModDuneCity;
+    }
+
+    return built;
+}
+
+MapEditor::MapTypeConversion MapEditor::planMapTypeConversion(const std::string& targetType) const {
+    MapTypeConversion conversion;
+    conversion.target = MapMetadata::canonicalCategory(targetType);
+
+    for(const Structure& structure : structures) {
+        if(!categoryAccepts(conversion.target, getItemCategory(structure.itemID))) {
+            conversion.removedStructureIDs.push_back(structure.id);
+        }
+    }
+
+    for(const Unit& unit : units) {
+        if(!categoryAccepts(conversion.target, getItemCategory(unit.itemID))) {
+            conversion.removedUnitIDs.push_back(unit.id);
+        }
+    }
+
+    // Deliveries and starport stock of units the target category does not know
+    // would hand the player something unbuildable, so they go with them.
+    for(size_t i = 0; i < reinforcements.size(); i++) {
+        if(!categoryAccepts(conversion.target, getItemCategory(reinforcements[i].unitID))) {
+            conversion.removedReinforcementIndices.push_back(i);
+        }
+    }
+
+    for(const auto& choamEntry : choam) {
+        if(!categoryAccepts(conversion.target, getItemCategory(choamEntry.first))) {
+            conversion.removedChoamItemIDs.push_back(choamEntry.first);
+        }
+    }
+
+    const std::string built = getBuiltMapType(conversion.removedStructureIDs);
+    if((built == MapMetadata::ModVanilla)
+        && isCityMapName(getEffectiveMapName())
+        && (countFunctionalBuildings(conversion.removedStructureIDs) <= getCityNameBuildingLimit())) {
+        // The name keeps this a city map no matter what is removed.
+        conversion.resultingType = MapMetadata::ModDuneCity;
+    } else {
+        conversion.resultingType = built;
+    }
+
+    return conversion;
+}
+
+void MapEditor::applyMapTypeConversion(const MapTypeConversion& conversion) {
+    const std::string target=conversion.target==MapMetadata::ModTornie?"Tornie":conversion.target;
+    // Activate before removing anything: failure leaves the map untouched.
+    auto restoreMod=MapEditorModOperation(target).perform(this);
+    clearRedoOperations();
+    startOperation();
+    addUndoOperation(std::move(restoreMod));
+
+    for(int structureID : conversion.removedStructureIDs) {
+        MapEditorRemoveStructureOperation removeOperation(structureID);
+        addUndoOperation(removeOperation.perform(this));
+    }
+
+    for(int unitID : conversion.removedUnitIDs) {
+        MapEditorRemoveUnitOperation removeOperation(unitID);
+        addUndoOperation(removeOperation.perform(this));
+    }
+
+    if(!conversion.removedReinforcementIndices.empty()) {
+        const std::vector<size_t>& removed = conversion.removedReinforcementIndices;
+
+        std::vector<ReinforcementInfo> keptReinforcements;
+        for(size_t i = 0; i < reinforcements.size(); i++) {
+            if(std::find(removed.begin(), removed.end(), i) == removed.end()) {
+                keptReinforcements.push_back(reinforcements[i]);
+            }
+        }
+
+        MapEditorChangeReinforcements changeReinforcementsOperation(keptReinforcements);
+        addUndoOperation(changeReinforcementsOperation.perform(this));
+    }
+
+    for(int itemID : conversion.removedChoamItemIDs) {
+        MapEditorChangeChoam changeChoamOperation(itemID, -1);
+        addUndoOperation(changeChoamOperation.perform(this));
+    }
+
+    // Whatever was selected or being edited may be gone now.
+    selectedUnitID = INVALID;
+    selectedStructureID = INVALID;
+    selectedMapItemCoord.invalidate();
+    currentEditorMode = EditorMode();
+
+    // A conversion is a change like any other: it has to be saved to stick and
+    // undoing the operation above puts every discarded object back.
+    bChangedSinceLastSave = true;
+
+    // The sidebar still shows the old selection, so rebuild the interface - but
+    // only once the callback that asked for this conversion has returned.
+    requestInterfaceRefresh();
 }
 
 void MapEditor::performMapEdit(int xpos, int ypos, bool bRepeated) {

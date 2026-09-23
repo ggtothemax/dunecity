@@ -73,7 +73,7 @@ private:
     bool canContinue = false;
     TextButton      campaignButton;
     TextButton      modesButton;
-    TextButton      workshopButton;
+    TextButton      editorsButton;
     TextButton      dune2rEditorButton;
     bool            enlargedStartMenus = false;
     TextButton      optionsButton;

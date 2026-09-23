@@ -34,6 +34,8 @@
 
 #include <DataTypes.h>
 
+#include <string>
+
 class MapEditor;
 
 /// This class represents the map editor interface.
@@ -89,6 +91,12 @@ private:
 
     void onLoad();
 
+    /// Browse the metaserver map catalogue and load the chosen map into the
+    /// editor. Unsaved changes are confirmed first; the download itself never
+    /// touches the current map.
+    void onLoadFromMetaserver();
+    void loadMetaserverMap(const std::string& path);
+
     void onPlayers();
 
     void onMapSettings();
@@ -137,7 +145,6 @@ private:
     SymbolButton        newButton;
     SymbolButton        loadButton;
     SymbolButton        saveButton;
-    TextButton          shareButton;
     bool                shareAfterSave = false;
     SymbolButton        undoButton;
     SymbolButton        redoButton;
@@ -161,6 +168,13 @@ private:
     TextButton          unitsButton;
 
     DropDownBox         houseDropDownBox;
+
+    // The top bar is full at 640x480, so the metaserver actions live in the
+    // sidebar where the full labels fit without clipping other widgets.
+    TextButton          metaserverSaveButton;
+    TextButton          metaserverLoadButton;
+    /// Map downloaded from the metaserver, waiting for the unsaved-changes answer.
+    std::string         pendingMetaserverMapPath;
 
     VBox                editorModeTerrainVBox;
     ScrollView          editorModeTerrain_ScrollView;
@@ -277,6 +291,7 @@ private:
 
     VBox                editorModeUnits_MainVBox;
 
+    ScrollView          editorModeUnits_ScrollView;
     VBox                editorModeUnits_VBox;
 
     HBox                editorModeUnits_HBox1;

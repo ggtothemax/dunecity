@@ -14,13 +14,30 @@ final class Content
     private const MAX_FILE = 128 * 1024 * 1024;
     private const MAX_TOTAL = 2147483648;
     private const UPLOAD_TTL = 86400;
+    private const MAX_MAP_INI = 1048576;
+    private const MAX_MAP_LINES = 65536;
+    /** The largest map side the client itself accepts; anything beyond it is not a dimension. */
+    private const MAX_MAP_SIDE = 2048;
+    /** A mod folder name can never contain '?' or '*', so both are safe filter/row markers:
+     * '?' is retained for old clients, '*' aliases the vanilla category.
+     */
+    private const MOD_UNKNOWN = '?';
+    private const MOD_BASE_GAME = '*';
+    /** Map.ini sections that each contribute one playable slot, exactly as the client counts them. */
+    private const PLAYER_SECTIONS = ['atreides', 'ordos', 'harkonnen', 'fremen', 'mercenary', 'sardaukar',
+        'rebels', 'custom', 'wildspade', 'kleshmersh', 'tharpique',
+        'player1', 'player2', 'player3', 'player4', 'player5', 'player6',
+        'player7', 'player8', 'player9', 'player10', 'player11', 'player12'];
+    private const CITY_BUILDINGS = ['residential zone', 'zone residential', 'commercial zone', 'zone commercial', 'industrial zone', 'zone industrial', 'road', 'power line', 'powerline', 'nuclear', 'nuclear plant', 'police station', 'police', 'stadium', 'airport'];
+    private const TORNIE_BUILDINGS = ['advanced windtrap 3x3', 'advanced windtrap', 'advanced wind trap', 'advanced wind trap 3x3', 'advanced windtrap 2x3', 'advanced windtrap mk2', 'advanced wind trap mk2', 'advanced wind trap 2x3', 'advanced windtrap 3x2', 'advanced windtrap mk3', 'advanced wind trap mk3', 'advanced wind trap 3x2', 'worfinery', 'tech center', 'techcenter', 'scoutpost', 'scout post', 'green post', 'sentinel post', 'avant-poste', 'avant poste', 'flamepost', 'flame post', 'chemipost', 'chemi post', 'love factory', 'lovefactory', 'chaos factory', 'chaosfactory'];
     private string $dir;
 
     public function __construct(private readonly Config $config)
     {
         // The ingress Rate/Store call has already bootstrapped and verified the private parent.
         $this->dir = $config->stateDir() . '/content';
-        foreach ([$this->dir, $this->dir . '/blobs', $this->dir . '/manifests', $this->dir . '/uploads'] as $dir) {
+        foreach ([$this->dir, $this->dir . '/blobs', $this->dir . '/manifests', $this->dir . '/uploads',
+                  $this->dir . '/maps'] as $dir) {
             if (!file_exists($dir) && !is_link($dir)) {
                 if (!@mkdir($dir, 0700) && !is_dir($dir)) self::unavailable();
             }
@@ -213,13 +230,15 @@ final class Content
         if ($lock === false || !flock($lock, LOCK_EX)) self::unavailable();
         try {
             $statePath = $this->dir . '/index.json';
-            $state = ['items' => [], 'revisions' => [], 'uploads' => [], 'bytes' => 0];
+            $state = ['items' => [], 'revisions' => [], 'uploads' => [], 'bytes' => 0, 'maps' => []];
             if (file_exists($statePath) || is_link($statePath)) {
                 self::checkFile($statePath);
                 if (filesize($statePath) > 16 * 1024 * 1024) self::unavailable();
                 $state = json_decode(self::read($statePath, 16 * 1024 * 1024), true, 512, JSON_THROW_ON_ERROR);
                 if (!is_array($state) || !isset($state['items'], $state['revisions'], $state['uploads'], $state['bytes'])) self::unavailable();
             }
+            // Map metadata is a derived cache an older index simply does not carry yet.
+            if (!isset($state['maps']) || !is_array($state['maps'])) $state['maps'] = [];
             $before = $state;
             $this->expire($state);
             if ($state !== $before) {
@@ -410,11 +429,177 @@ final class Content
             'base' => $meta['base'], 'mod' => $meta['mod'], 'version' => $version,
             'promoted' => $upload['promoted'], 'source' => $upload['source']];
         $state['uploads'][$token]['version'] = $version;
+        if ($meta['kind'] === 'map') $this->captureMap($state, $hash, $meta);
         return [['version', (string)$version], ['hash', $hash]];
     }
 
-    private function listing(array $state, array $form): array
+    /** Keep a browsable maps folder plus derived catalogue metadata for every committed map.
+     * The entry is a hard link to the already verified immutable blob, named by the server-side
+     * revision hash, so no uploaded name reaches the filesystem and no unaccounted bytes are
+     * stored: quota still counts exactly one copy. A metadata failure never invalidates a
+     * revision that is already immutably stored.
+     */
+    private function captureMap(array &$state, string $hash, array $meta): void
     {
+        try {
+            if ($meta['files'][0]['size'] > self::MAX_MAP_INI) return;
+            $text = $this->linkMap($hash, $meta['files'][0]['hash']);
+            $map = self::parseMapIni($text, hex2bin($state['revisions'][$hash]['name']));
+            $map['file'] = $meta['files'][0]['hash'];
+            $state['maps'][$hash] = $map;
+            $this->writeMapMetadata($state, $hash, $map);
+        } catch (Throwable) {
+            // Leave the revision uncached; the catalogue retries the bootstrap lazily.
+        }
+    }
+
+    /** Link maps/<revision>.ini at the verified blob and return the map text. */
+    private function linkMap(string $hash, string $file): string
+    {
+        if (!self::digest($hash) || !self::digest($file)) self::unavailable();
+        $path = $this->dir . '/maps/' . $hash . '.ini';
+        $blob = $this->dir . '/blobs/' . $file;
+        self::checkFile($blob);
+        $text = self::read($blob, self::MAX_MAP_INI);
+        if (!file_exists($path) && !is_link($path)) {
+            // A filesystem without links simply has no maps folder entry; nothing is duplicated.
+            if (@link($blob, $path)) self::checkFile($path);
+        }
+        return $text;
+    }
+
+    /** Release tooling can use this sidecar without interpreting the private revision index. */
+    private function writeMapMetadata(array $state, string $hash, array $map): void
+    {
+        $row = $state['revisions'][$hash];
+        self::atomic($this->dir . '/maps/' . $hash . '.json', json_encode([
+            'name' => hex2bin($row['name']), 'id' => $row['id'], 'version' => $row['version'],
+            'mod' => self::modIdentity($state, $row, $map), 'mod_revision' => $row['mod'],
+            'width' => $map['width'], 'height' => $map['height'], 'max_players' => $map['players'],
+            'revision' => $hash, 'file_sha256' => $map['file'], 'source' => $row['source'],
+        ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    }
+
+    private static function unknownMap(): array
+    {
+        return ['schema' => 5, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => 'vanilla', 'known' => false, 'file' => ''];
+    }
+
+    private static function iniInt(string $value, int $fallback): int
+    {
+        $value = trim($value);
+        return preg_match('/^-?[0-9]{1,6}$/D', $value) ? (int)$value : $fallback;
+    }
+
+    /** Bounded reader for the map format the client itself parses: sections and `key=value`,
+     * case-insensitive, comments ignored. Anything unrecognised leaves a zero (unknown) field
+     * rather than a guess. `[BASIC] Version` is the map *format* version and is deliberately not
+     * read here: content versions are the numbers this server assigns.
+     */
+    public static function parseMapIni(string $text, string $fallbackName = ''): array
+    {
+        $out = self::unknownMap();
+        if (strlen($text) > self::MAX_MAP_INI) return $out;
+        $out['known'] = true;
+        $section = '';
+        $sections = [];
+        $map = [];
+        $basic = [];
+        $lines = 0;
+        $buildings = 0;
+        foreach (explode("\n", $text) as $line) {
+            if (++$lines > self::MAX_MAP_LINES) break;
+            $line = trim($line, " \t\r\0\x0b");
+            if ($line === '' || $line[0] === ';' || $line[0] === '#') continue;
+            if ($line[0] === '[') {
+                $end = strpos($line, ']');
+                $section = $end === false ? '' : strtolower(trim(substr($line, 1, $end - 1)));
+                if ($section !== '' && count($sections) < 1024) $sections[$section] = true;
+                continue;
+            }
+            $split = strpos($line, '=');
+            if ($split === false || $split === 0) continue;
+            $key = strtolower(trim(substr($line, 0, $split)));
+            $value = trim(substr($line, $split + 1));
+            // Match INIFile: comment markers inside quoted values are literal;
+            // after the closing quote only whitespace or a comment is valid.
+            if (str_starts_with($value, '"')) {
+                $end = strpos($value, '"', 1);
+                if ($end === false) continue;
+                $tail = ltrim(substr($value, $end + 1));
+                if ($tail !== '' && $tail[0] !== ';' && $tail[0] !== '#') continue;
+                $value = substr($value, 1, $end - 1);
+            } else {
+                $value = rtrim(substr($value, 0, strcspn($value, ';#')));
+                if ($value === '') continue;
+            }
+            if (strlen($value) > 256) $value = substr($value, 0, 256);
+            if ($section === 'map' && in_array($key, ['sizex', 'sizey', 'seed'], true)) $map[$key] = $value;
+            elseif ($section === 'basic' && in_array($key, ['mapscale', 'name'], true)) $basic[$key] = $value;
+            elseif ($section === 'structures' && preg_match('/^(id|gen)[0-9]+$/D', $key)) {
+                $parts = explode(',', $value);
+                $building = strtolower(trim($parts[1] ?? ''));
+                if (!in_array($building, ['wall','concrete','slab1','slab4'], true)) ++$buildings;
+                if (in_array($building, self::CITY_BUILDINGS, true)) $out['mod'] = 'dunecity';
+                elseif ($out['mod'] !== 'dunecity' && in_array($building, self::TORNIE_BUILDINGS, true)) $out['mod'] = 'tornie';
+            }
+        }
+        if (isset($map['seed'])) {
+            // Legacy seed maps carry no dimensions; the scale decides them, as in CustomGameMenu.
+            [$width, $height] = match (self::iniInt($basic['mapscale'] ?? '', -1)) {
+                0 => [62, 62], 1 => [32, 32], 2 => [21, 21], default => [64, 64],
+            };
+        } else {
+            $width = self::iniInt($map['sizex'] ?? '', 0);
+            $height = self::iniInt($map['sizey'] ?? '', 0);
+            if ($width < 1 || $height < 1 || $width > self::MAX_MAP_SIDE || $height > self::MAX_MAP_SIDE)
+                { $width = 0; $height = 0; }
+        }
+        $out['width'] = $width;
+        $out['height'] = $height;
+        foreach (self::PLAYER_SECTIONS as $name) if (isset($sections[$name])) ++$out['players'];
+        $name = strtolower($basic['name'] ?? $fallbackName);
+        if ($out['mod'] === 'vanilla' && (str_contains($name, 'city') || str_contains($name, 'cities'))
+            && $buildings <= max(4, 2 * $out['players'])) $out['mod'] = 'dunecity';
+        return $out;
+    }
+
+    /** Metadata for one committed map revision, bootstrapping older revisions on first browse. */
+    private function mapMetadata(array &$state, string $hash, array &$budget): array
+    {
+        $cached = $state['maps'][$hash] ?? null;
+        if (is_array($cached) && ($cached['schema'] ?? 0) === 5 && isset($cached['width'], $cached['height'], $cached['players'],
+            $cached['mod'], $cached['known'], $cached['file'])) return $cached;
+        if ($budget['files'] <= 0 || $budget['bytes'] <= 0) return self::unknownMap();
+        --$budget['files'];
+        try {
+            $meta = self::parseManifest(self::read($this->dir . '/manifests/' . $hash, self::MAX_MANIFEST));
+            if ($meta['kind'] !== 'map' || $meta['files'][0]['size'] > self::MAX_MAP_INI) return self::unknownMap();
+            $text = $this->linkMap($hash, $meta['files'][0]['hash']);
+            $budget['bytes'] -= strlen($text);
+            $map = self::parseMapIni($text, hex2bin($state['revisions'][$hash]['name']));
+            $map['file'] = $meta['files'][0]['hash'];
+            $state['maps'][$hash] = $map;
+            $this->writeMapMetadata($state, $hash, $map);
+            return $map;
+        } catch (Throwable) {
+            // One unreadable legacy revision must never hide the rest of the catalogue.
+            return self::unknownMap();
+        }
+    }
+
+    /** Catalogue category is derived from map buildings, independently of the
+     * immutable gameplay dependency. Old tags and active mod names are not evidence. */
+    private static function modIdentity(array $state, array $row, array $meta): string
+    {
+        return $meta['mod'] ?: 'vanilla';
+    }
+
+    private function listing(array &$state, array $form): array
+    {
+        $catalogue = $form['catalogue'] ?? '';
+        if ($catalogue === 'maps') return $this->mapCatalogue($state, $form);
+        if ($catalogue !== '') self::reject('Unknown catalogue.');
         $kind = $form['kind'] ?? '';
         if (!in_array($kind, ['', 'map', 'mod'], true)) self::reject('Unknown content type.');
         $cursor = self::integer($form['cursor'] ?? '0', 10000);
@@ -425,6 +610,73 @@ final class Content
             $row['version'], $hash, $row['name'], $row['base'], $row['mod']])];
         $out[] = ['next', (string)($cursor + count($page) < count($rows) ? $cursor + count($page) : 0)];
         return $out;
+    }
+
+    /** The browsable map catalogue: one row per stable item, always its newest revision, with the
+     * metadata a filter needs. Automatic host uploads are ordinary revisions and are included.
+     */
+    private function mapCatalogue(array &$state, array $form): array
+    {
+        $kind = $form['kind'] ?? '';
+        if (!in_array($kind, ['', 'map'], true)) self::reject('Unknown content type.');
+        $cursor = self::integer($form['cursor'] ?? '0', 10000);
+        // An absent or empty mod field browses every mod, including the base game.
+        $mod = (string)($form['mod'] ?? '');
+        if ($mod !== '' && $mod !== self::MOD_UNKNOWN && $mod !== self::MOD_BASE_GAME
+            && (strlen($mod) > 64 || !self::portablePath($mod) || str_contains($mod, '/')))
+            self::reject('The mod filter is invalid.');
+        $size = $form['size'] ?? '';
+        $width = 0;
+        $height = 0;
+        if ($size !== '') {
+            if (!preg_match('/^([1-9][0-9]{0,3})x([1-9][0-9]{0,3})$/D', $size, $m)
+                || (int)$m[1] > self::MAX_MAP_SIDE || (int)$m[2] > self::MAX_MAP_SIDE)
+                self::reject('The size filter must be WIDTHxHEIGHT.');
+            $width = (int)$m[1];
+            $height = (int)$m[2];
+        }
+        $players = $form['players'] ?? '';
+        if ($players !== '' && !preg_match('/^([1-9]|1[0-2])$/D', $players))
+            self::reject('The player filter must be a player count.');
+        $wanted = $players === '' ? 0 : (int)$players;
+
+        $latest = [];
+        foreach ($state['revisions'] as $hash => $row) {
+            if ($row['kind'] !== 'map') continue;
+            $known = $latest[$row['id']] ?? null;
+            if ($known === null || $row['version'] > $known['row']['version'])
+                $latest[$row['id']] = ['hash' => $hash, 'row' => $row];
+        }
+
+        // Bootstrapping older revisions reads at most this much per request; whatever is left is
+        // cached by the next page request instead.
+        $budget = ['files' => 64, 'bytes' => 16 * 1024 * 1024];
+        $rows = [];
+        $matched = 0;
+        $more = false;
+        $seen = [];
+        foreach ($latest as $entry) {
+            $meta = $this->mapMetadata($state, $entry['hash'], $budget);
+            $identity = self::modIdentity($state, $entry['row'], $meta);
+            // Keep distinct exact gameplay dependencies even when their building category matches.
+            if ($meta['file'] !== '') {
+                $key = $meta['file'] . '|' . strtolower($identity) . '|' . $entry['row']['mod'];
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+            }
+            if ($mod !== '' && strcasecmp($mod === self::MOD_BASE_GAME ? 'vanilla' : $mod, $identity) !== 0) continue;
+            if ($width !== 0 && ($meta['width'] !== $width || $meta['height'] !== $height)) continue;
+            if ($wanted !== 0 && $meta['players'] !== $wanted) continue;
+            ++$matched;
+            if ($matched <= $cursor) continue;
+            if (count($rows) >= 50) { $more = true; break; }
+            $rows[] = ['item', implode(',', [$entry['row']['kind'], $entry['row']['id'], $entry['row']['version'],
+                $entry['hash'], $entry['row']['name'], $entry['row']['base'], $entry['row']['mod'],
+                bin2hex($identity), $meta['width'], $meta['height'], $meta['players']])];
+        }
+        $next = $more ? $cursor + count($rows) : 0;
+        $rows[] = ['next', (string)$next];
+        return $rows;
     }
 
     private function revision(array $state, array $form): array

@@ -88,8 +88,10 @@ inline void pin(GameInitSettings& init, bool publish = false, bool queue = false
     if(!init.getModRevisionHash().empty()) resolveMod(init);
     const bool approved = OnlineModPolicy::approved();
     if(approved) {
+        // Approved packages avoid a blocking upload before play, but their
+        // hosted maps still belong in the metaserver catalogue.
+        queue = queue || publish;
         publish = false;
-        queue = false;
         if(init.getModRevisionHash().empty()
            && init.getGameType() != GameType::CustomGame && init.getGameType() != GameType::CustomMultiplayer) {
             init.setModIdentity(mods.getActiveModName(), mods.getEffectiveChecksums().combined);
@@ -105,6 +107,8 @@ inline void pin(GameInitSettings& init, bool publish = false, bool queue = false
         init.setModIdentity(mods.getActiveModName(), mods.getEffectiveChecksums().combined);
     }
     if(queue) Workshop::queuePublish(mod);
+    if(queue && isSave(init) && !init.getMapRevisionHash().empty())
+        Workshop::queuePublish(Workshop::store().get(init.getMapRevisionHash()));
     if(publish && !Workshop::publishWithProgress(mod, false))
         throw std::runtime_error("The mod could not be shared. The game has not been advertised.");
     if(publish) { mod = Workshop::store().get(mod.hash); init.setModRevision(mod.hash, mod.version); }

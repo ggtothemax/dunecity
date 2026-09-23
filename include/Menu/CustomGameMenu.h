@@ -29,6 +29,8 @@
 #include <GUI/Checkbox.h>
 
 #include <mod/ModInfo.h>
+#include <mod/WorkshopClient.h>
+#include <INIMap/MapMetadata.h>
 #include <DataTypes.h>
 
 #include <string>
@@ -52,6 +54,10 @@ public:
     void onChildWindowClose(Window* pChildWindow) override;
 
 private:
+    void update() override;
+    void rebuildMapList();
+    bool prepareSelectedMap();
+    void onPreviewMap();
     void onNext();
     void onCancel();
     void onLoad();
@@ -60,9 +66,7 @@ private:
     void onMapTypeChange(int buttonID);
     void onMapListSelectionChange(bool bInteractive);
 
-    /// Resolves the full path of the currently-selected map. In single-
-    /// directory modes this is just `currentMapDirectory + entry + ".ini"`;
-    /// in "All Maps" mode the source directory varies per entry.
+    /// Full path of the selected local or downloaded map; empty until downloaded.
     std::string getSelectedMapPath() const;
 
     CustomPlaySetup* setup = nullptr;
@@ -71,15 +75,6 @@ private:
 
     bool bMultiplayer;
     bool bLANServer;
-
-    /// Single-directory mode: the directory whose .ini files populate
-    /// the list. Empty when "All Maps" mode is active (entries then
-    /// resolve via mapEntryDirectories_).
-    std::string currentMapDirectory;
-
-    /// Per-entry source directory, parallel to mapList entries when in
-    /// "All Maps" mode. Empty in single-directory modes.
-    std::vector<std::string> mapEntryDirectories_;
 
     SettingsClass::GameOptionsClass currentGameOptions;
 
@@ -99,6 +94,17 @@ private:
     TextButton      multiplayerMapsButton;
     TextButton      multiplayerUserMapsButton;
     TextButton      dummyButton;
+    HBox            remoteMapsRow, filterRow;
+    TextButton      metaserverMapsButton, refreshMapsButton, previewMapButton;
+    DropDownBox     mapModFilter, mapSizeFilter, mapPlayersFilter;
+    Label           mapLibraryStatus, mapPropertyMod, mapPropertyVersion;
+    struct MapEntry { std::string path; MapMetadata metadata; Workshop::Revision revision; };
+    std::vector<MapEntry> mapEntries;
+    std::vector<size_t> visibleMaps;
+    std::vector<std::string> filterMods;
+    Workshop::Client mapClient;
+    bool loadingMaps=false;
+    int mapCategory=0;
     ListBox         mapList;
     HBox            optionsHBox;
     Checkbox        multiplePlayersPerHouseCheckbox;

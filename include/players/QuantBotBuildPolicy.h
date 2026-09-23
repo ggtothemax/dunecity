@@ -11,10 +11,17 @@
 namespace QuantBotBuildPolicy {
 
 // Zero disables the reservation; otherwise one service order per N orders.
-inline unsigned crimeServiceOrderInterval(int developed, int dangerous) {
+// An outbreak only needs one dangerous district and a six-minute buildup, so
+// waiting for a quarter of the developed city to reach the dangerous band
+// reserves the service after the gangs have already formed. Any populated
+// building in that band now reserves one order in four, and a city that is
+// mostly in the moderate band reserves one in six before it gets there.
+// Widespread danger keeps the established every-other-order response.
+inline unsigned crimeServiceOrderInterval(int developed, int dangerous, int moderate = 0) {
     if (developed <= 0) return 0;
     if (int64_t(dangerous) * 2 > developed) return 2;
-    return int64_t(dangerous) * 4 >= developed ? 4 : 0;
+    if (dangerous > 0) return 4;
+    return int64_t(moderate) * 4 >= developed ? 6 : 0;
 }
 inline bool crimeServiceOrderDue(unsigned interval, unsigned nonServiceOrders) {
     return interval > 0 && nonServiceOrders >= interval - 1;
