@@ -1,3 +1,31 @@
+## 2026-09-24 — Habbanya-Penny-inspired pair, installed and published
+
+Added Habbanya Crescent (2P, Atreides township versus larger Harkonnen city)
+and Habbanya Narrows (3P, mobile Atreides colony versus mutually hostile
+Harkonnen/Ordos towns), both 128x128 single-player conquest maps. Original
+terrain follows Rippsblack's Habbanya-Penny geometry: enclosing mountain rim,
+paired C-shaped spice basins, curved battle lanes and open expansion shelves.
+Twelve neutral Fremen sandworms per map do not add a lobby/enemy slot. Actual
+Dune R/C/I roles, populated-zone power reserves, no population win condition.
+
+Generator: `scripts/gen_habbanya_scenarios.py`, reusing the existing city helpers.
+Checks include connected starts/shelves/basins/outer spice, spare buildable rock,
+legal worms, army/production asymmetry, plus the shared structural validator.
+Claude Max supplied the generator/maps (48-turn ceiling reached after files);
+Codex reviewed exact final bytes, previews, routes and real-engine behaviour.
+Both deterministically reproduce and load without warnings. Final 25-minute
+Medium helper versus Medium enemy runs survived in both maps with no unrest.
+Idle Crescent lost near minute 12; idle Narrows survived 12. No full human
+victory/balance claim. Final test evidence uses `release-*` directories; earlier
+probes in the same output folder concern superseded layout drafts.
+
+Published both as v1 to the production metaserver, verified live catalogue,
+complete downloads, manifest/file hashes and downloaded structural checks.
+Installed byte-identical user-map and built-app resources; codesign verification
+passes. Guide and default validator include both additions. No game source,
+version/protocol, release, push or PR changes. Evidence, preview, ZIP and receipts:
+`../outputs/habbanya-scenarios/` (live proof `publish/verified.json`).
+
 ## 2026-09-24 — Ten redesigned city scenarios, published and verified
 
 Replaced Sihaya Basin, Ash Quarter and Coriolis Gap with irregular, tactical

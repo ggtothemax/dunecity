@@ -633,7 +633,9 @@ SCENARIO_TARGETS = ['2P - 128x128 - Sihaya Basin.ini',
  '4P - 128x128 - Carthag Vise.ini',
  '3P - 128x128 - Arrakeen Blackout.ini',
  '4P - 144x112 - Shield Wall Rift.ini',
- '3P - 160x128 - Harg Pass Convoy.ini']
+ '3P - 160x128 - Harg Pass Convoy.ini',
+ '2P - 128x128 - Habbanya Crescent.ini',
+ '3P - 128x128 - Habbanya Narrows.ini']
 EXPECTATIONS = {name: {"scenario": True} for name in SCENARIO_TARGETS}
 EXPECTATIONS["2P - 192x192 - SimCity.ini"] = {
     "max_road_components": {"player1": 1, "player2": 1},

@@ -1,6 +1,6 @@
-# Arrakis: ten city scenarios
+# Arrakis city scenarios
 
-Ten standalone single-player missions, each with one **Atreides human** slot.
+Twelve standalone single-player missions, each with one **Atreides human** slot.
 The P count in filenames is the number of houses, not the number of humans.
 Select **DuneCity** in Custom Game. The shared viewpoint and mission order are
 ready for a campaign conversion; these maps are not yet wired into the campaign
@@ -24,6 +24,32 @@ Losing all your buildings loses every mission. Keep Tuono's starting depot alive
 until an MCV deploys. There is no population victory: 5,000 displayed population
 is merely the crime system's eligibility threshold, not a meaningful challenge.
 Gang outbreaks require sustained dangerous crime and surviving hostile houses.
+
+## Habbanya-Penny additions
+
+Two additional missions take their geography from Rippsblack's **Habbanya-Penny**:
+a broad enclosing mountain rim, paired crescent-shaped spice basins, winding
+sand battle lanes, opposed home shelves and secondary rock for expansion.
+Neutral sandworms threaten exposed harvesting and convoy routes.
+They use original terrain variations and leave substantial open building space.
+
+| Mission | Objective | Opening problem |
+| --- | --- | --- |
+| Habbanya Crescent | Defeat the opposing house | Grow a small township onto neighbouring rock, protect harvesting through the crescent lanes, then assault an established rival city. |
+| Habbanya Narrows | Defeat both hostile houses | Move two MCVs off a small supply foothold, establish a colony and break the outposts controlling separate approaches through the basins. The Harkonnen and Ordos also fight each other. |
+
+Both are single-player Atreides missions. Keep Narrows' starting buildings alive
+until an MCV deploys. Neither uses a population victory condition. These are
+additional standalone chapters, not replacements for the ten-map campaign order.
+Both are published as version 1 and installed in the local **SP User Maps** list.
+The live catalogue, complete downloads and manifest/file hashes were verified.
+
+The final files regenerate byte-for-byte and pass structural/route checks.
+Every starting MCV can reach distant empty yard footprints and both the inner
+and outer spice fields. Both load without warnings; active Medium AI versus
+Medium AI checks lasted 25 simulated minutes without an opening defeat or gang
+outbreak. An idle player lost Crescent near minute 12, while Narrows remained
+alive at minute 12. These are engine checks, not complete human victory tests.
 
 ## Availability and checks
 
@@ -84,10 +110,12 @@ Player3 sandworms by assigning them to the neutral Fremen house.
 
 ```sh
 python3 scripts/gen_city_scenarios.py
+python3 scripts/gen_habbanya_scenarios.py
 python3 scripts/validate_city_maps.py
 ```
 
-The generator creates the ten missions deterministically. The separate
+The main generator creates the ten missions deterministically; the Habbanya
+generator adds the two Penny-inspired missions. The separate
 `scripts/pack_simcity_user_map.py` reproduces the repaired SimCity map.
 Validation rejects illegal placements and invalid mission data. Authored
 scenario service defects are reported for playtesting, while SimCity retains
