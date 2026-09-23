@@ -28,7 +28,8 @@ require __DIR__ . '/../src/Lobby.php';
 require __DIR__ . '/../src/Content.php';
 
 const CONTENT_PATHS = ['/v1/content/list', '/v1/content/begin', '/v1/content/chunk',
-                       '/v1/content/commit', '/v1/content/manifest', '/v1/content/blob'];
+                       '/v1/content/commit', '/v1/content/manifest', '/v1/content/blob',
+                       '/v1/content/lookup'];
 
 const ADMISSION_PATHS = ['/v1/admission/inspect', '/v1/admission/request', '/v1/admission/request-status', '/v1/admission/host', '/v1/admission/join', '/v1/admission/list',
                          '/v1/admission/visibility', '/v1/lobby/enter', '/v1/lobby/poll',
@@ -189,6 +190,9 @@ try {
 
     if ($contentResponse) {
         if ($path === '/v1/content/begin') $rate->charge('contentBegin', $address, 256, 32);
+        // One automatic collection preflight per started match; a client that keeps
+        // asking is throttled exactly like the upload it would otherwise start.
+        if ($path === '/v1/content/lookup') $rate->charge('contentLookup', $address, 256, 32);
         if ($path === '/v1/content/commit') $rate->charge('contentCommit', $address, 256, 64);
         $form = $http->form(524288, Content::MAX_MANIFEST * 2 + 32);
         $lines = (new Content($config))->handle(substr($path, strlen('/v1/content/')), $form, $address);

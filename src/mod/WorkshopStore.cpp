@@ -263,6 +263,22 @@ void Store::verifyDirectory(const Revision& revision,const fs::path& directory) 
     }
 }
 
+bool Store::shared(const std::string& hash) const {
+    std::lock_guard<std::recursive_mutex> lock(storeMutex);
+    require(token(hash,64),"Invalid Workshop checksum.");
+    return fs::exists(root_/"revisions"/hash/"shared-version");
+}
+void Store::setCollected(const std::string& hash,const std::string& serverRevision) {
+    std::lock_guard<std::recursive_mutex> lock(storeMutex);
+    require(token(hash,64)&&token(serverRevision,64),"Invalid Workshop checksum.");
+    require(fs::is_directory(root_/"revisions"/hash),"Unknown Workshop revision.");
+    write(root_/"revisions"/hash/"collected",serverRevision);
+}
+bool Store::collected(const std::string& hash) const {
+    std::lock_guard<std::recursive_mutex> lock(storeMutex);
+    require(token(hash,64),"Invalid Workshop checksum.");
+    return fs::exists(root_/"revisions"/hash/"collected");
+}
 std::string Store::owner() {
     std::lock_guard<std::recursive_mutex> lock(storeMutex); auto path=root_/"owner";
     if(fs::exists(path)) { auto s=read(path,64); require(token(s,64),"Invalid Workshop publishing identity."); return s; }

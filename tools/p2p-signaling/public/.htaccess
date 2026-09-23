@@ -10,7 +10,7 @@ LimitRequestBody 524288
 RewriteEngine On
 # Only the known routes reach PHP. Anything else is a 404 from Apache, which keeps a scanner
 # out of the interpreter entirely.
-RewriteRule ^(?:v1/health|v1/admission/(?:host|join|list|visibility|inspect|request|request-status)|v1/content/(?:list|begin|chunk|commit|manifest|blob)|v1/lobby/(?:enter|poll|say)|v1/p2p/(?:session|poll|signal|phase|leave|join-requests))$ index.php [END]
+RewriteRule ^(?:v1/health|v1/admission/(?:host|join|list|visibility|inspect|request|request-status)|v1/content/(?:list|begin|chunk|commit|manifest|blob|lookup)|v1/lobby/(?:enter|poll|say)|v1/p2p/(?:session|poll|signal|phase|leave|join-requests))$ index.php [END]
 
 <IfModule mod_headers.c>
     # These bodies carry invitation codes, grants and session tokens.

@@ -144,6 +144,58 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(404, self.post('blob', hash=sha(mapraw), file=sha(b'[Mod]\nName=Test'), offset=0).status)
         self.assertEqual(1, len(self.ok(self.post('list', kind='mod')).multi['item']))
 
+    def test_collection_lookup_matches_same_map_across_creators_only(self):
+        """Automatic collection preflight: two players hold the same community map under
+        different local item identities, so only the map file checksum and the mod
+        revision can decide that the catalogue already has that scenario."""
+        modraw = manifest({'mod.ini': b'[Mod]\nName=Test'}, kind='mod', item='c' * 32)
+        self.share({'mod.ini': b'[Mod]\nName=Test'}, kind='mod', item='c' * 32)
+        other = manifest({'mod.ini': b'[Mod]\nName=Other'}, kind='mod', item='d' * 32)
+        self.share({'mod.ini': b'[Mod]\nName=Other'}, kind='mod', item='d' * 32)
+        scenario = map_ini(size=(64, 64), players=2)
+        raw, first = self.share({'map.ini': scenario}, item='a' * 32, mod=sha(modraw))
+        stored = len(self.ok(self.post('list', kind='map')).multi['item'])
+
+        # The second player's own identity and owner capability differ; the content does not.
+        found = self.ok(self.post('lookup', file=sha(scenario), mod=sha(modraw)))
+        self.assertEqual('1', found.fields['found'])
+        self.assertEqual(sha(raw), found.fields['hash'])
+        self.assertEqual(first.fields['version'], found.fields['version'])
+        self.assertEqual('a' * 32, found.fields['id'])
+
+        # A different selected mod, or different scenario bytes, is different content.
+        self.assertEqual('0', self.ok(self.post('lookup', file=sha(scenario), mod=sha(other))).fields['found'])
+        self.assertEqual('0', self.ok(self.post('lookup', file=sha(scenario), mod='')).fields['found'])
+        self.assertEqual('0', self.ok(self.post('lookup', file=sha(scenario + b'[UNITS]\nID000=Atreides,Trike,256,12\n'),
+                                                mod=sha(modraw))).fields['found'])
+        # Preflight stores nothing and creates no revision of its own.
+        self.assertEqual(stored, len(self.ok(self.post('list', kind='map')).multi['item']))
+
+        for form in [dict(file='', mod=''), dict(file='z' * 64, mod=''), dict(file=sha(scenario), mod='nope')]:
+            with self.subTest(form=form):
+                self.assertEqual(400, self.post('lookup', **form).status)
+
+    def test_collection_lookup_bootstraps_legacy_and_commit_race(self):
+        mod, _ = self.share({'mod.ini': b'[Mod]\nName=Collector'}, kind='mod', item='c' * 32)
+        data = map_ini()
+        first = manifest({'map.ini': data}, item='a' * 32, mod=sha(mod))
+        second = manifest({'map.ini': data}, item='b' * 32, mod=sha(mod))
+        one = self.ok(self.begin(first, collect='1')).fields['upload']
+        two = self.ok(self.begin(second, owner='d' * 64, collect='1')).fields['upload']
+        for token in [one, two]:
+            self.ok(self.post('chunk', upload=token, file=sha(data), offset=0, data=data.hex()))
+        self.ok(self.post('commit', upload=one))
+        duplicate = self.ok(self.post('commit', upload=two))
+        self.assertEqual(sha(first), duplicate.fields['collected'])
+        self.assertEqual(1, len(self.ok(self.post('list', kind='map')).multi['item']))
+        self.assertEqual(sha(first), self.ok(self.begin(second, collect='1')).fields['collected'])
+        # Simulate an index from before derived map metadata was introduced.
+        index = Path(self.service.state) / 'content/index.json'
+        state = json.loads(index.read_text())
+        state.pop('maps', None)
+        index.write_text(json.dumps(state))
+        self.assertEqual(sha(first), self.ok(self.post('lookup', file=sha(data), mod=sha(mod))).fields['hash'])
+
     def test_manifest_traversal_case_collisions_and_bounds(self):
         for files in [{'../bad': b'x'}, {'/bad': b'x'}, {'a\\bad': b'x'}, {'CON.txt': b'x'},
                       {'a.': b'x'}, {'a': b'x', 'A': b'x'}, {'a': b'x', 'a/b': b'x'}, {'A/b': b'x', 'a/c': b'x'}]:

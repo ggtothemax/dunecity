@@ -11,6 +11,9 @@ public:
     Client();
     ~Client();
     void publish(const Revision& revision, bool promoted = true);
+    // Automatic map collection: asks the metaserver whether this exact scenario file on
+    // this exact mod revision is already stored before uploading anything.
+    void collect(const Revision& revision);
     void download(const std::string& hash);
     void browse(const std::string& kind = {}, unsigned cursor = 0);
     void browseMaps(unsigned cursor = 0);
@@ -26,6 +29,8 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 void queuePublish(const Revision& revision);
+// Queues a started match's scenario for collection. Bounded, retried on a later start.
+void queueCollection(const Revision& revision);
 void updatePublications();
 // Modal progress uses the normal SDL loop; cancellation never publishes a partial revision.
 bool publishWithProgress(const Revision& revision, bool promoted = true);

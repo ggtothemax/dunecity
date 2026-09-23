@@ -250,6 +250,7 @@ final class Content
                 'chunk' => $this->chunk($state, $form),
                 'commit' => $this->commit($state, $form),
                 'list' => $this->listing($state, $form),
+                'lookup' => $this->lookup($state, $form),
                 'manifest' => $this->manifest($state, $form),
                 'blob' => $this->blob($state, $form),
                 default => throw new ServiceError(404, 'bad_request', 'Unknown content endpoint.'),
@@ -279,6 +280,9 @@ final class Content
         if (!self::digest($hash) || !hash_equals(hash('sha256', $raw), $hash)) self::reject('The manifest checksum does not match.');
         $meta = self::parseManifest($raw);
         if (isset($state['revisions'][$hash])) return [['version', (string)$state['revisions'][$hash]['version']], ['hash', $hash]];
+        $collect = ($form['collect'] ?? '') === '1' && $meta['kind'] === 'map';
+        if ($collect && ($existing = $this->findMap($state, $meta['files'][0]['hash'], $meta['mod'])) !== '')
+            return [['collected', $existing]];
         $owner = $form['owner'] ?? '';
         if (!self::digest($owner)) self::reject('An owner capability is required.', 403, 'owner_required');
         $owner = hash('sha256', $owner);
@@ -316,9 +320,48 @@ final class Content
         if (!mkdir($dir, 0700)) self::unavailable();
         self::atomic($dir . '/manifest', $raw);
         $state['uploads'][$token] = ['hash' => $hash, 'owner' => $owner, 'address' => hash('sha256', $address),
-            'total' => $meta['total'], 'expires' => time() + self::UPLOAD_TTL,
+            'total' => $meta['total'], 'expires' => time() + self::UPLOAD_TTL, 'collect' => $collect,
             'promoted' => ($form['promoted'] ?? '1') === '1', 'source' => ($form['source'] ?? 'manual') === 'host' ? 'host' : 'manual'];
         return [['upload', $token]];
+    }
+
+    /** Content preflight for automatic map collection. Answers whether this exact scenario
+     * file, on this exact mod revision, is already stored - whoever captured it. Local item
+     * identity is per-creator, so two players holding the same community map produce
+     * different revision hashes; only the file checksum and the mod dependency identify the
+     * same playable content. Distinct bytes or a distinct mod revision never match here.
+     * Read-only: it changes no state, stores nothing and reveals only what `list` publishes.
+     */
+    private function lookup(array $state, array $form): array
+    {
+        $file = $form['file'] ?? '';
+        $mod = $form['mod'] ?? '';
+        if (!self::digest($file)) self::reject('A content checksum is required.');
+        if ($mod !== '' && !self::digest($mod)) self::reject('The mod dependency is invalid.');
+        $hash = $this->findMap($state, $file, $mod);
+        if ($hash !== '') {
+            $row = $state['revisions'][$hash];
+            return [['found', '1'], ['hash', $hash], ['version', (string)$row['version']],
+                ['name', (string)$row['name']], ['id', (string)$row['id']]];
+        }
+        return [['found', '0']];
+    }
+
+    // Read the small immutable manifest if an older index lacks the derived map cache.
+    // Do not load terrain payloads or rely on catalogue browsing having warmed the cache.
+    private function findMap(array $state, string $file, string $mod): string
+    {
+        foreach ($state['revisions'] as $hash => $row) {
+            if ($row['kind'] !== 'map' || ($row['mod'] ?? '') !== $mod) continue;
+            $stored = $state['maps'][$hash]['file'] ?? '';
+            if ($stored === '') {
+                $raw = self::read($this->dir . '/manifests/' . $hash, 2048);
+                $meta = self::parseManifest($raw);
+                $stored = $meta['files'][0]['hash'];
+            }
+            if (hash_equals($stored, $file)) return $hash;
+        }
+        return '';
     }
 
     private function upload(array $state, array $form): array
@@ -383,6 +426,10 @@ final class Content
             $state['uploads'][$token]['version'] = $state['revisions'][$hash]['version'];
             return [['version', (string)$state['revisions'][$hash]['version']], ['hash', $hash]];
         }
+        // Recheck under the commit lock: another collector may have won since lookup/begin.
+        if (($upload['collect'] ?? false)
+            && ($existing = $this->findMap($state, $meta['files'][0]['hash'], $meta['mod'])) !== '')
+            return [['collected', $existing]];
         $item = $state['items'][$meta['id']] ?? null;
         if ($item !== null && (!hash_equals($item['owner'], $upload['owner']) || $item['kind'] !== $meta['kind']))
             self::reject('This item belongs to another creator. Save a copy to share your changes.', 403, 'not_owner');

@@ -9002,3 +9002,41 @@ Source/local app1.0.770 is committed on fix/map-duplicates-repair-layout; not
 installed or deployed. Public release remains1.0.769. Evidence:
 ../outputs/map-repair-770/ (Claude retry report, final-build.log, ai-tests.log,
 full-ctest.log and focused-rerun.log), build/command-probe/640/ and menu-probe/.
+
+## 2026-09-24 — offline custom-map collection (local 1.0.771)
+
+New offline CustomGame matches queue their original pinned scenario and exact selected
+mod revision after successful map loading. Replays, campaigns, loaded saves, network
+matches and cancelled setup are excluded. Original map files and sidecars are untouched.
+The existing persistent outbox now distinguishes collection from normal publication;
+offline game frames service it as well as menus. All new collection I/O failures are
+caught and network errors preserve the entry for retry without blocking the match.
+
+The service adds POST /v1/content/lookup, matching exact map-file hash plus mod revision
+across publisher identities. A hit writes a separate local collection receipt rather
+than inventing ownership/server version for a local revision. A miss uploads the mod
+dependency and map through existing bounded transfers. Begin/commit recheck collect=1
+under the service lock to handle concurrent collectors; old records lacking derived
+map metadata are checked through their small immutable manifests. Manual editor
+publication is unchanged. Map type remains separate from the selected mod dependency.
+
+Claude implemented the client/server path and tests; Codex reviewed and fixed legacy
+lookup, concurrent-upload duplication, malformed lookup replies and the outer launch
+exception boundary. Source/local app version is 1.0.771; protocol25/save9846 unchanged.
+Native build and before/after dependency audits passed. Final CTest unit suite and
+map_collection_tests passed (8 focused cases), server content29 tests passed, real
+client/PHP wire test passed cross-creator duplicate/new-map cases plus unavailable
+server -> persistent queue -> successful retry. Claude additionally ran combined
+content/signaling196 tests and network/security CTest targets before final refinements.
+No production fixture uploads, GUI games, MBA tests, push or deployment.
+Evidence: ../outputs/offline-map-collection/ (worker reports, final-build.log,
+final-server.log, final-ctest.log, final-wire.log).
+
+Rollout: deploy the checked-in metaserver router, rewrite and Content.php before
+releasing the client. An older service returns404 and maps remain queued until upgraded.
+See tools/p2p-signaling/README.md for the collection contract.
+
+The earlier MBA install request remains pending: signed/notarized1.0.770 was copied
+and verified on the MBA, staged at /Applications/.dunecity-install-770.vLeoFr/dunecity.app,
+but the installed1.0.768 process was running. It was not interrupted or replaced.
+No app was launched by this task.

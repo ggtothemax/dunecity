@@ -71,6 +71,7 @@ std::mutex Game::performanceLogMutex;
 #include <Network/PathBudgetSync.h>
 #include <mod/ModManager.h>
 #include <Network/WorkshopGameContent.h>
+#include <Network/MapCollection.h>
 
 #include <GUI/dune/InGameMenu.h>
 #include <GUI/QstBox.h>
@@ -517,11 +518,11 @@ void Game::applyDuneCityGraphicsSkins() {
 
 void Game::initGame(const GameInitSettings& newGameInitSettings) {
     gameInitSettings = newGameInitSettings;
-    if(!WorkshopGameContent::isSave(gameInitSettings)) {
+    const bool loadedSave = WorkshopGameContent::isSave(gameInitSettings);
+    if(!loadedSave) {
         if(!gameInitSettings.getModRevisionHash().empty()) WorkshopGameContent::resolveMod(gameInitSettings);
         else { WorkshopGameContent::resolveMod(gameInitSettings); WorkshopGameContent::pin(gameInitSettings); }
     }
-
     applyCustomPaletteRuntimeHouseRamps();
 
     // DuneCity 1.0.487: invalidate sprite texture cache to fix
@@ -654,6 +655,26 @@ void Game::initGame(const GameInitSettings& newGameInitSettings) {
         .set("map_width", currentGameMap ? currentGameMap->getSizeX() : 0)
         .set("map_height", currentGameMap ? currentGameMap->getSizeY() : 0), settings.general.diagnosticLogs);
     startMatchAnalytics();
+    collectCustomMap(loadedSave);
+}
+
+/**
+    A genuinely started offline custom match offers its scenario to the community
+    catalogue. This runs only once the scenario itself has loaded, so a map that
+    never produced a playable game is never collected. pin() already recorded the
+    original map bytes and the selected mod locally; collecting only writes that
+    revision to the Workshop outbox, which the menu and game loops drain later, so
+    an offline player never waits for, and never fails because of, the metaserver.
+*/
+void Game::collectCustomMap(bool loadedSave) {
+    if(currentGameMap == nullptr) return;
+    try {
+        if(MapCollection::collect(Workshop::store(), gameInitSettings.getGameType(), bReplay, loadedSave,
+                                  gameInitSettings.getMapRevisionHash(), Workshop::queueCollection))
+            SDL_Log("Metaserver: this custom map is queued for the community catalogue.");
+    } catch(const std::exception& error) {
+        SDL_Log("Metaserver map collection deferred: %s", error.what());
+    }
 }
 
 void Game::startMatchAnalytics() {
@@ -2939,7 +2960,15 @@ void Game::runMainLoop() {
             DiscordManager::instance().update();
             lastDiscordUpdate = discordNow;
         }
-        
+
+        // Keep draining the Workshop outbox while an offline match runs, so a player who
+        // starts a custom game and keeps playing still contributes that map. Networked
+        // games are pumped by NetworkManager and menus by MenuBase; this adds no second
+        // pump to either. The transfer is bounded and non-blocking.
+        if (!pNetworkManager) {
+            Workshop::updatePublications();
+        }
+
         renderFrame();
 
         const int frameEnd = SDL_GetTicks();

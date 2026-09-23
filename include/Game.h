@@ -521,6 +521,8 @@ public:
 private:
 
     void startMatchAnalytics();
+    /// Offer a started offline custom match's scenario to the community catalogue.
+    void collectCustomMap(bool loadedSave);
     void finishMatchAnalytics();
     std::string buildMatchAnalyticsPayload(bool finishedMatch) const;
 

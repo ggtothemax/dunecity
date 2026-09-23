@@ -11,6 +11,7 @@ add_executable(dunelegacy_tests)
 target_sources(dunelegacy_tests
     PRIVATE
         WorkshopStoreTestCase.cpp
+        MapCollectionTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/mod/WorkshopStore.cpp
         SnapshotTransferTestCase.cpp
         ${CMAKE_SOURCE_DIR}/src/Network/SnapshotTransfer.cpp
@@ -166,6 +167,7 @@ target_compile_options(dunelegacy_tests
 # Add test
 add_test(NAME dunelegacy_tests COMMAND dunelegacy_tests)
 add_test(NAME lobby_authorization_tests COMMAND dunelegacy_tests "[lobby][security][authorization]")
+add_test(NAME map_collection_tests COMMAND dunelegacy_tests "[mapcollection]")
 
 # Standalone network wire harness.
 #
@@ -360,7 +362,7 @@ if(NOT EMSCRIPTEN)
 endif()
 
 # Set test properties
-set_tests_properties(dunelegacy_tests lobby_authorization_tests PROPERTIES
+set_tests_properties(dunelegacy_tests lobby_authorization_tests map_collection_tests PROPERTIES
     ENVIRONMENT "DUNECITY_DATADIR=${CMAKE_SOURCE_DIR}/data;DUNE_CITY_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
 )
 

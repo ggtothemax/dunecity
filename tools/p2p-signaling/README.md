@@ -290,6 +290,7 @@ All fields below are URL-encoded form fields. Success replies begin `status=ok`.
 | POST route | Fields | Success fields |
 | --- | --- | --- |
 | `/v1/content/list` | Optional `kind=map\|mod`, `cursor=0` | Repeated `item=kind,id,version,hash,namehex,basehex,modhash`; `next=<offset>` or `0` at end |
+| `/v1/content/lookup` | `file=<map-sha256>`, `mod=<exact-mod-revision>` | `found=0`, or `found=1` with existing `hash`, `version`, `name` (hex), `id` |
 | `/v1/content/begin` | `manifest=<hex>`, `hash=<sha256>`, `owner=<64hex>`; optional `source=host\|manual`, `promoted=0\|1` | `upload=<64hex>`; if already published, `version=<number>`, `hash=<sha256>` instead |
 | `/v1/content/chunk` | `upload`, `file=<sha256>`, `offset=<bytes>`, `data=<hex>` (at most 64 KiB decoded) | `next=<contiguous-byte-count>` |
 | `/v1/content/commit` | `upload` | `version=<number>`, `hash=<sha256>` |
@@ -386,3 +387,22 @@ The downloaded `.workshop.ini` sidecar records the server revision and mod.
 collection and publishes it only with `--upload`, using existing verified mod
 snapshots and a local Workshop owner file. Original maps, saves and replays are
 not modified or uploaded as arbitrary archives. Review its inventory first.
+
+### Offline custom map collection (1.0.771)
+
+After a new offline custom match loads successfully, the client queues its original
+scenario and exact selected mod revision. Replays, saves, campaigns and cancelled
+setup do not contribute. Transfers run asynchronously in menus and offline games;
+network failures leave the persistent outbox entry for retry.
+
+Deploy the service before distributing 1.0.771: the new `lookup` route must be
+present in both the HTTP router and Apache rewrite rules. Older services reject
+lookup and the client retains the queued map until the service is upgraded.
+
+Lookup matches map-file SHA-256 plus mod revision, independent of local publisher
+identity. Legacy records are checked using their immutable manifests when derived
+metadata is absent. Automatic map uploads additionally send `collect=1` to
+`begin`; both begin and commit recheck under the storage lock and can return
+`collected=<existing-revision>` instead of creating a duplicate. Manual editor
+publication retains its existing ownership and version behavior. A collection
+receipt never grants ownership or invents a server version for the local copy.

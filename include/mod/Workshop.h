@@ -28,6 +28,13 @@ public:
                             unsigned version, const std::filesystem::path& source);
     Revision get(const std::string& hash) const;
     void verifyDirectory(const Revision& revision, const std::filesystem::path& directory) const;
+    // Has the metaserver acknowledged these exact bytes? Set by setSharedVersion only.
+    bool shared(const std::string& hash) const;
+    // Automatic collection receipt: the metaserver holds this scenario under its own
+    // revision identity, so this local copy must not be offered again. It is not a
+    // shared version - the server never assigned one to this local hash.
+    void setCollected(const std::string& hash, const std::string& serverRevision);
+    bool collected(const std::string& hash) const;
     std::vector<Revision> list(const std::string& kind = {}) const;
     std::string owner();
     void setSharedVersion(const std::string& hash, unsigned version);
