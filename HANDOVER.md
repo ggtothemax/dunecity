@@ -8787,3 +8787,60 @@ starting allowance, a 2.4-million loaded balance, actual underlying pool values,
 and ceiling enforcement during loading. Unit suite and both complete storage/
 capture probes pass (3 targeted CTest targets, 12.79 seconds). The pending 1.0.767
 package is refreshed with this follow-up; it has not been installed yet.
+
+## 2026-09-23 — Pre-release follow-ups (local 1.0.768)
+
+Approved fixes from the 767 review: new expansions target three rocket turrets
+on every difficulty; necessary police funding cuts remain immediate while
+increases wait 30 game-seconds and clear a five-point deadband; Save As forks
+map identity/revision lineage; metaserver INI metadata understands inline
+comments; refunds preserve the starting-cash part of their actual payment.
+
+Expansion placement scores the producing expansion's own coverage first and
+keeps priority through the third turret. Its turret upgrades and construction
+have a bounded capital reservation so cheap zoning cannot repeatedly spend
+that money. Core Heavy/High Tech/Repair Yard completion precedes new custom
+city expansion; the next MCV waits for three completed covers at existing
+expansions. Planned turrets prevent duplicate orders but do not unlock the
+next expansion. Repeatedly lost sites remain excluded during retained loss
+history. Main-base opening, shared budgets and 33%/50% recurring policing
+limits remain in place. This is not a guarantee that a yard cannot be killed.
+
+Refundable progressive construction and prepaid Starport/Love Factory orders
+record starting-cash contributions, return only that share to the exempt pool,
+and keep earned refunds capacity-limited. Cancellation, prerequisite loss,
+completion and capture clear the appropriate provenance; capture cannot mint
+the prior owner's exemption. All balances stay <=999999. Save format 9846 adds
+these fields; legacy orders have no recorded provenance and conservatively
+remain capacity-limited on refund. Protocol 24 excludes mixed-rule peers.
+
+Save As starts a distinct map ID at MapVersion 1; ordinary Save retains its ID
+and increments metadata. Editing immutable shared content also forks identity.
+Server metadata schema 5 reparses older cached entries lazily and preserves
+quoted comment markers. Server source commit e6f6309d is packaged in website
+commit 82398cc; that server deployment is pending the explicit push approval
+requested in this task. No game push, PR, public release or MBA installation.
+
+Claude subscription worker supplied the initial AI/accounting patch and hit its
+turn bound; Codex completed integration, expansion reservations/sequencing,
+provenance capture cleanup and regression coverage. Evidence is under
+../outputs/release-fixes-768/. The final 24-minute same-map/seed six-house
+Alkozeltser 4 checks kept all houses alive, all with eight refineries:
+- Medium: zero yard losses, 423 funding changes (767: 1028), 13–25 R/C/I
+  buildings per house, 8–36 rockets. Three crime outbreaks (3, 4, 11 hostiles).
+- Hard: two yard losses (767: 12), 351 funding changes (767: 1275), 13–35 R/C/I
+  buildings per house, 2–29 rockets. Three crime outbreaks (3, 6, 17 hostiles).
+These are one-seed bounded runs, not universal balance or performance proof.
+
+Validation: clean full 31-target CTest pass (279.66 seconds), plus 221 server
+integration tests and the focused content parser/cache tests. The placement
+probe checks three covers on all four difficulties and verifies that plans do
+not release the next MCV before all three turrets are actually completed.
+Refund probes cover real opening cancellation, mixed/fractional payments,
+prerequisite removal, completion, capture, full builder save/load cancellation,
+prepaid queue serialization and legacy queue field alignment in Vanilla and
+DuneCity. Menu probes verify distinct Save As IDs, ordinary-save lineage, and
+immutable-source forks across resolutions. Native builds, dependency audits,
+version agreement and the website service snapshot installer/security checks
+passed. Final candidate still needs platform CI and live multiplayer release
+checks; no broader release-readiness claim is made here.

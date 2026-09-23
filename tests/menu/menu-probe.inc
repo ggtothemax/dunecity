@@ -941,6 +941,18 @@ int runMenuProbe() {
         const std::string desertPath=std::string(std::getenv("MENU_PROBE_OUT"))+"/"+desertName+".ini";
         editor.saveMap(desertPath);INIFile desertSaved(desertPath);
         menuRequire(desertSaved.getStringValue("BASIC","Name")==desertName && desertSaved.getStringValue("BASIC","Mod")=="vanilla","Save As retained the old city name or inferred category from the active mod");
+        const auto cityID=citySaved.getStringValue("Workshop","ID");
+        const auto desertID=desertSaved.getStringValue("Workshop","ID");
+        menuRequire(!cityID.empty() && cityID!=desertID && desertSaved.getIntValue("BASIC","MapVersion",0)==1,
+                    "Save As did not fork map identity and revision history");
+        editor.saveMap(desertPath);INIFile resaved(desertPath);
+        menuRequire(resaved.getStringValue("Workshop","ID")==desertID && resaved.getIntValue("BASIC","MapVersion",0)==2,
+                    "Ordinary save forked identity or lost revision history");
+        INIFile immutableMeta(desertPath+".workshop.ini");
+        immutableMeta.setBoolValue("Workshop","Immutable",true);immutableMeta.saveChangesTo(desertPath+".workshop.ini");
+        editor.saveMap(desertPath);INIFile forked(desertPath);
+        menuRequire(forked.getStringValue("Workshop","ID")!=desertID && forked.getIntValue("BASIC","MapVersion",0)==1,
+                    "Editing a shared map did not fork its identity");
     }
     // Exercise the real editor palette, scrolling, placement and map round trip.
     for(const std::string mod : {"vanilla", "dunecity"}) {

@@ -476,52 +476,71 @@ void House::addCityTaxReceipts(FixPoint grossAmount) {
 
 
 
-void House::returnCredits(FixPoint newCredits) {
+void House::returnCredits(FixPoint newCredits, FixPoint fromStartingCredits) {
     if(newCredits > 0) {
         AITelemetry::log().account(houseID, "refunded", newCredits.getRawValue());
 
-        // Refunds share storage too; never turn earned funds into starting cash.
-        addCredits(newCredits, false);
+        // Only money this payment actually drew from starting cash goes back
+        // there, and only as far as the absolute ceiling allows. Everything
+        // else is earned income and shares storage, so a refund can never be
+        // used to turn earned funds into exempt starting cash.
+        const FixPoint startingPart = std::clamp(fromStartingCredits, FixPoint(0), newCredits);
+        if(startingPart > 0) {
+            enforceCreditCeiling();
+            const FixPoint ceilingRoom = std::max(FixPoint(0),
+                FixPoint(MAX_GAME_CREDITS) - (startingCredits + getEarnedCredits()));
+            const FixPoint restored = std::min(startingPart, ceilingRoom);
+            startingCredits += restored;
+            AITelemetry::log().account(houseID, "refunded_starting", restored.getRawValue());
+        }
+
+        addCredits(newCredits - startingPart, false);
     }
 }
 
 
-
-
 FixPoint House::takeCredits(FixPoint amount) {
-    FixPoint taken = 0;
+    return payCredits(amount).total;
+}
+
+
+House::CreditPayment House::payCredits(FixPoint amount) {
+    CreditPayment payment;
 
     if(getCredits() >= 1) {
         if(cityCredits >= amount) {
             cityCredits -= amount;
             AITelemetry::log().account(houseID, "spent_total", amount.getRawValue());
-            return amount;
+            payment.total = amount;
+            return payment;
         }
 
-        taken = cityCredits;
+        payment.total = cityCredits;
         amount -= cityCredits;
         cityCredits = 0;
 
         if(storedCredits >= amount) {
-            taken += amount;
+            payment.total += amount;
             storedCredits -= amount;
         } else {
-            taken += storedCredits;
+            payment.total += storedCredits;
             amount -= storedCredits;
             storedCredits = 0;
 
             if(startingCredits >= amount) {
                 startingCredits -= amount;
-                taken += amount;
+                payment.total += amount;
+                payment.fromStarting = amount;
             } else {
-                taken += startingCredits;
+                payment.total += startingCredits;
+                payment.fromStarting = startingCredits;
                 startingCredits = 0;
             }
         }
     }
 
-    AITelemetry::log().account(houseID, "spent_total", taken.getRawValue());
-    return taken;   //the amount that was actually withdrawn
+    AITelemetry::log().account(houseID, "spent_total", payment.total.getRawValue());
+    return payment;   //the amount that was actually withdrawn, and where it came from
 }
 
 

@@ -1,4 +1,5 @@
 #include <players/CityServiceInvestmentPolicy.h>
+#include <players/RocketTurretPolicy.h>
 #include <players/CombatReward.h>
 #include <misc/OMemoryStream.h>
 #include <misc/IMemoryStream.h>
@@ -1631,4 +1632,79 @@ TEST_CASE("City policing fits early and established recurring budgets", "[ai][ci
     CHECK(affordablePoliceFunding(600,50,300,50)==91);
     CHECK(affordablePoliceFunding(0,50,300,33)==0);
     CHECK(affordablePoliceFunding(600,50,0,33)==100);
+}
+
+TEST_CASE("Police funding cuts apply at once and increases wait for review", "[ai][city][budget]") {
+    using namespace CityServiceInvestmentPolicy;
+    // Enforcing the 33%/50% recurring limit is never delayed.
+    CHECK(smoothedPoliceFunding(100,60,1000,900)==60);
+    CHECK(smoothedPoliceFunding(60,0,1000,999)==0);
+    // Unchanged funding stays unchanged whatever the clock says.
+    CHECK(smoothedPoliceFunding(60,60,1000,999)==60);
+    // An increase inside the review interval is held, whatever its size.
+    CHECK(smoothedPoliceFunding(60,100,1000,900)==60);
+    CHECK(smoothedPoliceFunding(60,63,1000+kPoliceIncreaseReviewCycles,1000)==60);
+    // Sustained headroom past the interval, beyond the deadband, is applied.
+    CHECK(smoothedPoliceFunding(60,100,1000+kPoliceIncreaseReviewCycles,1000)==100);
+    CHECK(smoothedPoliceFunding(60,100,1000+kPoliceIncreaseReviewCycles-1,1000)==60);
+    // Demand that flips on every build pass used to move funding every pass:
+    // 1,028 changes on Medium and 1,275 on Hard in the reviewed run. Cuts stay
+    // immediate, so the level still follows the limit down, but the reversals
+    // are now bounded by the review cadence.
+    int funding=100, changes=0;
+    Uint32 lastChange=5000, cycle=5000;
+    for(int pass=0;pass<60;++pass) {
+        const int target=pass%2 ? 100 : 40;   // alternating demand, every build pass
+        const int applied=smoothedPoliceFunding(funding,target,cycle,lastChange);
+        if(applied!=funding) { funding=applied; lastChange=cycle; ++changes; }
+        cycle+=100;                            // 1.6 game-seconds per build pass
+    }
+    CHECK(changes<=8);
+    CHECK(changes>0);
+    // A rewound or reloaded clock must not unlock an early increase.
+    CHECK(smoothedPoliceFunding(40,100,900,5000)==40);
+}
+
+TEST_CASE("New expansion yards demand three turrets and are covered first", "[ai][city][defense]") {
+    using namespace RocketTurretPolicy;
+    // Tier 0 Easy, 1 Medium, 2 Hard, 3 Brutal.
+    for(int tier : {0,1,2,3}) {
+        CHECK(desiredCoverage(Structure_ConstructionYard,tier,true)==3);
+        CHECK(desiredCoverage(Structure_ConstructionYard,tier,true)
+              >= desiredCoverage(Structure_ConstructionYard,tier,false));
+    }
+    // Other buildings retain their difficulty-scaled goals.
+    CHECK(desiredCoverage(Structure_Refinery,1,true)==desiredCoverage(Structure_Refinery,1,false));
+    CHECK(desiredCoverage(Structure_ZoneResidential,1,true)==desiredCoverage(Structure_ZoneResidential,1,false));
+    CHECK(desiredCoverage(Structure_RocketTurret,2,true)==0);
+
+    // The exposed expansion outranks the rest of the core, which outranks
+    // ordinary buildings, which never claim first-cover priority at all.
+    CHECK(firstCoverPriority(Structure_ConstructionYard,true)
+          > firstCoverPriority(Structure_Refinery,false));
+    CHECK(firstCoverPriority(Structure_Refinery,false) > 0);
+    CHECK(firstCoverPriority(Structure_ZoneResidential,true)==0);
+    CHECK(firstCoverPriority(Structure_ConstructionYard,true)
+          > 2*firstCoverPriority(Structure_HeavyFactory,false));
+
+    // A site giving an uncovered expansion yard its first turret beats a
+    // central site that only adds more cover to an already defended district.
+    Score exposedYard; exposedYard.critical=firstCoverPriority(Structure_ConstructionYard,true);
+    exposedYard.defense=3;
+    Score crowdedCentre; crowdedCentre.defense=40; crowdedCentre.junction=8; crowdedCentre.amenity=30;
+    CHECK(exposedYard.betterThan(crowdedCentre));
+    CHECK_FALSE(crowdedCentre.betterThan(exposedYard));
+    CHECK(exposedYard.useful());
+    Score localExpansion;localExpansion.expansion=1;localExpansion.defense=3;
+    Score remoteCore;remoteCore.critical=100;remoteCore.defense=100;
+    CHECK(localExpansion.betterThan(remoteCore));
+    // The expansion keeps a lower-weight priority for its second and third
+    // turret, and a turret that covers nothing is still not worth buying.
+    Score secondYardTurret; secondYardTurret.critical=1; secondYardTurret.defense=3;
+    CHECK(secondYardTurret.betterThan(crowdedCentre));
+    CHECK(exposedYard.betterThan(secondYardTurret));
+    CHECK_FALSE(Score().useful());
+    // The interim ceiling still scales with demand rather than jumping.
+    CHECK(coverageTurretCap(12)==5);
+    CHECK(coverageTurretCap(15)>coverageTurretCap(12)-1);
 }

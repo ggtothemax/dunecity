@@ -116,6 +116,7 @@ void runCityGrowthProbe(Game& game) {
     // This city can sustainably fund protection; the separate budget probe
     // covers a zero-tax city, where an emergency cannot bypass the spending cap.
     state.taxBaseEighths=2000;
+    state.policeFundingPercent=100; // This case starts funded; increase smoothing has its own tests.
     setCrime(250);
     const Uint32 urgent=decide(150);
     require(!DuneCity::isCityZoneStructure(urgent),

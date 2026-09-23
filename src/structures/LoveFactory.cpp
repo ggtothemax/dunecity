@@ -176,8 +176,10 @@ void LoveFactory::doProduceItem(Uint32 deliveryID, bool multipleMode) {
         }
 
         item->num++;
-        currentProductionQueue.emplace_back(deliveryID, item->price);
-        getOwner()->takeCredits(item->price);
+        // Paid up front like a Starport order: keep the starting-cash share so
+        // a cancellation refunds it to the pool that funded it.
+        const auto payment = getOwner()->payCredits(item->price);
+        currentProductionQueue.emplace_back(deliveryID, item->price, payment.fromStarting);
         getOwner()->getChoam().setNumAvailable(deliveryID, deliveryStock - 1);
     }
 }
@@ -208,7 +210,7 @@ void LoveFactory::doCancelItem(Uint32 deliveryID, bool multipleMode) {
         }
 
         item->num--;
-        getOwner()->returnCredits(mostExpensive->price);
+        getOwner()->returnCredits(mostExpensive->price, mostExpensive->startingCreditsPaid);
         const int deliveryStock = getOwner()->getChoam().getNumAvailable(deliveryID);
         getOwner()->getChoam().setNumAvailable(
             deliveryID, deliveryStock < LOVE_FACTORY_MAX_STOCK ? deliveryStock + 1 : LOVE_FACTORY_MAX_STOCK);

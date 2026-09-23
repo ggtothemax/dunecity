@@ -255,14 +255,14 @@ void ChaosFactory::doCancelItem(Uint32 productionItemID, bool multipleMode) {
 
 void ChaosFactory::cancelUnfinishedOrders() {
     if(getOwner() != nullptr && currentProducedItem != ItemID_Invalid) {
-        getOwner()->returnCredits(productionProgress);
+        refundProductionProgress();
     }
     currentProductionQueue.clear();
     for(BuildItem& item : buildList) {
         item.num = 0;
     }
     currentProducedItem = ItemID_Invalid;
-    productionProgress = 0;
+    clearProductionProgress();
     deployTimer = 0;
     bCurrentItemOnHold = false;
 }

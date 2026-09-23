@@ -499,6 +499,20 @@ void MapEditor::saveMap(const std::string& filepath) {
         loadedINIFile = std::make_unique<INIFile>(false, comment);
     }
 
+    // Save As creates an independent catalogue item, including converted copies.
+    // Ordinary saves retain their identity and revision history.
+    bool forkShared = !lastSaveName.empty() && filepath != lastSaveName;
+    for (const auto& source : {lastSaveName, filepath}) {
+        if(!source.empty() && std::filesystem::exists(source + ".workshop.ini")) {
+            INIFile previous(source + ".workshop.ini");
+            forkShared = forkShared || previous.getBoolValue("Workshop", "Immutable", false);
+        }
+    }
+    if(forkShared || loadedINIFile->getStringValue("Workshop", "ID", "").empty()) {
+        loadedINIFile->removeSection("Workshop");
+        loadedINIFile->setStringValue("Workshop", "ID", Workshop::newID());
+        loadedINIFile->setIntValue("BASIC", "MapVersion", 0);
+    }
     loadedINIFile->setIntValue("BASIC", "MapVersion", loadedINIFile->getIntValue("BASIC", "MapVersion", 0)+1);
     int version = (mapInfo.mapSeed == INVALID) ? 2 : 1;
 
@@ -863,13 +877,6 @@ void MapEditor::saveMap(const std::string& filepath) {
         }
     }
 
-    bool forkShared = false;
-    if(std::filesystem::exists(filepath + ".workshop.ini")) {
-        INIFile previous(filepath + ".workshop.ini");
-        forkShared = previous.getBoolValue("Workshop", "Immutable", false);
-    }
-    if(forkShared || loadedINIFile->getStringValue("Workshop", "ID", "").empty())
-        loadedINIFile->setStringValue("Workshop", "ID", Workshop::newID());
     const std::string stagedPath = filepath + ".saving";
     if(!loadedINIFile->saveChangesTo(stagedPath, getMapVersion() < 2))
         throw std::runtime_error("The map could not be saved. Check the destination and free disk space.");

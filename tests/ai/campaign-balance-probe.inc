@@ -37,6 +37,7 @@
 #include "city-income-probe.inc"
 #include "credit-storage-probe.inc"
 #include "credit-capture-probe.inc"
+#include "refund-provenance-probe.inc"
 #include "campaign-city-economy-probe.inc"
 
 int runCampaignBalanceProbe() {
@@ -125,7 +126,7 @@ int runCampaignBalanceProbe() {
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_CREDIT_STORAGE_PROBE")) {
-        runCreditStorageProbe(*game);runCreditCaptureProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        runCreditStorageProbe(*game);runCreditCaptureProbe(*game);runRefundProvenanceProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_CITY_INCOME_PROBE")) {

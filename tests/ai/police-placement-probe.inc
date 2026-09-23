@@ -1,4 +1,5 @@
 #include <dunecity/PoliceCoveragePolicy.h>
+#include <players/RocketTurretPolicy.h>
 // Compare the selected station against all legal sites using the actual police
 // field. The settlement sits outside the first large-map scan stripe.
 void runPolicePlacementProbe(Game& game) {
@@ -120,6 +121,46 @@ void runPolicePlacementProbe(Game& game) {
                 if(planned<covers)bot->reservedStructures[yard->getObjectID()+100+planned]={Structure_RocketTurret,site};
             }
         }
+        // An outlying yard gets three covers at every difficulty. Cover the
+        // original anchor in advance so the test measures the expansion only.
+        auto* anchor=yard;
+        auto* expansion=house->placeStructure(NONE_ID,Structure_ConstructionYard,
+            origin.x+20,origin.y+20,true,true);
+        require(expansion,"Expansion fixture yard could not be placed");
+        saved.push_back(expansion);
+        structureList.clear();structureList.push_back(anchor);structureList.push_back(expansion);
+        const int radius=std::max(1,game.objectData.data[Structure_RocketTurret][house->getHouseID()].weaponrange-1);
+        for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                              QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            bot->difficulty=difficulty;bot->reservedStructures.clear();
+            for(int n=0;n<3;++n)
+                bot->reservedStructures[yard->getObjectID()+300+n]={Structure_RocketTurret,anchor->getLocation()+Coord(n,0)};
+            for(int planned=0;planned<=3;++planned) {
+                bot->cityTurretSearch.reset();bot->clearPlacementCache();
+                int defense=0;
+                const auto site=bot->findCityTurretPlaceLocation(Structure_RocketTurret,&defense);
+                require(planned==3 ? defense==0 : site.isValid() && defense>0
+                    && RocketTurretPolicy::coversBuilding(site,expansion->getLocation(),expansion->getStructureSize(),radius),
+                    "Expansion did not receive exactly three planned rocket covers");
+                if(planned<3)bot->reservedStructures[yard->getObjectID()+400+planned]={Structure_RocketTurret,site};
+            }
+        }
+        // Plans stop duplicate orders but cannot release another MCV until
+        // the three emplacements actually exist.
+        std::vector<std::pair<Uint32,int>> coreCounts;
+        for(Uint32 item:{Structure_HeavyFactory,Structure_HighTechFactory,Structure_RepairYard}) {
+            coreCounts.push_back({item,house->numItem[item]});house->numItem[item]=std::max(1,house->numItem[item]);
+        }
+        require(!bot->expansionDefenceReady(),"Planned turrets prematurely released another expansion");
+        for(int n=0;n<3;++n) {
+            const auto site=bot->reservedStructures.at(yard->getObjectID()+400+n).location;
+            auto* turret=house->placeStructure(NONE_ID,Structure_RocketTurret,site.x,site.y,true,true);
+            require(turret,"Could not finish expansion turret fixture");saved.push_back(turret);
+            require(bot->expansionDefenceReady()==(n==2),
+                "Expansion sequencing did not wait for exactly three completed turrets");
+        }
+        for(const auto& count:coreCounts)house->numItem[count.first]=count.second;
+        bot->planningBuilder=yard->getObjectID();
         // Growing city districts also need overlapping general-purpose cover
         // on Medium and above, without escalating the first core upgrade path.
         structureList.clear();structureList.push_back(properties.at(1));

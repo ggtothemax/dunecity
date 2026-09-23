@@ -52,6 +52,24 @@ inline int affordablePoliceFunding(int annualTax, int annualPower, int nominalCo
     if (nominalCost <= 0) return 100;
     return std::clamp(int(int64_t(policingAllowance(annualTax,annualPower,percent))*100/nominalCost),0,100);
 }
+// Funding was recomputed every build pass, so tax and cost noise moved it in
+// both directions every 1.6 game-seconds and service effectiveness never
+// settled. Cutting funding is the 33%/50% budget limit being enforced and
+// still applies at once; raising it has to be worth the disturbance, so an
+// increase waits for a sustained review interval and must clear a deadband.
+// Both bounds are cycle counts and fixed constants, so every peer and every
+// reload reaches the same decision from the serialized review cycle alone.
+constexpr uint32_t kPoliceIncreaseReviewCycles = 1875; // 30 game-seconds at the default speed.
+constexpr int kPoliceIncreaseDeadband = 5;             // Percentage points of nominal cost.
+inline int smoothedPoliceFunding(int current, int target, uint32_t cycle, uint32_t lastChangeCycle,
+                                 uint32_t reviewCycles = kPoliceIncreaseReviewCycles,
+                                 int deadband = kPoliceIncreaseDeadband) {
+    if (target <= current) return target;                     // cap enforcement: immediate
+    if (target - current < deadband) return current;          // noise, not headroom
+    // A reload or a rewound clock must not unlock an increase early.
+    const uint32_t elapsed = cycle >= lastChangeCycle ? cycle - lastChangeCycle : 0;
+    return elapsed >= reviewCycles ? target : current;
+}
 // One game-year horizon. Crime is a civic utility weight, not tax income:
 // weighted by actual growth thresholds and severe-crime relief.
 struct Value {

@@ -212,7 +212,21 @@ public:
     void addCredits(FixPoint newCredits, bool wasRefined = false);
     void addCityCredits(FixPoint amount);
     void addCityTaxReceipts(FixPoint grossAmount);
-    void returnCredits(FixPoint newCredits);
+    /// How a withdrawal was funded. Starting cash is storage-exempt, so a
+    /// refund has to know how much of the payment came from that pool: paying
+    /// it back as earned income would either destroy it (no refinery yet) or
+    /// launder exempt cash into the capacity-limited earned balance.
+    struct CreditPayment {
+        FixPoint total = 0;         ///< what was actually withdrawn
+        FixPoint fromStarting = 0;  ///< the part taken from exempt starting cash
+    };
+    /// Withdraw up to \a amount and report which pools paid for it.
+    CreditPayment payCredits(FixPoint amount);
+    /// Refund \a newCredits, of which \a fromStartingCredits was originally
+    /// paid out of starting cash and returns there. The rest is earned income
+    /// and stays subject to storage capacity; the total never exceeds the
+    /// absolute credit ceiling.
+    void returnCredits(FixPoint newCredits, FixPoint fromStartingCredits = 0);
     FixPoint takeCredits(FixPoint amount);
 
     void printStat() const;
