@@ -19,7 +19,7 @@ final class Content
     /** The largest map side the client itself accepts; anything beyond it is not a dimension. */
     private const MAX_MAP_SIDE = 2048;
     /** A mod folder name can never contain '?' or '*', so both are safe filter/row markers:
-     * '?' is "identity not established", '*' asks for maps that need no mod at all.
+     * '?' is retained for old clients, '*' aliases the vanilla category.
      */
     private const MOD_UNKNOWN = '?';
     private const MOD_BASE_GAME = '*';
@@ -28,6 +28,8 @@ final class Content
         'rebels', 'custom', 'wildspade', 'kleshmersh', 'tharpique',
         'player1', 'player2', 'player3', 'player4', 'player5', 'player6',
         'player7', 'player8', 'player9', 'player10', 'player11', 'player12'];
+    private const CITY_BUILDINGS = ['residential zone', 'zone residential', 'commercial zone', 'zone commercial', 'industrial zone', 'zone industrial', 'road', 'power line', 'powerline', 'nuclear', 'nuclear plant', 'police station', 'police', 'stadium', 'airport'];
+    private const TORNIE_BUILDINGS = ['advanced windtrap 3x3', 'advanced windtrap', 'advanced wind trap', 'advanced wind trap 3x3', 'advanced windtrap 2x3', 'advanced windtrap mk2', 'advanced wind trap mk2', 'advanced wind trap 2x3', 'advanced windtrap 3x2', 'advanced windtrap mk3', 'advanced wind trap mk3', 'advanced wind trap 3x2', 'worfinery', 'tech center', 'techcenter', 'scoutpost', 'scout post', 'green post', 'sentinel post', 'avant-poste', 'avant poste', 'flamepost', 'flame post', 'chemipost', 'chemi post', 'love factory', 'lovefactory', 'chaos factory', 'chaosfactory'];
     private string $dir;
 
     public function __construct(private readonly Config $config)
@@ -480,7 +482,7 @@ final class Content
 
     private static function unknownMap(): array
     {
-        return ['schema' => 2, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => '', 'known' => false, 'file' => ''];
+        return ['schema' => 3, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => 'vanilla', 'known' => false, 'file' => ''];
     }
 
     private static function iniInt(string $value, int $fallback): int
@@ -522,7 +524,13 @@ final class Content
             if ($value !== '' && $value[0] === '"' && str_ends_with($value, '"') && strlen($value) > 1)
                 $value = substr($value, 1, -1);
             if ($section === 'map' && in_array($key, ['sizex', 'sizey', 'seed'], true)) $map[$key] = $value;
-            elseif ($section === 'basic' && in_array($key, ['mapscale', 'mod'], true)) $basic[$key] = $value;
+            elseif ($section === 'basic' && $key === 'mapscale') $basic[$key] = $value;
+            elseif ($section === 'structures' && preg_match('/^(id|gen)[0-9]+$/D', $key)) {
+                $parts = explode(',', $value);
+                $building = strtolower(trim($parts[1] ?? ''));
+                if (in_array($building, self::CITY_BUILDINGS, true)) $out['mod'] = 'dunecity';
+                elseif ($out['mod'] !== 'dunecity' && in_array($building, self::TORNIE_BUILDINGS, true)) $out['mod'] = 'tornie';
+            }
         }
         if (isset($map['seed'])) {
             // Legacy seed maps carry no dimensions; the scale decides them, as in CustomGameMenu.
@@ -538,9 +546,6 @@ final class Content
         $out['width'] = $width;
         $out['height'] = $height;
         foreach (self::PLAYER_SECTIONS as $name) if (isset($sections[$name])) ++$out['players'];
-        $declared = $basic['mod'] ?? '';
-        if ($declared !== '' && strlen($declared) <= 64 && self::portablePath($declared)
-            && !str_contains($declared, '/')) $out['mod'] = $declared;
         return $out;
     }
 
@@ -548,7 +553,7 @@ final class Content
     private function mapMetadata(array &$state, string $hash, array &$budget): array
     {
         $cached = $state['maps'][$hash] ?? null;
-        if (is_array($cached) && ($cached['schema'] ?? 0) === 2 && isset($cached['width'], $cached['height'], $cached['players'],
+        if (is_array($cached) && ($cached['schema'] ?? 0) === 3 && isset($cached['width'], $cached['height'], $cached['players'],
             $cached['mod'], $cached['known'], $cached['file'])) return $cached;
         if ($budget['files'] <= 0 || $budget['bytes'] <= 0) return self::unknownMap();
         --$budget['files'];
@@ -568,20 +573,11 @@ final class Content
         }
     }
 
-    /** The canonical mod folder a map belongs to: the pinned dependency decides, the map's own
-     * `[BASIC] Mod` only supplies the spelling when it agrees. Where neither establishes an
-     * identity the row stays explicitly unknown instead of inventing one.
-     */
+    /** Catalogue category is derived from map buildings, independently of the
+     * immutable gameplay dependency. Old tags and active mod names are not evidence. */
     private static function modIdentity(array $state, array $row, array $meta): string
     {
-        if ($row['mod'] === '') return $meta['known'] && $meta['mod'] === '' ? '' : self::MOD_UNKNOWN;
-        $dependency = $state['revisions'][$row['mod']] ?? null;
-        if ($dependency === null || ($dependency['kind'] ?? '') !== 'mod' || ($dependency['base'] ?? '') === '')
-            return self::MOD_UNKNOWN;
-        // Manifest text fields are stored exactly as sent, which is hex, and stay that way on the wire.
-        $base = Http::isHex((string)$dependency['base']) ? (string)hex2bin((string)$dependency['base']) : '';
-        if ($base === '' || !self::portablePath($base) || str_contains($base, '/')) return self::MOD_UNKNOWN;
-        return $meta['mod'] !== '' && strcasecmp($meta['mod'], $base) === 0 ? $meta['mod'] : $base;
+        return $meta['mod'] ?: 'vanilla';
     }
 
     private function listing(array &$state, array $form): array
@@ -647,13 +643,13 @@ final class Content
         foreach ($latest as $entry) {
             $meta = $this->mapMetadata($state, $entry['hash'], $budget);
             $identity = self::modIdentity($state, $entry['row'], $meta);
-            // The same map file for the same mod is one playable map however many items carry it.
+            // Keep distinct exact gameplay dependencies even when their building category matches.
             if ($meta['file'] !== '') {
-                $key = $meta['file'] . '|' . strtolower($identity);
+                $key = $meta['file'] . '|' . strtolower($identity) . '|' . $entry['row']['mod'];
                 if (isset($seen[$key])) continue;
                 $seen[$key] = true;
             }
-            if ($mod !== '' && strcasecmp($mod === self::MOD_BASE_GAME ? '' : $mod, $identity) !== 0) continue;
+            if ($mod !== '' && strcasecmp($mod === self::MOD_BASE_GAME ? 'vanilla' : $mod, $identity) !== 0) continue;
             if ($width !== 0 && ($meta['width'] !== $width || $meta['height'] !== $height)) continue;
             if ($wanted !== 0 && $meta['players'] !== $wanted) continue;
             ++$matched;

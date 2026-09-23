@@ -235,7 +235,7 @@ class ContentTests(SignalingTestCase):
         kind, item, version, digest, name, base, mod, modname, width, height, players = rows[0]
         self.assertEqual(['map', 'a' * 32, '1'], [kind, item, version])
         self.assertEqual('Shared dunes', bytes.fromhex(name).decode())
-        self.assertEqual(['', '', ''], [base, mod, modname])
+        self.assertEqual(['', '', 'vanilla'.encode().hex()], [base, mod, modname])
         self.assertEqual(['128', '128', '2'], [width, height, players])
         legacy = self.ok(self.post('list', kind='map')).multi['item']
         self.assertEqual(1, len(legacy))
@@ -270,7 +270,7 @@ class ContentTests(SignalingTestCase):
         self.share({'map.ini': map_ini(size=(64, 64), players=4)}, item='b' * 32)
         self.share({'map.ini': map_ini(size=(32, 32), players=2)}, item='c' * 32)
         modraw, _ = self.share({'mod.ini': b'[Mod]\nName=Test'}, kind='mod', item='f' * 32, base='dunecity')
-        self.share({'map.ini': map_ini(size=(64, 64), players=2)}, item='d' * 32, mod=sha(modraw))
+        self.share({'map.ini': map_ini(size=(64, 64), players=2) + b'[STRUCTURES]\nID001=Atreides,Residential Zone,256,12\n'}, item='d' * 32, mod=sha(modraw))
         # An absent or empty mod filter browses every mod, base game included.
         self.assertEqual(4, len(self.catalogue()[0]))
         self.assertEqual(4, len(self.catalogue(mod='')[0]))
@@ -291,19 +291,31 @@ class ContentTests(SignalingTestCase):
                 self.assertEqual('bad_content', response.fields['code'])
         self.assertEqual(400, self.post('list', catalogue='everything').status)
 
-    def test_catalogue_mod_identity_comes_from_the_pinned_dependency(self):
+    def test_catalogue_category_comes_from_buildings_not_tags_names_units_or_dependency(self):
         modraw, _ = self.share({'mod.ini': b'[Mod]'}, kind='mod', item='f' * 32, base='dunecity')
-        self.share({'map.ini': map_ini(mod='DuneCity')}, mod=sha(modraw))
-        self.share({'map.ini': map_ini(mod='somethingelse')}, item='b' * 32, mod=sha(modraw))
-        # Without a pinned dependency a declared mod name proves nothing and stays unknown.
-        self.share({'map.ini': map_ini(mod='dunecity')}, item='c' * 32)
+        self.share({'map.ini': map_ini(mod='DuneCity')}, mod=sha(modraw), name='SimCity')
+        self.share({'map.ini': map_ini(mod='somethingelse') + b'[UNITS]\nID000=Atreides,Rocket Trike,256,12\n'}, item='b' * 32)
+        self.share({'map.ini': map_ini(mod='vanilla') + b'[STRUCTURES]\nID000=Atreides,TechCenter,256,12\n'}, item='c' * 32)
+        self.share({'map.ini': map_ini(mod='tornie') + b'[STRUCTURES]\nGEN12=Atreides,Road\nID000=Atreides,Tech Center,256,14\n'}, item='d' * 32)
         rows, _ = self.catalogue()
-        self.assertEqual([('a' * 32, 'DuneCity'), ('b' * 32, 'dunecity'), ('c' * 32, '?')],
-                         [(r[1], bytes.fromhex(r[7]).decode()) for r in rows])
-        self.assertEqual(['a' * 32, 'b' * 32], [r[1] for r in self.catalogue(mod='dunecity')[0]])
-        self.assertEqual(['c' * 32], [r[1] for r in self.catalogue(mod='?')[0]])
-        self.assertEqual([], self.catalogue(mod='*')[0])
-        self.assertEqual(3, len(self.catalogue(mod='')[0]))
+        self.assertEqual(['vanilla','vanilla','tornie','dunecity'],[bytes.fromhex(r[7]).decode() for r in rows])
+        self.assertEqual(['a'*32,'b'*32],[r[1] for r in self.catalogue(mod='vanilla')[0]])
+        self.assertEqual(['a'*32,'b'*32],[r[1] for r in self.catalogue(mod='*')[0]])
+        self.assertEqual(['c'*32],[r[1] for r in self.catalogue(mod='tornie')[0]])
+        self.assertEqual([],self.catalogue(mod='?')[0])
+
+    def test_catalogue_building_aliases_and_old_category_cache_migration(self):
+        fixtures = [('Nuclear Plant','dunecity'),('Police','dunecity'),('Zone Commercial','dunecity'),
+                    ('Powerline','dunecity'),('Advanced Wind Trap MK2','tornie'),
+                    ('Scout Post','tornie'),('Worfinery','tornie'),('WOR','vanilla')]
+        for i,(building,category) in enumerate(fixtures):
+            self.share({'map.ini':map_ini()+('[STRUCTURES]\nID001=Atreides, %s ,256,12\n'%building).encode()},item='%032x'%i)
+        index=Path(self.service.state)/'content/index.json'
+        state=json.loads(index.read_text())
+        for value in state['maps'].values():value.update(schema=2,mod='incorrect')
+        index.write_text(json.dumps(state))
+        rows,_=self.catalogue()
+        self.assertEqual([category for _,category in fixtures],[bytes.fromhex(r[7]).decode() for r in rows])
 
     def test_catalogue_collapses_identical_map_files_for_the_same_mod(self):
         data = map_ini(size=(64, 64), players=2)
@@ -315,7 +327,7 @@ class ContentTests(SignalingTestCase):
         # Both copies remain separately addressable revisions; the catalogue lists one of each.
         self.assertEqual(4, len(self.ok(self.post('list', kind='map')).multi['item']))
         rows, _ = self.catalogue()
-        self.assertEqual([('a' * 32, ''), ('c' * 32, 'dunecity'), ('d' * 32, '')],
+        self.assertEqual([('a' * 32, 'vanilla'), ('c' * 32, 'vanilla'), ('d' * 32, 'vanilla')],
                          [(r[1], bytes.fromhex(r[7]).decode()) for r in rows])
 
     def test_catalogue_rejects_dimensions_beyond_the_client_limit(self):
@@ -348,7 +360,7 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(0o600, stored.stat().st_mode & 0o777)
         state = json.loads((Path(self.service.state) / 'content/index.json').read_text())
         self.assertEqual(2, len(state['maps']))
-        self.assertEqual({'schema': 2, 'width': 64, 'height': 64, 'players': 2, 'mod': '', 'known': True, 'file': sha(data)},
+        self.assertEqual({'schema': 3, 'width': 64, 'height': 64, 'players': 2, 'mod': 'vanilla', 'known': True, 'file': sha(data)},
                          state['maps'][sha(raw)])
 
     def test_catalogue_counts_extended_houses_and_refreshes_old_cache(self):

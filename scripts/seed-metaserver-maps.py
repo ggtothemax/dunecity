@@ -81,7 +81,31 @@ def publish(endpoint, owner, manifest, directory):
     return int(complete['version'])
 
 
-def prepare(source, output, snapshots, owner):
+CITY_BUILDINGS = {'industrial zone', 'police', 'zone commercial', 'residential zone', 'zone industrial', 'nuclear plant', 'police station', 'stadium', 'commercial zone', 'airport', 'powerline', 'road', 'power line', 'nuclear', 'zone residential'}
+TORNIE_BUILDINGS = {'advanced wind trap 3x2', 'chemipost', 'advanced wind trap 3x3', 'advanced wind trap mk2', 'scoutpost', 'advanced windtrap 3x2', 'avant-poste', 'flame post', 'green post', 'chaosfactory', 'sentinel post', 'advanced windtrap 3x3', 'tech center', 'avant poste', 'love factory', 'scout post', 'advanced wind trap', 'worfinery', 'advanced windtrap mk2', 'flamepost', 'advanced windtrap', 'advanced wind trap mk3', 'techcenter', 'lovefactory', 'advanced wind trap 2x3', 'chaos factory', 'chemi post', 'advanced windtrap mk3', 'advanced windtrap 2x3'}
+
+
+def infer_mod(c):
+    category = 'vanilla'
+    for section in c.sections():
+        if section.lower() != 'structures':
+            continue
+        for key, value in c[section].items():
+            if not re.fullmatch(r'(id|gen)[0-9]+',key,re.I):
+                continue
+            parts=value.split(',')
+            building=parts[1].strip().lower() if len(parts)>1 else ''
+            if building in CITY_BUILDINGS:
+                return 'dunecity'
+            if building in TORNIE_BUILDINGS:
+                category='tornie'
+    return category
+
+
+def prepare(source, output, snapshots, owner, previous_output=None):
+    previous = {}
+    if previous_output:
+        previous = {row["source"]: row for row in json.loads((previous_output/"inventory.json").read_text())["maps"]}
     seen, maps, skipped = set(), [], []
     for path in sorted(source.rglob('*.ini')):
         if path.name.endswith('.workshop.ini') or path.is_symlink():
@@ -106,19 +130,13 @@ def prepare(source, output, snapshots, owner):
             if not ('seed' in m or (0 < int(m.get('sizex','0')) <= 2048 and 0 < int(m.get('sizey','0')) <= 2048)):
                 raise ValueError('Invalid dimensions')
             basic = c[sections['basic']] if 'basic' in sections else {}
-            declared = basic.get('mod', '').lower()
-            # Explicit flags take priority. Distinctive Tornie units require Tornie.
-            body = text.lower()
-            if declared:
-                mod = declared
-            elif any(x in body for x in ('elite siege tank', 'elite launcher', 'worfinery', 'rocket trike', 'chemical siege tank')):
-                mod = 'tornie'
-            elif any(x in body for x in ('residential zone', 'commercial zone', 'industrial zone', 'police station', ',nuclear,')) or any(x in path.stem.lower() for x in ('dunecity', 'simcity', 'city seige', 'twin cities')):
-                mod = 'dunecity'
-            else:
-                mod = 'vanilla'
-            if mod not in snapshots:
-                raise ValueError('No pinned snapshot for mod '+mod)
+            mod = infer_mod(c)
+            # Reclassification does not rewrite an already published map's exact
+            # gameplay dependency (e.g. a map containing Tornie units only).
+            old = previous.get(str(path), {})
+            dependency_mod = old.get('dependency_mod', old.get('mod', mod))
+            if dependency_mod not in snapshots:
+                raise ValueError('No pinned snapshot for mod '+dependency_mod)
             # Preserve ordinary map numbers (e.g. Alkozeltser 4); strip only explicit version suffixes.
             name = re.sub(r'\s*(?:[-_]\s*)?v\d+(?:\.\d+)*\s*$', '', basic.get('name',path.stem), flags=re.I).strip()
             item = sha(('legacy-map/'+owner+'/'+path.name+'/'+basic.get('author','')).encode())[:32]
@@ -139,13 +157,13 @@ def prepare(source, output, snapshots, owner):
             if not inserted:
                 lines = ['[BASIC]', 'Version=2', 'Mod='+mod, 'MapVersion=1', 'Name='+name]+lines
             data = ('\n'.join(lines)+'\n').encode()
-            dependency = snapshots[mod].name
+            dependency = snapshots[dependency_mod].name
             manifest = ('DUNEWORKSHOP1\nkind=map\nid='+item+'\nname='+name.encode().hex()
                         +'\nbase=\nmod='+dependency+'\nfile='+sha(data)+','+str(len(data))+',6d61702e696e69\n').encode()
             digest = sha(manifest)
             target=output/'maps'/digest;target.mkdir(parents=True,exist_ok=True)
             (target/'map.ini').write_bytes(data);(target/'manifest').write_bytes(manifest)
-            maps.append({'name': name, 'mod': mod, 'hash': digest, 'source': str(path), 'source_sha256': sha(raw)})
+            maps.append({'name': name, 'mod': mod, 'dependency_mod': dependency_mod, 'hash': digest, 'source': str(path), 'source_sha256': sha(raw)})
             seen.add(sha(raw))
         except (ValueError, configparser.Error) as error:
             skipped.append({'file': str(path), 'reason': str(error)})
@@ -157,6 +175,7 @@ def prepare(source, output, snapshots, owner):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--source',type=Path,required=True)
+    p.add_argument('--previous-output',type=Path,help='Preserve exact dependencies from an earlier seed inventory')
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--owner-file',type=Path,required=True)
     p.add_argument('--mod',action='append',default=[],help='name=/path/to/verified/workshop/revisions/hash')
@@ -176,12 +195,12 @@ def main():
             p.error('Invalid mod snapshot '+name)
         snapshots[name.lower()]=folder
     a.output.mkdir(parents=True,exist_ok=True)
-    report=prepare(a.source,a.output,snapshots,owner)
+    report=prepare(a.source,a.output,snapshots,owner,a.previous_output)
     print('Prepared',len(report['maps']),'maps;',len(report['skipped']),'duplicates or invalid inputs',flush=True)
     if not a.upload:return
     receipt=[]
     try:
-        for mod in sorted({r['mod'] for r in report['maps']}):
+        for mod in sorted({r['dependency_mod'] for r in report['maps']}):
             folder=snapshots[mod]
             print('Sharing required mod',mod,flush=True)
             publish(a.endpoint,owner,(folder/'manifest').read_bytes(),folder/'files')

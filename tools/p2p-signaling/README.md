@@ -359,7 +359,7 @@ selects another configured native build. C++17, pkg-config, SDL2, curl and PHP a
 
 `POST /v1/content/list` with `catalogue=maps` returns the newest revision of each
 map lineage, including automatic host uploads, deduplicated by map bytes and
-mod identity. Optional filters are `mod` (empty means all), `size=WIDTHxHEIGHT`,
+building category and exact gameplay dependency. Optional filters are `mod` (empty means all), `size=WIDTHxHEIGHT`,
 and `players=1..12`; `cursor` follows the existing 50-row pagination. Catalogue
 `item` rows append four fields to the legacy seven: hex-encoded mod identifier,
 width, height, and maximum player slots. The legacy list protocol is unchanged.
@@ -371,8 +371,12 @@ service deployments and can be reviewed for a later release. Existing revisions
 are indexed lazily. Content quotas count the blob once. Map display names never
 need a version suffix; the server-assigned version remains metadata.
 
-Maps may declare `[BASIC] Mod=dunecity` (or another canonical mod identifier).
-The pinned mod dependency remains authoritative. `[BASIC] MapVersion` describes
+Map categories are derived from actual `[STRUCTURES]` entries: Vanilla by default,
+Tornie for its exclusive buildings, and DuneCity for city buildings (including roads).
+City content takes precedence in mixed maps. Names, existing tags and unit types
+do not determine the category. Schema-3 metadata refreshes older cached labels.
+Editor saves write the derived `[BASIC] Mod` flag. The pinned mod dependency remains
+separate and authoritative for exact gameplay; reclassification never changes it. `[BASIC] MapVersion` describes
 an authored map revision; `[BASIC] Version` remains the legacy file-format number.
 The downloaded `.workshop.ini` sidecar records the server revision and mod.
 
