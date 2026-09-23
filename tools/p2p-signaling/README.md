@@ -354,3 +354,29 @@ The harness verifies resumed uploads, duplicate large atlas blobs, exact mod dep
 map revision history, corrupt-cache repair, and owner rejection. No game window opens and no
 normal user profile is touched. `--binary` runs a previously compiled harness; `--build-dir`
 selects another configured native build. C++17, pkg-config, SDL2, curl and PHP are required.
+
+### Metaserver map catalogue
+
+`POST /v1/content/list` with `catalogue=maps` returns the newest revision of each
+map lineage, including automatic host uploads, deduplicated by map bytes and
+mod identity. Optional filters are `mod` (empty means all), `size=WIDTHxHEIGHT`,
+and `players=1..12`; `cursor` follows the existing 50-row pagination. Catalogue
+`item` rows append four fields to the legacy seven: hex-encoded mod identifier,
+width, height, and maximum player slots. The legacy list protocol is unchanged.
+
+The service retains `content/maps/<revision>.ini` as a hard link to its verified
+immutable blob, with `<revision>.json` containing the display name, version,
+mod/dependency, dimensions, player slots and hashes. These private files survive
+service deployments and can be reviewed for a later release. Existing revisions
+are indexed lazily. Content quotas count the blob once. Map display names never
+need a version suffix; the server-assigned version remains metadata.
+
+Maps may declare `[BASIC] Mod=dunecity` (or another canonical mod identifier).
+The pinned mod dependency remains authoritative. `[BASIC] MapVersion` describes
+an authored map revision; `[BASIC] Version` remains the legacy file-format number.
+The downloaded `.workshop.ini` sidecar records the server revision and mod.
+
+`scripts/seed-metaserver-maps.py` in the game repository prepares a deduplicated
+collection and publishes it only with `--upload`, using existing verified mod
+snapshots and a local Workshop owner file. Original maps, saves and replays are
+not modified or uploaded as arbitrary archives. Review its inventory first.
