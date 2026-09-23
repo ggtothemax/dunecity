@@ -1,3 +1,15 @@
+## 2026-09-24 — City scenarios published to metaserver
+
+User explicitly requested publication. Used the existing Workshop API and
+publishing capability to publish Sihaya Basin v1, Ash Quarter v1, Coriolis Gap v1
+and SimCity v2 at `https://dunelegacy.com/p2p`. SimCity retains the original
+seeded item identity `bd959851733f7ed42f1401e1e4689717`; no third lineage added.
+All four retain the existing verified DuneCity mod dependency. Verified each
+live catalogue entry, downloaded manifest and complete map payload, checked
+SHA-256/byte equality and re-ran structural validation on downloaded maps.
+Evidence: `../outputs/city-scenarios/publish/verified.json`, upload/verify logs,
+and `download-validation.log`. No service deployment, game release or push.
+
 ## 2026-09-24 — Compact city scenarios (local, unreleased)
 
 Branch `feat/compact-city-scenarios`, worktree `dunecity-city-scenarios`.

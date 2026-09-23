@@ -21,6 +21,18 @@ timeout. Victory uses the engine's normal enemy-defeat condition; the fixed
 500-internal-population economic condition is deliberately disabled because
 these prebuilt cities could satisfy it within seconds.
 
+## Public availability
+
+Published to the production metaserver on 2026-09-24. Find them through
+**Custom Game → Metaserver Maps**, filtered to **DuneCity**:
+Sihaya Basin v1, Ash Quarter v1, Coriolis Gap v1, and repaired SimCity v2.
+The new scenarios retain their single-player human/AI setup.
+
+All four were found in the live catalogue, downloaded through the public content
+API, matched against their manifest/file SHA-256 hashes, and passed structural
+validation again. SimCity v2 continues the original seeded map identity; older
+revisions and the separate existing SimCity lineage were preserved.
+
 ## Mission briefings
 
 ### 1. Sihaya Basin
