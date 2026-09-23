@@ -8899,3 +8899,12 @@ Evidence: ../outputs/release-768/ (audit.json, validation.md, CI logs,
 published-verification.json, live-verification.json, sourceforge.log,
 mini-runtime.log, real-peers/ and browser-native/). The public release is at
 https://github.com/ggtothemax/dunecity/releases/tag/v1.0.768 .
+
+Audio cleanup follow-up: CoreAudio's live process list identified the task-owned
+ReleaseNative process on the mini still outputting audio after SIGTERM. The MBA
+had no native game process; its active outputs were Winamp and avconferenced,
+so remote audio was a possible route, not proven. After verifying the exact
+release-test executable and arguments, SIGKILL stopped PID 56535. A fresh
+CoreAudio process query on the mini returned no active output process. Other
+apps and the MBA's older fixtures were left untouched. Verify process exit,
+not merely a successful signal request, when cleaning up future GUI tests.
