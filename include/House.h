@@ -270,6 +270,7 @@ protected:
         returned amount to whichever earned pool it belongs to.
     */
     FixPoint acceptEarnedCredits(FixPoint amount);
+    void enforceCreditCeiling();
 
     /// Tells the local player that storage is full, at most once every 5 seconds.
     void warnStorageFull();

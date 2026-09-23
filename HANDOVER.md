@@ -8777,3 +8777,13 @@ maximum credits and retained-only quotas. Dependency audits and packaged runtime
 initialization/rendering pass. Evidence: ../outputs/credit-storage.
 The 1.0.767 package is ready under ../outputs/credit-storage/install-767; it is
 not installed on the MBA yet. The last installed version remains 1.0.766.
+
+Absolute-ceiling follow-up: total credits, including starting cash, may never
+exceed 999999. New starting funds are clamped, and loaded credit pools are bounded
+individually before summing to avoid overflow and enforce the ceiling even while
+storage is being reconstructed. Storage enforcement also applies this hard cap
+before its Loading guard. Statistics remain untouched. Added tests for a 2-million
+starting allowance, a 2.4-million loaded balance, actual underlying pool values,
+and ceiling enforcement during loading. Unit suite and both complete storage/
+capture probes pass (3 targeted CTest targets, 12.79 seconds). The pending 1.0.767
+package is refreshed with this follow-up; it has not been installed yet.

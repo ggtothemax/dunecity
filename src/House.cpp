@@ -63,7 +63,7 @@ House::House(int newHouse, int newCredits, int maxUnits, int maxHarvesters, Uint
     // Starting cash is deliberately not measured against the storage capacity:
     // a house is created before its structures are placed, so at this point the
     // capacity of every house on the map is still zero.
-    startingCredits = newCredits;
+    startingCredits = std::clamp(newCredits, 0, MAX_GAME_CREDITS);
     cityCredits = 0;
     cityTaxReceipts = 0;
     oldCredits = lround(storedCredits+startingCredits+cityCredits);
@@ -103,10 +103,8 @@ House::House(InputStream& stream) : choam(this) {
     autoRepairEnabled = currentGame && currentGame->getLoadedSavegameVersion() >= 9824
         ? stream.readBool() : false;
 
-    // The pools are restored exactly as they were saved. The structures that
-    // carry the capacity are loaded after the houses, so nothing may be capped
-    // here; the running game enforces the limit once the capacity is registered
-    // (see House::update()).
+    // Storage capacity is reconstructed after the houses, but the absolute
+    // credit ceiling applies immediately, even while loading an older save.
     storedCredits = stream.readFixPoint();
     startingCredits = stream.readFixPoint();
     if (currentGame && currentGame->getLoadedSavegameVersion() >= 9817) {
@@ -114,6 +112,7 @@ House::House(InputStream& stream) : choam(this) {
     } else {
         cityCredits = 0;
     }
+    enforceCreditCeiling();
     // SAVEGAMEVERSION 9841+ persists the cumulative tax statistic. Older saves
     // never recorded it, so they continue the mission from zero rather than
     // inventing a past total.
@@ -365,7 +364,16 @@ FixPoint House::getEarnedCreditRoom() const {
 }
 
 
+void House::enforceCreditCeiling() {
+    // Clamp individually to avoid overflow when summing legacy balances.
+    startingCredits = std::clamp(startingCredits, FixPoint(0), FixPoint(MAX_GAME_CREDITS));
+    storedCredits = std::clamp(storedCredits, FixPoint(0), FixPoint(MAX_GAME_CREDITS) - startingCredits);
+    cityCredits = std::clamp(cityCredits, FixPoint(0), FixPoint(MAX_GAME_CREDITS) - startingCredits - storedCredits);
+}
+
+
 void House::enforceCreditCapacity() {
+    enforceCreditCeiling();
     // Houses load before their structures register storage. Clamp only once
     // reconstruction is complete, and immediately on subsequent capacity loss.
     if(currentGame && currentGame->gameState == GameState::Loading) return;

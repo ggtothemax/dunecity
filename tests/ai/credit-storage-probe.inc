@@ -226,6 +226,26 @@ void runCreditStorageProbe(Game& game) {
     require(house->getStoredCredits()==0,"Income was stored at the ceiling");
     require(house->getCredits()==House::MAX_GAME_CREDITS,"The ceiling was passed by starting cash plus income");
 
+    {
+        House richStart(HOUSE_MERCENARY, 2000000, 0, 0, 0);
+        require(richStart.getCredits()==House::MAX_GAME_CREDITS,"Starting cash exceeded the absolute ceiling");
+        fixture(2000000,800000,800000,800000);
+        OMemoryStream oversized;oversized.open();house->save(oversized);
+        IMemoryStream legacy(oversized.getData(),oversized.getDataLength());
+        const auto previousVersion=game.loadedSavegameVersion;
+        const auto previousState=game.gameState;
+        game.loadedSavegameVersion=SAVEGAMEVERSION;game.gameState=GameState::Loading;
+        House restored(legacy);
+        require(restored.getCredits()==House::MAX_GAME_CREDITS,"Loaded balances exceeded the absolute ceiling");
+        require(restored.getStartingCredits()==800000 && restored.getStoredCredits()==199999 && restored.getCityCredits()==0,
+                "Loaded balances were only visually capped instead of reducing the actual pools");
+        fixture(2000000,500,500,2000000);
+        house->enforceCreditCapacity();
+        require(house->getCredits()==House::MAX_GAME_CREDITS && house->getEarnedCredits()==0,
+                "The absolute cap was skipped during storage reconstruction");
+        game.loadedSavegameVersion=previousVersion;game.gameState=previousState;
+    }
+
     // --- 10. The quota counts the spice the house kept, not what overflowed. --
     game.winFlags|=WINLOSEFLAGS_QUOTA;
     house->quota=900;
