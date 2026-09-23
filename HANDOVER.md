@@ -8689,3 +8689,14 @@ Alkozeltser 4 Cities matches DuneCity / 256x256 / 6 players. Its local Air copy
 now has explicit Mod/MapVersion metadata, with the original backed up beside it.
 Native menu probes pass 640x480, 854x480 and 1280x720; the content service has
 25 passing integration tests including cached player-count migration.
+
+Final native regression run: all 29 CTest targets passed (241.26 seconds), and
+all three menu sizes passed the editor load/palette and scrolling checks.
+Installed 1.0.765 on the MacBook Air at /Applications/dunecity.app; archive SHA256
+02fe12f397ab04254bb2835fe444994a49bb83506af86fb75e0364301b18873b.
+Signature/runtime checks passed on the Air; 512 profile INIs were preserved.
+Previous app is /tmp/dunecity-install-765/dunecity-previous.app. Game code is
+committed locally; no public game release or game-source push was performed.
+Fresh-profile live smoke test also passed: real catalogue pagination and combined
+filters, SHA-verified map plus full DuneCity dependency download, stable installed
+filename, preview, exact mod activation and transition to player setup.
