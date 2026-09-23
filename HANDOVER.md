@@ -172,6 +172,115 @@ failed to end flybys; those outputs are superseded and are not final evidence.
 See `docs/aircraft-aa-audit.md` for corrected motion/power/shot accounting.
 Artifacts: `../outputs/aircraft-aa/`. Native build, dependency audit, existing
 three projectile CTest probes and cadence experiment passed.
+## 2026-09-24 — Habbanya-Penny-inspired pair, installed and published
+
+Added Habbanya Crescent (2P, Atreides township versus larger Harkonnen city)
+and Habbanya Narrows (3P, mobile Atreides colony versus mutually hostile
+Harkonnen/Ordos towns), both 128x128 single-player conquest maps. Original
+terrain follows Rippsblack's Habbanya-Penny geometry: enclosing mountain rim,
+paired C-shaped spice basins, curved battle lanes and open expansion shelves.
+Twelve neutral Fremen sandworms per map do not add a lobby/enemy slot. Actual
+Dune R/C/I roles, populated-zone power reserves, no population win condition.
+
+Generator: `scripts/gen_habbanya_scenarios.py`, reusing the existing city helpers.
+Checks include connected starts/shelves/basins/outer spice, spare buildable rock,
+legal worms, army/production asymmetry, plus the shared structural validator.
+Claude Max supplied the generator/maps (48-turn ceiling reached after files);
+Codex reviewed exact final bytes, previews, routes and real-engine behaviour.
+Both deterministically reproduce and load without warnings. Final 25-minute
+Medium helper versus Medium enemy runs survived in both maps with no unrest.
+Idle Crescent lost near minute 12; idle Narrows survived 12. No full human
+victory/balance claim. Final test evidence uses `release-*` directories; earlier
+probes in the same output folder concern superseded layout drafts.
+
+Published both as v1 to the production metaserver, verified live catalogue,
+complete downloads, manifest/file hashes and downloaded structural checks.
+Installed byte-identical user-map and built-app resources; codesign verification
+passes. Guide and default validator include both additions. No game source,
+version/protocol, release, push or PR changes. Evidence, preview, ZIP and receipts:
+`../outputs/habbanya-scenarios/` (live proof `publish/verified.json`).
+
+## 2026-09-24 — Ten redesigned city scenarios, published and verified
+
+Replaced Sihaya Basin, Ash Quarter and Coriolis Gap with irregular, tactical
+layouts; added Cielago Watch, Hagal Flats, Tuono Crossing, Carthag Vise,
+Arrakeen Blackout, Shield Wall Rift and Harg Pass Convoy. All ten are standalone
+Atreides-human single-player maps, with a proposed campaign order and briefings
+in `docs/city-scenarios.md`; no campaign menu registration. Preserved the
+separate SimCity spacing repair unchanged. No engine/protocol/release changes.
+
+Micropolis Detroit/Bern/Dullsville binary city layouts and existing All Against
+Atreides, Sardaukar Outpost and Alkozeltser maps informed the redesign. Terrain
+and streets now form islands, ribbons, gates, mesas, valleys and scattered towns.
+Ordinary Dune buildings count toward their actual R/C/I roles. Population is
+never a win condition; 5000 displayed population is only unrest eligibility.
+Hagal requires 24000 stored spice credits and starts with 12010 storage, so two
+more silos are needed. Cielago wins after 30 minutes; other missions use conquest.
+
+Claude Max implemented the generator/maps and static checks; its bounded run
+hit 96 turns after producing the patch. Codex reviewed/integrated it, corrected
+Hagal's already-satisfied storage capacity, reduced Ash's immediate squatter
+army so crime can mature, added targeted precincts, and ran real-engine probes.
+Power budgets include populated-zone demand except deliberate Arrakeen blackout.
+All ten deterministically regenerate, pass structural checks and load without
+warnings in the real engine. Ash's real hostile unrest occurred around minute
+five in both tested seeds (18 and 28 troops total over twelve idle minutes).
+Both starting MCVs in each expansion map have traversable paths to distant legal
+yard footprints. Active helper benchmarks sustained Sihaya for 35 minutes;
+Cielago and Coriolis lost before completing their objectives. These are mechanics
+and opening checks, not completed human balance playtests. Enemy-city unrest
+still occurs, but entrenched opponents retain much larger production and armies.
+
+Published Sihaya/Ash/Coriolis v2 under their existing identities and seven v1
+maps to the production metaserver, retaining the verified DuneCity dependency.
+Verified all ten live catalogue entries, complete downloads, manifest/file hashes
+and downloaded structural checks. SimCity remains v2. Installed local user and
+built-app copies; signed-bundle verification passes. No push/PR/game release.
+Evidence, telemetry, overview images, ZIP and publication receipts:
+`../outputs/city-scenarios-redesign/`; live proof `publish/verified.json`.
+
+## 2026-09-24 — City scenarios published to metaserver
+
+User explicitly requested publication. Used the existing Workshop API and
+publishing capability to publish Sihaya Basin v1, Ash Quarter v1, Coriolis Gap v1
+and SimCity v2 at `https://dunelegacy.com/p2p`. SimCity retains the original
+seeded item identity `bd959851733f7ed42f1401e1e4689717`; no third lineage added.
+All four retain the existing verified DuneCity mod dependency. Verified each
+live catalogue entry, downloaded manifest and complete map payload, checked
+SHA-256/byte equality and re-ran structural validation on downloaded maps.
+Evidence: `../outputs/city-scenarios/publish/verified.json`, upload/verify logs,
+and `download-validation.log`. No service deployment, game release or push.
+
+## 2026-09-24 — Compact city scenarios (local, unreleased)
+
+Branch `feat/compact-city-scenarios`, worktree `dunecity-city-scenarios`.
+Three standalone single-player Atreides maps: Sihaya Basin (60-minute conquest),
+Ash Quarter (damaged city recovery), Coriolis Gap (contested mountain corridor).
+Micropolis Dullsville, Detroit/Hamburg and Bern inspired the mission problems;
+existing DuneCity scenarios/campaign formats supplied supported mechanics.
+Briefings and proposed campaign order: `docs/city-scenarios.md`. Not wired into
+the campaign menu. SimCity is repacked into compact mixed neighbourhoods.
+
+Dune infrastructure contributes its actual R/C/I role. Silos, construction yards
+and starports provide industrial destinations without industrial pollution.
+Local trade works on both sides of Coriolis's tactical blockade. Removed the
+fixed 500-population win condition after real-engine probes showed it winning
+these prebuilt cities within seconds. No engine/protocol/version changes.
+
+Both generators reproduce byte-identical maps; structural validation passes.
+Native build, dependency audit, core CTest and signed-bundle verification pass.
+Real-engine initial traffic routes: Sihaya 237/237, Ash 315/315, Coriolis 432/432,
+SimCity 1222/1222 (original SimCity 487/1087). All three new maps ran 12 simulated
+minutes with no human/helper orders against Medium QuantBots; SimCity ran five.
+No map-loader warnings. These are one-seed opening smoke checks, not full human
+balance or victory playtests. Ash's missing police coverage is intentional.
+
+Installed copies in this host's Dune City `maps/singleplayer` user directory and
+in `build/bin/dunecity.app`. Evidence and downloadable map pack live in
+`../outputs/city-scenarios/`. Claude Max supplied generators/maps/validator;
+Codex reviewed real mechanics, corrected objectives and Coriolis local supply,
+unified the player house, verified the maps and integrated locally. No push,
+PR, campaign registration or release performed.
 
 ## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
 
