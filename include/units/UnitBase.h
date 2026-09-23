@@ -267,6 +267,19 @@ public:
 
     virtual void playAttackSound();
 
+    /// Does this unit fire Dynasty's launcher rocket pair instead of the legacy follow-up shot?
+    bool usesLauncherRocketPair() const;
+
+    /// May the second weapon fire right now? Launchers need strictly more than half health.
+    bool canFireSecondaryWeapon() const;
+
+    /// Cycles between the two rockets of a launcher pair: 18 = 0.288 s, matching
+    /// Dynasty's 5-6 movement ticks. See docs/weapon-reload-comparison.md.
+    static constexpr Sint32 launcherBurstGapCycles = 18;
+
+    /// Every other two-weapon unit keeps its legacy follow-up shot delay.
+    static constexpr Sint32 defaultSecondaryWeaponCycles = 15;
+
 protected:
     // Counts belong to the original house even while a unit is deviated.
     void registerUnit();

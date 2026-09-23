@@ -414,6 +414,11 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --build-dir ${CMAKE_BINARY_DIR} --continuation
             --output-dir ${CMAKE_BINARY_DIR}/unit-route-continuation-probe)
         set_tests_properties(unit_route_continuation_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        add_test(NAME weapon_reload_probe COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/units/run-unit-route-probe.py
+            --build-dir ${CMAKE_BINARY_DIR} --weapon-reloads
+            --output-dir ${CMAKE_BINARY_DIR}/weapon-reload-probe)
+        set_tests_properties(weapon_reload_probe PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         foreach(projectile_probe IN ITEMS mechanics combat continuation)
             if(projectile_probe STREQUAL "mechanics")
                 set(projectile_flag --projectiles)

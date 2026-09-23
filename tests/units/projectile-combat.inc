@@ -30,6 +30,13 @@ int runUnitSpeedProbe() {
         GameInitSettings::HouseInfo humans(HOUSE_ATREIDES,1);humans.addPlayerInfo({"Speed tester","HumanPlayer"});init.addHouseInfo(humans);
         GameInitSettings::HouseInfo enemies(HOUSE_HARKONNEN,2);enemies.addPlayerInfo({"Enemy","HumanPlayer"});init.addHouseInfo(enemies);
         game->initGame(init);game->initializeGameLoop();
+        // Diagnostic sensitivity experiment only; never changes shipped data.
+        if(const char* reload = std::getenv("AA_RELOAD_CYCLES")) {
+            const int cycles = std::atoi(reload);
+            require(cycles > 0 && cycles <= 10000, "Invalid diagnostic rocket reload");
+            for(int house = 0; house < NUM_HOUSES; ++house)
+                game->objectData.data[Structure_RocketTurret][house].weaponreloadtime = cycles;
+        }
         auto* owner=game->getHouse(HOUSE_ATREIDES);
         const Coord site(20,15);
         ObjectBase* shooter=nullptr;

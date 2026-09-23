@@ -90,6 +90,88 @@ Native app rebuilt in this worktree's `build/bin/dunecity.app`; Ninja dependency
 integrity, unit suite and menu navigation probe (three resolutions) passed.
 Browser runtime reload has not been exercised.
 No push or public release.
+## 2026-09-24 — Align turret and launcher cadence with Dynasty
+
+User authorized matching both after the engine-aware timing recheck. Shared
+rocket turret reload is now 170 cycles / 2.720 s; its close cannon scales the
+configured gun turret reload by 128/240 (2.048 s by default). Standalone gun
+turrets retain their reload. Standard/elite launchers use 750 cycles / 12 s
+from the second shot, with an 18-cycle / 0.288 s burst gap (12.288 s pair period).
+At <=50% HP they fire singles. Missed secondary opportunities are cancelled;
+the fallback primary cooldown remains live. Other units keep legacy timing.
+Values translate measured Dynasty intervals to 16 ms ticks rather than copying
+its 60/20 Hz counters. No new random draws or serialized fields. Protocol 25
+prevents lockstep mixing with earlier combat rules. No release/version bump,
+install, push or PR. Local app rebuilt in this checkout.
+
+Tornie has a separate ObjectData override: updated that and its integrity
+checksum too. Native CMake now relinks/recopies for bundled ObjectData and
+checksum changes; the initial regression caught stale copied data, then the
+missing checksum update. Source/bundle hashes now match and Tornie's entire
+checksum manifest verifies. See docs/weapon-cadence-alignment.md.
+
+Aircraft sim: 552 rows across Vanilla/DuneCity/Dune2R, identical mode replays.
+Powered three-turret attacking-ornithopter kills 12/18 -> 18/18; lone turret
+0/18 -> 2/18. Fast carryall crossings still 0/36 kills. Separate 64-case matrix:
+turret 16 -> 27 kills; launcher 15 -> 8, consistent with the slower launcher
+cadence. No aircraft HP, speed or missile motion changes. Receipts are in
+../outputs/aircraft-aa-alignment/; final weapon timestamp receipts in
+build/weapon-reload-probe/. Original Dynasty reference still passes ASan/UBSan.
+
+Claude subscription worker produced the bounded production patch but reached
+its turn cap without tests/final report. Codex reviewed and completed burst
+cancellation, runtime timing/edge tests, Tornie integration, packaging and
+verification. All 32 CTest tests passed across the full run and final focused
+reruns; native build/dependency audits passed. The final reload probe covers
+138 steady-fire cases and 15 interruption controls across four modes.
+
+## 2026-09-24 — Reload timing rechecked across both engines
+
+Follow-up on aircraft audit. Confirmed actual steady turret missiles every
+5.760 s in DuneCity versus 2.667–2.750 s in original Dynasty. These include
+engine scheduling, not equal numeric counter assumptions. Launcher result is
+the opposite: healthy pairs every 5.760 s (0.240 s within pair) versus Dynasty
+12.250–12.417 s (0.250–0.333 s within pair). Damaged launchers fire singles;
+exact 50% HP boundary differs. See docs/weapon-reload-comparison.md.
+
+New timestamp controls run 30 cases × 120 seconds per engine (DuneCity replayed
+in all 3 modes); native ASan/UBSan and host shot/timer cross-checks passed.
+Both ground/air targets, three seeds, 100/50/33% launcher HP. Normal timebase
+verified in source: host 62.5 Hz, Dynasty 60 Hz with 20 Hz unit cooldown counters
+and 5-game-tick script scheduling. Shared gameplay values remain unchanged.
+Receipts: ../outputs/reload-doublecheck/. Claude's independent read-only source
+audit hit its 32-turn cap without a final report; Codex performed and verified
+the actual runtime measurements and timebase/source checks.
+
+## 2026-09-24 — Aircraft anti-air audit (tests only)
+
+Branch `investigate/aircraft-aa`, checkout `dunecity-aircraft-aa`, based on
+origin/main `224b4342`. No production combat change, version/protocol change,
+installation, push or release. User requested Dynasty comparison and simulations.
+
+Confirmed a cadence mismatch: shared rocket turret reload is 360 x 16 ms =
+5.76 s. Original Dynasty unit/structure loops with UNIT.EMC/BUILD.EMC measured
+2.667–2.750 s between stationary-target turret shots (30 damage in both).
+The existing 64-case attacking-ornithopter matrix yields 16 kills per mode;
+a test-only 170-cycle reload raises that to 24, with launchers unchanged at 15.
+All three modes agree. This suggests correcting cadence before changing HP or
+missile speed, but is not a validated balance change for ground combat.
+
+Original-engine reference: 91 cases with ASan/UBSan; actual attack scripts,
+controlled stationary/flyby aircraft, separate repeated-shot control. It also
+shows weak aircraft interception. Carryalls retain Dynasty's 100 HP and 15
+tiles/s versus 11.25 tiles/s turret missiles; no inflated-HP defect found.
+Native reference must not be presented as an exactly matched flight-controller
+benchmark. See `docs/dynasty-aircraft-reference.md` for measurements/reproduction.
+
+Claude Max prepared the additional powered-turret aircraft matrix; Codex reviewed
+fixture semantics, supplied original-engine reference/cadence sensitivity runs,
+and independently verified the existing mechanics/combat/continuation probes.
+The initial worker's run1/run2 mislabelled orbiting aircraft as stationary and
+failed to end flybys; those outputs are superseded and are not final evidence.
+See `docs/aircraft-aa-audit.md` for corrected motion/power/shot accounting.
+Artifacts: `../outputs/aircraft-aa/`. Native build, dependency audit, existing
+three projectile CTest probes and cadence experiment passed.
 
 ## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
 
