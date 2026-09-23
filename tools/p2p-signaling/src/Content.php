@@ -25,7 +25,9 @@ final class Content
     private const MOD_BASE_GAME = '*';
     /** Map.ini sections that each contribute one playable slot, exactly as the client counts them. */
     private const PLAYER_SECTIONS = ['atreides', 'ordos', 'harkonnen', 'fremen', 'mercenary', 'sardaukar',
-        'player1', 'player2', 'player3', 'player4', 'player5', 'player6'];
+        'rebels', 'custom', 'wildspade', 'kleshmersh', 'tharpique',
+        'player1', 'player2', 'player3', 'player4', 'player5', 'player6',
+        'player7', 'player8', 'player9', 'player10', 'player11', 'player12'];
     private string $dir;
 
     public function __construct(private readonly Config $config)
@@ -478,7 +480,7 @@ final class Content
 
     private static function unknownMap(): array
     {
-        return ['width' => 0, 'height' => 0, 'players' => 0, 'mod' => '', 'known' => false, 'file' => ''];
+        return ['schema' => 2, 'width' => 0, 'height' => 0, 'players' => 0, 'mod' => '', 'known' => false, 'file' => ''];
     }
 
     private static function iniInt(string $value, int $fallback): int
@@ -546,7 +548,7 @@ final class Content
     private function mapMetadata(array &$state, string $hash, array &$budget): array
     {
         $cached = $state['maps'][$hash] ?? null;
-        if (is_array($cached) && isset($cached['width'], $cached['height'], $cached['players'],
+        if (is_array($cached) && ($cached['schema'] ?? 0) === 2 && isset($cached['width'], $cached['height'], $cached['players'],
             $cached['mod'], $cached['known'], $cached['file'])) return $cached;
         if ($budget['files'] <= 0 || $budget['bytes'] <= 0) return self::unknownMap();
         --$budget['files'];

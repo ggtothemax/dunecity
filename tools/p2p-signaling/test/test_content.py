@@ -348,8 +348,20 @@ class ContentTests(SignalingTestCase):
         self.assertEqual(0o600, stored.stat().st_mode & 0o777)
         state = json.loads((Path(self.service.state) / 'content/index.json').read_text())
         self.assertEqual(2, len(state['maps']))
-        self.assertEqual({'width': 64, 'height': 64, 'players': 2, 'mod': '', 'known': True, 'file': sha(data)},
+        self.assertEqual({'schema': 2, 'width': 64, 'height': 64, 'players': 2, 'mod': '', 'known': True, 'file': sha(data)},
                          state['maps'][sha(raw)])
+
+    def test_catalogue_counts_extended_houses_and_refreshes_old_cache(self):
+        data = map_ini(size=(256,256), players=2) + b"[Rebels]\nBrain=CPU\n[Player12]\nBrain=CPU\n"
+        raw, _ = self.share({'map.ini': data})
+        index = Path(self.service.state) / 'content/index.json'
+        state = json.loads(index.read_text())
+        state['maps'][sha(raw)].pop('schema',None)
+        state['maps'][sha(raw)]['players'] = 2
+        index.write_text(json.dumps(state))
+        rows, _ = self.catalogue(players='4')
+        self.assertEqual(1,len(rows))
+        self.assertEqual('4',rows[0][10])
 
     def test_catalogue_bootstraps_revisions_stored_before_the_map_index(self):
         raw, _ = self.share({'map.ini': map_ini(size=(128, 128), players=4)})
