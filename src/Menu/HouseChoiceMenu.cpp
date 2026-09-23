@@ -114,7 +114,12 @@ HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules, bool showLobby) : 
     connectionDropDown.addEntry(_("Offline"), 0);
     connectionDropDown.addEntry(_("Online co-op"), 1);
     connectionDropDown.setSelectedItem(s_online ? 1 : 0);
-    connectionDropDown.setOnSelectionChange([this](bool) { s_online = connectionDropDown.getSelectedIndex() == 1; updateConnection(); });
+    connectionDropDown.setOnSelectionChange([this](bool interactive) {
+        s_online = connectionDropDown.getSelectedIndex() == 1;
+        // Remember the player's own choice; a programmatic online flow keeps its preference.
+        if(interactive) rememberPlayMode(PlayModeScope::Campaign, s_online);
+        updateConnection();
+    });
     windowWidget.addWidget(&connectionDropDown, Point(48,30), Point(174,24));
     journeyDropDown.addEntry(_("Full campaign"), 0);
     journeyDropDown.addEntry(_("Single mission"), 1);

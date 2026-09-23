@@ -73,8 +73,10 @@ CustomGameMenu::CustomGameMenu(bool multiplayer, bool LANServer, CustomPlaySetup
         connectionChoice.addEntry(_("Offline"));
         connectionChoice.addEntry(_("Online"));
         connectionChoice.setSelectedItem(setup->online ? 1 : 0);
-        connectionChoice.setOnSelectionChange([this](bool) {
+        connectionChoice.setOnSelectionChange([this](bool interactive) {
             const bool online = connectionChoice.getSelectedIndex() == 1;
+            // Remember the player's own choice; a programmatic online flow keeps its preference.
+            if(interactive) rememberPlayMode(PlayModeScope::CustomGame, online);
             visibilityChoice.setVisible(online);
             visibilityChoice.setEnabled(online);
             allowJoinAfterStartCheckbox.setVisible(online);

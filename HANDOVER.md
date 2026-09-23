@@ -1,3 +1,18 @@
+## 2026-09-24 — Remember campaign and custom-game connection choices
+
+Local branch `fix/remember-play-mode`, based on `224b4342` (1.0.769).
+Campaign and custom-game setup now persist their last user-selected Offline/Online
+mode separately in General settings. Changes save immediately, including when
+backing out without starting a game. Custom player setup shares the custom-game
+preference. Normal entry restores it; explicit Play Online entry still starts
+online. Fresh profiles retain the existing defaults. The existing web filesystem
+sync is invoked after saving. No gameplay, protocol, or save-format changes.
+
+Native app rebuilt in this worktree's `build/bin/dunecity.app`; Ninja dependency
+integrity, unit suite and menu navigation probe (three resolutions) passed.
+Browser runtime reload has not been exercised.
+No push or public release.
+
 ## 2026-09-23 — Sustainable policing and core-first spice opening (local 1.0.764)
 
 Follow-up to the live 763 budget complaint. Version 1.0.764, protocol 22;

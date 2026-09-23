@@ -153,7 +153,7 @@ MainMenu::MainMenu()
     continueButton.setText(_("Continue"));
     continueButton.setOnClick([this]() { continueRecentGame(); canContinue = hasRecentGame(); });
     customButton.setText(_("Custom Game"));
-    customButton.setOnClick([this]() { playCustomGame(); canContinue = hasRecentGame(); });
+    customButton.setOnClick([this]() { playCustomGame(settings.general.customGameOnline); canContinue = hasRecentGame(); });
     onlineButton.setText(_("Play Online"));
     onlineButton.setOnClick([]() { CrossplayMenu().showMenu(); });
     loadButton.setText(_("Load Game"));

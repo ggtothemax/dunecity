@@ -12,9 +12,11 @@
 #include <misc/IMemoryStream.h>
 #include <misc/fnkdat.h>
 #include <misc/string_util.h>
+#include <misc/WebRuntime.h>
 #include <mod/ModManager.h>
 #include <Network/WorkshopGameContent.h>
 #include <globals.h>
+#include <main.h>
 #include <sand.h>
 #include <algorithm>
 #include <utility>
@@ -123,6 +125,20 @@ std::string recentGame() {
     }
     return {};
 }
+}
+
+void rememberPlayMode(PlayModeScope scope, bool online) {
+    const bool campaign = scope == PlayModeScope::Campaign;
+    bool& remembered = campaign ? settings.general.campaignOnline : settings.general.customGameOnline;
+    if(remembered == online) return;
+    remembered = online;
+    INIFile config(getConfigFilepath());
+    config.setBoolValue("General", campaign ? "Campaign Online" : "Custom Game Online", online);
+    if(!config.saveChangesTo(getConfigFilepath())) {
+        SDL_Log("Warning: could not save the Offline/Online choice to the configuration file");
+        return;
+    }
+    WebRuntime::syncPersistentFiles();
 }
 
 void showGameLibrary(bool replays) { GameLibrary(replays).showMenu(); }
