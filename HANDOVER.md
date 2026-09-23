@@ -8854,3 +8854,48 @@ all 139 catalogue maps remain available (129 Vanilla, 10 DuneCity), all 127
 seeded latest revisions/category values verified, and mod-filter counts match.
 Evidence: ../outputs/release-fixes-768/deployment.log and
 production-catalogue.json. Game release and MBA installation were not performed.
+
+## 2026-09-23 — 1.0.768 published
+
+User authorized actual game deployment after the metaserver rollout. PR #71
+merged at c0cfb48d7c9b712d79405b4aaf8d625422ea5cbd; stable tag v1.0.768 and
+release run 35856127626 succeeded. Windows, Linux, Emscripten and signed/notarized
+Mac packages passed their CI gates. PR CI caught two release issues: host PHP
+OPcache hid dynamic fixture configuration (disabled only in test workers; all
+221 tests pass with an OPcache-enabled host), and MSVC rejected conditional
+construction of the noncopyable INIFile parser (scoped metadata read now avoids
+that copy). The latter has repeated-download and local-name-collision coverage;
+rendered menu tests passed in 98.49 seconds after the native rebuild/dependency audit.
+
+Independent public verification downloaded all 13 GitHub assets, matched their
+published sizes/SHA256 digests, verified all three Ed25519 update manifests and
+both appcast archive signatures. Mac app and DMG stapled tickets validate; the
+app passes codesign --deep --strict and Gatekeeper as Notarized Developer ID.
+The signed app's hidden desktop runtime/rendering check passed on claw.local.
+SourceForge run 35857539387 verified all seven package uploads and three OS
+defaults. Independent HTTPS Git reads confirm its dunecity branch and peeled
+1.0.768 tag point to c0cfb48d.
+
+The exact stable CI browser artifact was reused, with bundled-mod verification,
+matching PHP service packaging and website security/hash checks. Redundant web
+rebuild 35857538995 was cancelled. Website commit d7711e4 (browser plus current
+release prose) deployed successfully in run 35857658989. Live /play/build.json
+is 1.0.768/c0cfb48d; all eight public browser artifact hashes and both desktop
+landing pages were verified. The packaged PHP implementation is byte-identical
+to the already deployed schema-5 service.
+
+Additional integration: three native DuneCity peers continued with matching
+cycle-150 state. A CI browser candidate joined an isolated native game, loaded
+checkpoint 5109, caught up and visibly continued without a reported desync.
+This is local RTC integration, not a fresh complete public WAN match. The
+additional native UI smoke test could not be completed through the available
+locked UI connection. All task-owned test tabs and native test processes were
+closed. Stefan reiterated: do not test on his MacBook Air; use the Mac mini.
+Read-only SSH checks found no native DuneCity process on the MBA, but older
+browser preview/PHP fixture servers remain; they were not stopped. No MBA app
+installation or interruption was performed during this release.
+
+Evidence: ../outputs/release-768/ (audit.json, validation.md, CI logs,
+published-verification.json, live-verification.json, sourceforge.log,
+mini-runtime.log, real-peers/ and browser-native/). The public release is at
+https://github.com/ggtothemax/dunecity/releases/tag/v1.0.768 .
