@@ -13,6 +13,8 @@
 #include <units/MCV.h>
 #include <structures/ConstructionYard.h>
 #include <structures/HeavyFactory.h>
+#include <structures/StarPort.h>
+#include <Choam.h>
 
 void runMcvDeploymentProbe(Game& game) {
     auto require=[](bool ok,const char* why){if(!ok){SDL_Log("MCV_DEPLOYMENT_FAIL: %s",why);throw std::runtime_error(why);}};
@@ -536,6 +538,116 @@ void runMcvDeploymentProbe(Game& game) {
         require(queuedMcvs()==1,
             "A built-out city with somewhere to settle bought no MCV");
 
+        // 7e2. The same decision in a city that has no factory to build the
+        //      colonist with. A base that never had room for a heavy factory
+        //      would otherwise be unable to expand at all: the missing factory
+        //      is the reason to leave, so it must not also shut the expansion
+        //      gate, and the market becomes the only source of the MCV. None of
+        //      this changes what a city that owns a factory does.
+        {
+            clearQueues();
+            // Snapshot the factory-owning city first: it is restored at the
+            // end of this section, so nothing here leaks into 7f and 7g.
+            auto withFactory=structureList;
+            auto* port=dynamic_cast<StarPort*>(house->placeStructure(NONE_ID,Structure_StarPort,
+                at(14,10).x,at(14,10).y,true,true));
+            require(port!=nullptr,"Colonisation fixture could not build its Starport");
+            // The factory leaves the AI's view exactly as the counted core
+            // buildings above do, so no producer can supply an MCV locally.
+            structureList.clear();
+            for(auto* structure:withFactory) if(structure!=factory) structureList.push_back(structure);
+            structureList.push_back(port);
+            const int withFactoryCount=house->numItem[Structure_HeavyFactory];
+            const int withHighTechCount=house->numItem[Structure_HighTechFactory];
+            const int withRepairCount=house->numItem[Structure_RepairYard];
+            house->numItem[Structure_HeavyFactory]=0;
+            house->numItem[Structure_HighTechFactory]=0;
+            house->numItem[Structure_RepairYard]=0;
+            bot->dangerUpdated=std::numeric_limits<Uint32>::max();
+            bot->refreshTacticalDanger();
+
+            auto& market=house->getChoam();
+            if(market.getNumAvailable(Unit_MCV)==INVALID) market.addItem(Unit_MCV,0);
+            const int colonistPrice=1000;
+            // Only the colonist is ever on offer here, so no other import can
+            // consume the cash this section is measuring.
+            auto stock=[&](int mcvs) {
+                for(auto& offer:market.availableItems) {
+                    offer.num=offer.itemID==Unit_MCV ? mcvs : 0;
+                    if(offer.itemID==Unit_MCV) offer.price=colonistPrice;
+                }
+                port->updateBuildList();
+            };
+            auto portMcvs=[&]() {
+                int ordered=0;
+                for(const auto& order:port->currentProductionQueue) ordered+=order.itemID==Unit_MCV;
+                return ordered;
+            };
+            // The survey helper above cancels every builder queue, which a
+            // dispatched Starport order must survive. Plan without it.
+            auto plan=[&]() {
+                bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
+                bot->rockSurveyCycle=std::numeric_limits<Uint32>::max();
+                bot->build(0);
+            };
+
+            stock(0);
+            fund(30000);
+            plan();
+            require(house->getNumItems(Structure_HeavyFactory)==0 && port->okToOrder(),
+                "The no-factory fixture did not start with an idle Starport and no factory");
+            require(bot->expansionDefenceReady(),
+                "A built-out base still demanded the factory it has no room to build:"
+                " the expansion gate closed on the very condition it is meant to relieve");
+            require(bot->colonisationMcvDue(0,0),
+                "A built-out city with a reachable formation stopped colonising without a factory");
+            require(portMcvs()==0,"A colonist was ordered from an empty market");
+
+            stock(2);
+            fund(colonistPrice-1);
+            plan();
+            require(portMcvs()==0,"A colonist was ordered without the cash to pay for it");
+            require(house->getChoam().getNumAvailable(Unit_MCV)==2,"An unaffordable order still took market stock");
+
+            fund(30000);
+            plan();
+            require(portMcvs()==1,
+                "A built-out city with a Starport and no factory bought no colonist");
+            require(!port->okToOrder(),"The colonist was bought but the order was never dispatched");
+            require(house->getChoam().getNumAvailable(Unit_MCV)==1,
+                "Exactly one colonist must have come out of market stock");
+
+            // Paid cargo is the colonist: no later pass, and no second port,
+            // may order another one while it is on its way.
+            plan();
+            require(portMcvs()==1,"A second colonist was ordered while the first was still delivering");
+            auto* second=dynamic_cast<StarPort*>(house->placeStructure(NONE_ID,Structure_StarPort,
+                at(18,10).x,at(18,10).y,true,true));
+            require(second!=nullptr,"Colonisation fixture could not build a second Starport");
+            second->updateBuildList();
+            plan();
+            require(portMcvs()==1 && second->currentProductionQueue.empty(),
+                "A second Starport duplicated a colonist that was already paid for");
+            require(house->getChoam().getNumAvailable(Unit_MCV)==1,"A duplicate colonist took market stock");
+
+            // A city that can still build the factory itself keeps ordering
+            // from it: the market path is the fallback, not the new default.
+            // Both ports leave the AI's view with their cargo, the same way
+            // the factory did, so the restored city is the one 7f expects.
+            structureList=withFactory;
+            house->numItem[Structure_HeavyFactory]=withFactoryCount;
+            house->numItem[Structure_HighTechFactory]=withHighTechCount;
+            house->numItem[Structure_RepairYard]=withRepairCount;
+            for(auto& offer:market.availableItems) offer.num=0;
+            bot->dangerUpdated=std::numeric_limits<Uint32>::max();
+            bot->refreshTacticalDanger();
+            clearQueues();
+            survey();
+            require(queuedMcvs()==1,
+                "A city that owns a heavy factory stopped ordering its colonist there");
+            clearQueues();
+        }
+
         // 7f. One colonist, not a stream of them: an MCV already bought is the
         //     answer to the same survey.
         auto* colonist=static_cast<MCV*>(house->createUnit(Unit_MCV,true));
@@ -583,8 +695,134 @@ void runMcvDeploymentProbe(Game& game) {
         require(queuedMcvs()==0,"A colonised formation kept ordering further MCVs");
     }
 
+    // 8. Cramped production placement. A city with legal ground left for a
+    //    factory has to use it, even where that ground carries neither a road
+    //    nor open rock beside it: the road grid is a preference, production
+    //    capacity is not. What the engine and ground egress forbid stays
+    //    forbidden, and a base that still has properly fronted ground keeps
+    //    using that instead. This is the measurement the colonisation decision
+    //    above reads as "no room left", so it must mean exactly that.
+    {
+        constexpr int plotX=26,plotY=16;
+        Coord plot=Coord::Invalid();
+        for(int y=1;y+plotY+1<currentGameMap->getSizeY() && plot.isInvalid();++y)
+            for(int x=1;x+plotX+1<currentGameMap->getSizeX() && plot.isInvalid();++x) {
+                bool clear=true;
+                for(int dy=-1;dy<=plotY && clear;++dy)
+                    for(int dx=-1;dx<=plotX && clear;++dx)
+                        if(currentGameMap->getTile(x+dx,y+dy)->hasAGroundObject()) clear=false;
+                if(clear) plot=Coord(x,y);
+            }
+        require(plot.isValid(),"Cramped placement fixture needs a clear region");
+        auto plotTile=[&](int x,int y){ return currentGameMap->getTile(plot.x+x,plot.y+y); };
+        auto spot=[&](int x,int y){ return Coord(plot.x+x,plot.y+y); };
+        auto savedUnits=unitList;auto savedStructures=structureList;
+        unitList.clear();structureList.clear();
+        // Build range follows tile ownership, not the AI's object list. Retire
+        // the rock and ownership of every earlier section, so the only ground a
+        // factory can be placed on is the one this section lays out.
+        for(int y=0;y<currentGameMap->getSizeY();++y)
+            for(int x=0;x<currentGameMap->getSizeX();++x) {
+                auto* tile=currentGameMap->getTile(x,y);
+                tile->setOwner(INVALID);
+                if(!tile->hasAStructure()) { tile->setType(Terrain_Sand);tile->setRoad(false); }
+            }
+        for(int y=-1;y<=plotY;++y) for(int x=-1;x<=plotX;++x) {
+            auto* tile=plotTile(x,y);
+            tile->setType(Terrain_Sand);tile->setRoad(false);tile->setOwner(INVALID);
+        }
+        auto rock=[&](int x0,int y0,int x1,int y1) {
+            for(int y=y0;y<y1;++y) for(int x=x0;x<x1;++x) plotTile(x,y)->setType(Terrain_Rock);
+        };
+        auto terrain=[&](int x0,int y0,int x1,int y1,int type) {
+            for(int y=y0;y<y1;++y) for(int x=x0;x<x1;++x) plotTile(x,y)->setType(type);
+        };
+        const Coord factorySize=getStructureSize(Structure_HeavyFactory);
+        // The yard's own rock, fully covered by the yard, and one factory-sized
+        // island of rock two tiles away: legal ground, reachable across open
+        // sand, with no road and no open rock on any of its four sides.
+        rock(2,2,4,4);
+        require(house->placeStructure(NONE_ID,Structure_ConstructionYard,spot(2,2).x,spot(2,2).y,true,true)!=nullptr,
+            "Cramped placement fixture could not build its yard");
+        rock(5,5,5+factorySize.x,5+factorySize.y);
+        const Coord island=spot(5,5);
+        bot->reservedStructures.clear();bot->recentStructureLosses.clear();
+        bot->builderPlaceLocations.clear();bot->planningBuilder=NONE_ID;
+        bot->clearPlacementCache();
+        bot->dangerUpdated=std::numeric_limits<Uint32>::max();
+        bot->refreshTacticalDanger();
+
+        auto frontage=[&](Coord at) {
+            int fronted=0;
+            for(int side=0;side<4;++side) {
+                const int length=side<2 ? factorySize.x : factorySize.y;
+                for(int offset=0;offset<length;++offset) {
+                    const int tx=side<2 ? at.x+offset : (side==2 ? at.x-1 : at.x+factorySize.x);
+                    const int ty=side>=2 ? at.y+offset : (side==0 ? at.y-1 : at.y+factorySize.y);
+                    if(!currentGameMap->tileExists(tx,ty)) continue;
+                    const auto* tile=currentGameMap->getTile(tx,ty);
+                    if(tile->isRoad() || (tile->isRock() && !tile->isMountain() && !tile->hasAGroundObject())) ++fronted;
+                }
+            }
+            return fronted;
+        };
+        require(currentGameMap->okayToPlaceStructure(island.x,island.y,factorySize.x,factorySize.y,
+                false,house,false,Structure_HeavyFactory),
+            "The cramped island must be a legal engine footprint, or this section tests nothing");
+        require(frontage(island)==0,"The cramped island was supposed to have no road or open rock beside it");
+        const int structuresBefore=house->getNumStructures();
+        bot->clearPlacementCache();
+        const Coord cramped=bot->findPlaceLocation(Structure_HeavyFactory);
+        SDL_Log("MCV_DEPLOYMENT_NOTE: cramped factory site=%d,%d island=%d,%d",
+            cramped.x,cramped.y,island.x,island.y);
+        require(cramped==island,
+            "A factory found no site on ground the engine accepts: the road layout, not the"
+            " map, is what refused the last buildable footprint of a cramped city");
+        require(bot->preservesGroundAccess(Structure_HeavyFactory,cramped),
+            "The compromise site does not keep the factory's ground exit");
+        require(house->getNumStructures()==structuresBefore
+            && !currentGameMap->getTile(cramped)->hasAStructure(),
+            "Finding a cramped site displaced a building");
+
+        // 8b. Egress is not a preference. Wall the same legal island in, and
+        //     the search must refuse it rather than compromise on that.
+        for(int y=4;y<5+factorySize.y+1;++y) for(int x=4;x<5+factorySize.x+1;++x) {
+            const bool inside=x>=5 && x<5+factorySize.x && y>=5 && y<5+factorySize.y;
+            if(!inside) plotTile(x,y)->setType(Terrain_Mountain);
+        }
+        bot->clearPlacementCache();
+        require(currentGameMap->okayToPlaceStructure(island.x,island.y,factorySize.x,factorySize.y,
+                false,house,false,Structure_HeavyFactory),
+            "The walled island must still be a legal engine footprint");
+        require(!bot->preservesGroundAccess(Structure_HeavyFactory,island),
+            "A factory footprint with no way out was treated as having ground access");
+        require(!bot->findPlaceLocation(Structure_HeavyFactory).isValid(),
+            "A walled-in footprint was taken: the fallback gave up ground egress, not roading");
+
+        // 8c. Roomy ground with proper frontage is still preferred: the
+        //     compromise is a fallback, not the new default.
+        terrain(4,4,5+factorySize.x+1,5+factorySize.y+1,Terrain_Sand);
+        rock(5,5,5+factorySize.x,5+factorySize.y);
+        rock(10,5,12,7);
+        require(house->placeStructure(NONE_ID,Structure_WindTrap,spot(10,5).x,spot(10,5).y,true,true)!=nullptr,
+            "Cramped placement fixture could not anchor its roomy field");
+        rock(12,4,16,8);
+        for(int x=12;x<16;++x) { plotTile(x,3)->setRoad(true);plotTile(x,8)->setRoad(true); }
+        bot->clearPlacementCache();
+        bot->dangerUpdated=std::numeric_limits<Uint32>::max();
+        bot->refreshTacticalDanger();
+        const Coord roomy=bot->findPlaceLocation(Structure_HeavyFactory);
+        require(roomy.isValid() && roomy!=island,
+            "A base with road-fronted ground still took the landlocked island");
+        require(frontage(roomy)>0,
+            "The chosen site has neither a road nor open rock beside it while properly"
+            " fronted ground was available");
+        unitList=savedUnits;structureList=savedStructures;
+    }
+
     SDL_Log("MCV_DEPLOYMENT_PASS: prompt same-rock deployment at every difficulty, one driven arrival,"
         " distinct reservations, blocked-site handling, the colony gate,"
-        " and space-driven colonisation of safe reclaimed rock");
+        " space-driven colonisation of safe reclaimed rock, the market colonist of a city"
+        " with no factory, and cramped factory placement that compromises roading only");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: probe=mcv_deployment outcome=passed");
 }

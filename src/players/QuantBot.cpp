@@ -1107,7 +1107,8 @@ Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
         availableBaseFootprints=QuantBotColonisationPolicy::freeFootprints(w,h,buildable,2,2,
             QuantBotColonisationPolicy::kCrampedFootprints);
     }
-    if(!defenceReady) return Coord::Invalid();
+    // Re-evaluate after measuring this survey, not the previous base layout.
+    if(!expansionDefenceReady()) return Coord::Invalid();
     if(mcv && mcv->getLocation().isValid()) starts.push_back(mcv->getY()*w+mcv->getX());
     if(!mcv && starts.empty()) {
         // A base with no free rock left still stands somewhere. Start the route
@@ -1980,11 +1981,18 @@ bool QuantBot::expansionDefenceReady() const {
         || getHouse()->getNumItems(Structure_ConstructionYard) == 0) return true;
     const auto& data = currentGame->objectData.data;
     const int house = getHouse()->getHouseID();
+    // A base with nowhere left to put a production building cannot finish its
+    // core where it stands: the missing factory is the very thing the colony
+    // has to make room for. Waive that prerequisite only once the survey has
+    // measured the base as built out, so the gate cannot close on itself.
+    // Turret cover for existing expansions below is unaffected.
+    const bool builtOut = rockSurveyCycle != std::numeric_limits<Uint32>::max() && baseBuiltOut();
     // Complete the core first, then secure each expansion before committing
     // another MCV to an outlying site. Recovery of the only yard is exempt.
-    for (Uint32 item : {Structure_HeavyFactory, Structure_HighTechFactory, Structure_RepairYard})
-        if (data[item][house].enabled && data[item][house].techLevel <= currentGame->techLevel
-            && getHouse()->getNumItems(item) == 0) return false;
+    if (!builtOut)
+        for (Uint32 item : {Structure_HeavyFactory, Structure_HighTechFactory, Structure_RepairYard})
+            if (data[item][house].enabled && data[item][house].techLevel <= currentGame->techLevel
+                && getHouse()->getNumItems(item) == 0) return false;
     if (!data[Structure_RocketTurret][house].enabled
         || data[Structure_RocketTurret][house].techLevel > currentGame->techLevel) return true;
     for (const auto* yard:getStructureList())
@@ -2304,17 +2312,29 @@ Coord QuantBot::findPlaceLocation(Uint32 itemID) {
 		}
 	}
 
+    // A cramped city keeps legal ground that no longer suits the road grid.
+    // Roads are a layout preference; production capacity is not. Factories,
+    // builders and repair yards may take such a site once the ordinary search
+    // has failed, so the base is never called full while it can still host the
+    // building an engine placement check accepts.
+    const bool roadingFallbackItem = currentGame->isCitySimEnabled() && (itemIsBuilder || factoryPlacement);
+    bool roadingRelaxed = false;
+
     // Keep the fast ordinary search, but never treat its averaged base centre
     // as the limit of a spread-out city's buildable territory.
-    for (int searchPass=0; searchPass<2; ++searchPass) {
+    for (int searchPass=0; searchPass<3; ++searchPass) {
         if (searchPass==1) {
             if (bestLocation.isValid() && itemID != Structure_NuclearPlant) break;
             startX=0; startY=0; endX=mapW-newSizeX; endY=mapH-newSizeY;
         }
+        if (searchPass==2 && (bestLocation.isValid() || !roadingFallbackItem)) break;
+        // Only the road-layout preferences are dropped. Engine placement, ground
+        // egress, reservations, blast clearance and threat rules still decide.
+        const bool relaxRoading = searchPass==2;
         searchPassUsed=searchPass;
 	for (int placeLocationX = startX; placeLocationX <= endX; placeLocationX++) {
 		for (int placeLocationY = startY; placeLocationY <= endY; placeLocationY++) {
-			if (!CityPlacementPolicy::inPlacementSearchPass(placeLocationX,placeLocationY,
+			if (!relaxRoading && !CityPlacementPolicy::inPlacementSearchPass(placeLocationX,placeLocationY,
                 baseCenter.x,baseCenter.y,searchRadius,searchPass)) continue;
             // First check if this location is valid for building
 			if (getMap().okayToPlaceStructure(placeLocationX, placeLocationY, newSizeX, newSizeY,
@@ -2349,8 +2369,8 @@ Coord QuantBot::findPlaceLocation(Uint32 itemID) {
                     if (!TacticalSafetyPolicy::reactorPlacementAllowed(itemID, reactorClearance(itemID, Coord(placeLocationX, placeLocationY)))) { ++blastRejected; continue; }
                 }
                 const auto roads = cityRoadImpact(getMap(), placeLocationX, placeLocationY, newSizeX, newSizeY, itemID);
-                if (!roads.preservesConnections) { ++roadRejected; continue; }
-                if (currentGame && currentGame->isCitySimEnabled()
+                if (!relaxRoading && !roads.preservesConnections) { ++roadRejected; continue; }
+                if (!relaxRoading && currentGame && currentGame->isCitySimEnabled()
                     && wouldLandlockNeighbouringZone(getMap(), houseID, placeLocationX, placeLocationY, newSizeX, newSizeY)) { ++neighbourRejected; continue; }
 				int locationScore = 0;
                 const int blockBonus = cityZonePlacement ? fourZoneBlockBonus(getMap(),houseID,placeLocationX,placeLocationY) : 0;
@@ -2586,7 +2606,10 @@ Coord QuantBot::findPlaceLocation(Uint32 itemID) {
 				if (sideTouchesStruct) sidesTouchingStructure++;
 			}
 
-			if (sidesWithRoad == 0 && sidesWithOpen == 0) {
+			// Road or open rock frontage is what a well-laid-out city wants. The
+			// relaxed pass keeps only the access the engine enforces, which
+			// preservesGroundAccess() has already checked on this footprint.
+			if (!relaxRoading && sidesWithRoad == 0 && sidesWithOpen == 0) {
 				continue;  // landlocked — skip
 			}
 			if (cityZonePlacement && wouldLandlockNeighbouringZone(getMap(), houseID, placeLocationX, placeLocationY, newSizeX, newSizeY)) {
@@ -2800,6 +2823,7 @@ Coord QuantBot::findPlaceLocation(Uint32 itemID) {
                     bestFactoryRank = factoryRank;
                     bestSiteTier = siteTier;
                     bestSafe=lossRisk==0; bestInfill=infill;
+                    roadingRelaxed = relaxRoading;
                     bestQuality = quality.set("tier", siteTier).set("score", locationScore);
 					bestLocationScore = locationScore;
 					bestLocation = Coord(placeLocationX, placeLocationY);
@@ -2811,10 +2835,11 @@ Coord QuantBot::findPlaceLocation(Uint32 itemID) {
     } // search passes
     if (bestLocation.isInvalid()) {
         bestLocation = findRedevelopmentSite(itemID);
-        if (bestLocation.isValid()) bestQuality.set("redevelopment",1);
+        if (bestLocation.isValid()) { bestQuality.set("redevelopment",1); roadingRelaxed=false; }
     }
 	placementCache[itemID] = bestLocation;
-    bestQuality.set("legal_candidates",candidates).set("threat_rejections",threatRejected)
+    bestQuality.set("roading_relaxed",roadingRelaxed)
+        .set("legal_candidates",candidates).set("threat_rejections",threatRejected)
         .set("blast_rejections",blastRejected).set("recent_loss_rejections",lossRejected)
         .set("search_pass",searchPassUsed).set("search_center_x",baseCenter.x).set("search_center_y",baseCenter.y)
         .set("production_plot_rejections",productionPlotRejected)
@@ -4051,12 +4076,16 @@ void QuantBot::build(int militaryValue) {
         refineryQueueSince!=std::numeric_limits<Uint32>::max()&&getGameCycleCount()-refineryQueueSince>=MILLI2CYCLES(10000));
     if(citySimEnabled&&(rockSurveyCycle==std::numeric_limits<Uint32>::max()
         || getGameCycleCount()-rockSurveyCycle>=MILLI2CYCLES(15000))) {
-        rockSurveyCycle=getGameCycleCount();rockExpansionSite=findRockExpansionSite();
         // Free rock is not the same as somewhere to build. The placement search
-        // applies the rules a factory actually has to satisfy — access, roads,
-        // neighbours, safety — so its verdict is what "no room left" means
-        // here. It runs at the survey cadence, not once per pass.
+        // applies the rules a factory actually has to satisfy — access, safety,
+        // and roads it may compromise on before giving up — so its verdict is
+        // what "no room left" means here. It runs at the survey cadence, not
+        // once per pass, and before the site survey: whether the base is built
+        // out is what tells colonisation the missing core cannot be finished
+        // here, so it must be measured first rather than read from last survey.
         baseProductionRoomBlocked=!findPlaceLocation(Structure_HeavyFactory).isValid();
+        rockSurveyCycle=getGameCycleCount();
+        rockExpansionSite=findRockExpansionSite();
     }
     const bool rockExpansionNeeded=citySimEnabled&&rockExpansionSite.isValid()
         && (availableBaseRock<48 || (unloadingBacklog&&!findPlaceLocation(Structure_Refinery).isValid()));
@@ -5539,6 +5568,24 @@ void QuantBot::build(int militaryValue) {
             }
             capitalCandidates.push_back(transport);
         }
+        // Give an imported colonist the same shared cash protection as a
+        // factory-built one; otherwise repeated bargains consume its savings.
+        if (port && colonisationNeeded && !mcvBuildAvailable && itemCount[Unit_MCV]==0) {
+            CapitalCandidate colonist;
+            colonist.builder=builder->getObjectID();colonist.item=Unit_MCV;
+            colonist.kind="construction";colonist.price=purchasePrice(builder,Unit_MCV);
+            colonist.cost=colonist.price;colonist.delay=MILLI2CYCLES(30000);
+            if (!ready) colonist.reason="producer_busy";
+            else if (!campaignAvailableToBuild(builder,Unit_MCV) || colonist.price<=0)
+                colonist.reason="tech_unavailable";
+            else if (getHouse()->getChoam().getNumAvailable(Unit_MCV)<=0) colonist.reason="sold_out";
+            else if (getHouse()->isGroundUnitLimitReached()) colonist.reason="unit_limit";
+            else {
+                colonist.score=5000;
+                colonist.reason="colonisation_without_factory";
+            }
+            capitalCandidates.push_back(colonist);
+        }
         if (ready && building==Structure_HeavyFactory && campaignAvailableToBuild(builder,Unit_MCV)
             && !getHouse()->isGroundUnitLimitReached() && itemCount[Unit_MCV]==0
             && gameMode==GameMode::Custom && !openingWorkersNeeded()) {
@@ -6350,7 +6397,8 @@ void QuantBot::build(int militaryValue) {
                 const bool capitalSupplier=capitalPending() && capitalCandidates[capitalChoice].builder==pBuilder->getObjectID();
                 if (capitalSupplier && (cityGrowthProtected || protectionCapital || defendingEconomy || harvesterInvestmentReserve()==0
                     || capitalCandidates[capitalChoice].item==Unit_Harvester
-                    || capitalCandidates[capitalChoice].item==Unit_Carryall)) protectedCash=0;
+                    || capitalCandidates[capitalChoice].item==Unit_Carryall
+                    || capitalCandidates[capitalChoice].item==Unit_MCV)) protectedCash=0;
                 protectedCash=std::max(protectedCash,capitalReserve(pBuilder->getObjectID()));
                 // Saving for optional capital must not stop the yard from
                 // relieving the storage ceiling that prevents further saving.
@@ -6811,6 +6859,11 @@ void QuantBot::build(int militaryValue) {
 
                             return true;
                         };
+
+                        // The priority purchase above imports the colonist. If
+                        // it is still unaffordable, preserve this port's savings.
+                        if (capitalSupplier && capitalPending()
+                            && capitalCandidates[capitalChoice].item==Unit_MCV) break;
                         if (itemCount[Unit_Carryall] == 0)
                             buyEconomicImport(Unit_Carryall, "first_economic_transport");
                         while (itemCount[Unit_Harvester] < workerTarget) {

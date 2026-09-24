@@ -1,3 +1,56 @@
+## 2026-09-24 — Cramped production and Starport colonists (local 1.0.782)
+
+Current Air 781 session 1790248536426276-0, DuneCity Sihaya-O'Donnell 128x64,
+seed 673490541, Rebels Brutal vs Fremen Brutal, tech 8, concrete off, powered
+rocket turrets. At 17.28 minutes Rebels had 2,919 credits, one yard, one Starport,
+no Heavy Factory and no MCV. It reported 63 free rock tiles but no factory site;
+base_built_out was true and colonisation_due false. The Starport kept buying
+combat units. Heavy-production and repair-capacity orders were rejected for
+no_site. Missing Heavy/High-Tech/Repair buildings also closed the remote survey,
+a circular prerequisite when the reason to expand is lack of room for them.
+
+Production placement now tries both ordinary searches first, then a city-only
+fallback relaxing road continuity/frontage and neighbouring road-access layout
+preferences for builders and factories. Engine legality, ground egress,
+reservations, threat and reactor clearance stay mandatory; existing buildings
+are not demolished by this fallback. Preferred road-fronted sites still win.
+This may reduce city road connectivity locally, as explicitly requested to
+unblock production. Telemetry reports roading_relaxed and search pass 2.
+
+Built-out bases may survey/deploy remotely before completing the missing factory
+core. The current survey's footprint measurement controls that exception;
+existing expansion turret coverage, target/route danger and loss checks remain.
+A custom city with no MCV-capable factory can select a Starport colonist through
+the shared capital plan, at actual market price. That reserves its cash against
+other producers and makes the port wait rather than spend its savings on
+bargains. Stock, unit/yard caps, existing/paid/queued MCVs and campaign/helper
+boundaries remain. First-yard emergency recovery is unchanged.
+
+Version 782, network protocol 36, policy cramped-city-starport-v84. No new saved
+fields or checkpoint-layout change. Claude implemented the initial patch and
+fixtures, then hit its bounded turn limit; Codex reviewed and completed shared
+capital reservation, current-survey gating and city-only fallback scope.
+
+Native build and dependency audits pass. Seven focused CTests pass, including
+all-mode opening economy, both Starport recovery probes and unit tests. The
+expanded MCV engine probe also passes with Heavy/High-Tech/Repair counts all
+zero: sold-out and unaffordable orders are refused, one funded MCV is dispatched,
+paid cargo and a second port cannot duplicate it, and the factory path resumes
+when restored. Cramped placement accepts the only legal unfronted site, refuses
+a mountain-enclosed exit, and prefers proper frontage when available. Existing
+local/remote MCV travel/deployment checks remain.
+
+Same map/seed/roster/settings 20-minute baseline and candidate simulations do
+not exactly replay the live trajectory. Baseline orders HF at 5.33 minutes and
+MCV at 9.68; candidate HF at 14.72 and MCV at 17.78, ending with two yards and a
+Heavy/High-Tech Factory. These are progression smoke checks, not a claim of a
+speed improvement or a match victory. Direct fixtures prove the blocked cases.
+All 42 ordinary CTest targets pass (seven focused plus 35 remaining). The
+full-match regression, seed 1804669015 on All against Atreides, wins against
+four Hard AI Player opponents at 53.70 game minutes, with concrete and
+rocket-turret power required. This checks broader play, not a replay of Sihaya.
+Evidence: ../outputs/quantbot-cramped-starport-782/. Not installed or released.
+
 ## 2026-09-24 — Space-driven MCV colonisation (local 1.0.781)
 
 Separate custom DuneCity colonisation demand now bypasses a satisfied production
@@ -40,7 +93,9 @@ The three existing match regressions also won (seed: game minutes):
 1841712204: 55.80; 41562270: 71.89; 1430976924: 61.78.
 Claude implemented the bounded task but reached its turn limit; Codex reviewed,
 completed fixture isolation, and independently built and ran CTest. Evidence:
-../outputs/quantbot-colonisation-781/. Not installed, pushed or released.
+../outputs/quantbot-colonisation-781/. Later installed on the MBA at
+/Applications/dunecity.app; version/signature/binary hash and rendering verified
+(../outputs/mba-test-781/install-verification.log). Not pushed or released.
 
 ## 2026-09-24 — QuantBot city production, foundations and aircraft (1.0.780)
 
