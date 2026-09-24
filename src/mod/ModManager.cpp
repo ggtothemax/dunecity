@@ -90,7 +90,7 @@ std::string cityOptions() {
     out << "# Dune City Game Options (default values)\n";
     out << "[Game Options]\n";
     out << "Game Speed = 16\n";
-    out << "Concrete Required = true\n";
+    out << "Concrete Required = false\n";
     out << "Fog of War = false\n";
     out << "Start with Explored Map = true\n";
     out << "Instant Build = false\n";

@@ -94,5 +94,6 @@ void WindTrap::setHealth(FixPoint newHealth) {
 
 int WindTrap::getProducedPower() const {
     const int nominal = abs(currentGame->objectData.data[itemID][originalHouseID].power);
-    return DuneCity::generatorOutput(nominal, getHealth(), getMaxHealth(), false);
+    // Dynasty enhanced: output follows health, with no half-output floor.
+    return DuneCity::windtrapOutput(nominal, getHealth(), getMaxHealth());
 }

@@ -4,6 +4,8 @@
 // and the save checks round-trip a real Silo through the real stream format.
 // Nothing reimplements the rules; the expected values are the Dynasty ones.
 #include <structures/Silo.h>
+#include <structures/WindTrap.h>
+#include <structures/AdvancedWindTrap.h>
 #include <misc/IMemoryStream.h>
 #include <misc/OMemoryStream.h>
 
@@ -19,7 +21,8 @@ void runStructureDegradationProbe(Game& game) {
     auto* house=pLocalHouse;
     house->setAutoRepairEnabled(false);
     const bool concreteRequired=game.getGameInitSettings().getGameOptions().concreteRequired;
-    require(concreteRequired==(ModManager::instance().getActiveModName()!="Tornie"),
+    require(concreteRequired==(ModManager::instance().getActiveModName()!="Tornie"
+        && ModManager::instance().getActiveModName()!="dunecity"),
             "Degradation fixture did not load the selected mod's concrete default");
 
     // Diagnostic fixture ground: free rock so every foundation case is placeable.
@@ -46,7 +49,7 @@ void runStructureDegradationProbe(Game& game) {
         require(placed!=nullptr,"Fixture placement failed");
         return placed;
     };
-    auto concreteAt=[&](int x,int y){house->placeStructure(NONE_ID,Structure_Slab1,x,y,false,true);};
+    auto concreteAt=[&](int x,int y){house->placeStructure(NONE_ID,Structure_Slab1,x,y,true,true);};
     auto setPower=[](House* h,int produced,int required){h->producedPower=produced;h->powerRequirement=required;};
     auto reset=[&](StructureBase* s,bool foundation){
         s->setHealth(FixPoint(s->getMaxHealth()));
@@ -120,6 +123,27 @@ void runStructureDegradationProbe(Game& game) {
     setPower(house,400,100);
     run(founded,powerInterval*4);
     require(founded->getHealth()==damaged,"Restored power healed the structure");
+
+    // Disabled foundations also ignore a saved/stale missing-foundation flag.
+    auto& mutableOptions=const_cast<SettingsClass::GameOptionsClass&>(game.getGameInitSettings().getGameOptions());
+    if (!concreteRequired) {
+        setPower(house,200,200);reset(bare,true);run(bare,decayInterval);
+        require(bare->getHealth()==FixPoint(bareMax),"Disabled foundations still caused damage");
+        const Coord disabledSlabSite=site(2,2);
+        house->placeStructure(NONE_ID,Structure_Slab1,disabledSlabSite.x,disabledSlabSite.y,false,true);
+        require(currentGameMap->getTile(disabledSlabSite)->getType()!=Terrain_Slab,"Disabled concrete was placeable");
+    }
+    auto* slabYard=dynamic_cast<BuilderBase*>(place(Structure_ConstructionYard,site(2,2)));
+    require(slabYard!=nullptr,"Slab-menu fixture needs a yard");
+    slabYard->curUpgradeLev=slabYard->getMaxUpgradeLevel();
+    mutableOptions.concreteRequired=false;
+    slabYard->updateBuildList();
+    require(!slabYard->isAvailableToBuild(Structure_Slab1) && !slabYard->isAvailableToBuild(Structure_Slab4),
+        "Disabled concrete remained in construction menu");
+    slabYard->doProduceItem(Structure_Slab1);
+    require(slabYard->getProductionQueueSize()==0,"Disabled concrete entered a production queue");
+    // Explicitly enable foundations for the independent mechanics cases below.
+    mutableOptions.concreteRequired=true;
 
     // --- foundation decay ------------------------------------------------------
     setPower(house,200,200);        // covered power isolates decay
@@ -210,6 +234,37 @@ void runStructureDegradationProbe(Game& game) {
             "A custom game skipped foundation decay");
     game.gameType=originalType;init.mission=originalMission;
 
+    // Real windtrap bookkeeping: placement, damage, healing, and lethal damage.
+    auto* wind=dynamic_cast<WindTrap*>(place(Structure_WindTrap,site(2,2)));
+    require(wind!=nullptr,"Windtrap fixture missing");
+    wind->setHealth(wind->getMaxHealth());
+    const int nominal=abs(game.objectData.data[Structure_WindTrap][wind->getOriginalHouseID()].power);
+    const int fullTotal=house->getProducedPower();
+    wind->setHealth(FixPoint(wind->getMaxHealth())/2);
+    require(wind->getProducedPower()==nominal/2 && house->getProducedPower()==fullTotal-nominal+nominal/2,
+        "Half-health windtrap did not halve house generation");
+    wind->setHealth(FixPoint(wind->getMaxHealth())/4);
+    require(wind->getProducedPower()==nominal/4,"Windtrap output retained an original-Dune half-power floor");
+    wind->setHealth(wind->getMaxHealth());
+    require(house->getProducedPower()==fullTotal,"Windtrap repair did not restore generation");
+    wind->setHealth(0);
+    require(house->getProducedPower()==fullTotal-nominal,"Lethal windtrap damage retained generation");
+
+    if (ModManager::instance().getActiveModName()=="Tornie") {
+        for (Uint32 item : {Structure_AdvancedWindTrap,Structure_AdvancedWindTrapMK2,Structure_AdvancedWindTrapMK3}) {
+            const Coord size=getStructureSize(item);
+            auto* advanced=dynamic_cast<AdvancedWindTrap*>(place(item,site(size.x,size.y)));
+            require(advanced!=nullptr,"Advanced windtrap fixture missing");
+            advanced->setHealth(advanced->getMaxHealth());
+            const int output=advanced->getProducedPower(), total=house->getProducedPower();
+            advanced->setHealth(FixPoint(advanced->getMaxHealth())/2);
+            require(advanced->getProducedPower()==output/2 && house->getProducedPower()==total-output+output/2,
+                "Advanced windtrap damage did not update generation");
+            advanced->setHealth(advanced->getMaxHealth());
+            require(house->getProducedPower()==total,"Advanced windtrap repair did not restore generation");
+        }
+    }
+
     // --- save and load -----------------------------------------------------------
     const Coord siloSite=site(2,2);
     auto* silo=place(Structure_Silo,siloSite);
@@ -256,6 +311,31 @@ void runStructureDegradationProbe(Game& game) {
     require(migrated->powerDamageTimer==legacyTimer,"The legacy power timer was not preserved");
     migrated.reset();
     game.loadedSavegameVersion=savedVersion;
+
+    // Real city scan: every city-only building loses local land value from
+    // damage, including services with no health-scaled production mechanic.
+    if (auto* sim=game.getCitySimulation()) {
+        for (Uint32 item : {Structure_ZoneResidential,Structure_ZoneCommercial,
+                Structure_ZoneIndustrial,Structure_PoliceStation,Structure_NuclearPlant,
+                Structure_Stadium,Structure_Airport,Structure_Wall}) {
+            const Coord size=getStructureSize(item), at=site(size.x,size.y);
+            auto* building=place(item,at);
+            const auto crime=sim->crimeRateMap_;
+            auto valueAtCondition=[&](FixPoint health) {
+                building->setHealth(health);
+                sim->crimeRateMap_=crime; // isolate condition from next-scan crime feedback
+                sim->runEffectsScans();
+                return sim->getLandValueMap().worldGet(at.x,at.y);
+            };
+            const int full=valueAtCondition(building->getMaxHealth());
+            require(full>1,"City condition fixture needs developed land");
+            const int damaged=valueAtCondition(FixPoint(building->getMaxHealth())/2);
+            require(damaged==std::max(1,full/2),"Half-health city building did not halve its local land value");
+            require(valueAtCondition(building->getMaxHealth())==full,"Repair did not restore city land value");
+        }
+    }
+
+    mutableOptions.concreteRequired=concreteRequired;
 
     // The removed degrade-on-concrete option still occupies its settings byte,
     // so the rest of the layout must survive a round trip untouched.

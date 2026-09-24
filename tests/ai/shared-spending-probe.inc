@@ -54,7 +54,14 @@ void runSharedSpendingProbe(Game& game) {
         }
     }
     auto* secondYard=static_cast<BuilderBase*>(place(Structure_ConstructionYard));
-    secondYard->upgrading=false;secondYard->updateBuildList();
+    secondYard->upgrading=false;
+    // Isolate parallel spending after the new early concrete upgrade. The
+    // opening probe checks that upgrade; the explicit defensive-upgrade case
+    // below still resets its yard to zero and verifies the transition.
+    for(auto* constructionYard:{yard,secondYard}) {
+        constructionYard->curUpgradeLev=constructionYard->getMaxUpgradeLevel();
+        constructionYard->updateBuildList();
+    }
     const auto saved=structureList;
     auto reset=[&](int credits,int spice) {
         for(auto* builder:{yard,heavy,secondYard}) {

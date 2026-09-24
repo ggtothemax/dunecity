@@ -572,7 +572,8 @@ void StructureBase::updateDegradation() {
     // threshold before applying the full house amount, so the final hit can
     // cross that threshold. Process it before the house power tick, as Dynasty
     // does when both timers expire together.
-    if(foundationDegrades && --foundationDecayTimer <= 0) {
+    if(currentGame->getGameInitSettings().getGameOptions().concreteRequired
+       && foundationDegrades && --foundationDecayTimer <= 0) {
         foundationDecayTimer = Decay::foundationDecayIntervalCycles();
         if(!Decay::foundationDecayExempt(currentGame->gameType,
                                          currentGame->getGameInitSettings().getMission())

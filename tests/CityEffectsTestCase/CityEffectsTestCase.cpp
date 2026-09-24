@@ -1499,3 +1499,13 @@ TEST_CASE("Spectator city runtime restores derived state and rejects invalid dim
         REQUIRE_THROWS(restored.loadObserverRuntime(input));
     }
 }
+
+TEST_CASE("Building condition lowers land value and repairs restore it", "[city-effects][condition]") {
+    REQUIRE(conditionLandValue(200,100,100)==200);
+    REQUIRE(conditionLandValue(200,75,100)==150);
+    REQUIRE(conditionLandValue(200,50,100)==100);
+    REQUIRE(conditionLandValue(200,25,100)==50);
+    REQUIRE(conditionLandValue(200,0,100)==1);
+    REQUIRE(conditionLandValue(0,50,100)==0);
+    REQUIRE(conditionLandValue(200,110,100)==200);
+}

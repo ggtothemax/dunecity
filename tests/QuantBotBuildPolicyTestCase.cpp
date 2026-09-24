@@ -641,7 +641,9 @@ TEST_CASE("Rocket turret power setting is independent of vanilla power bypass", 
     REQUIRE(DuneCity::rocketTurretPowered(true,1100,1000));
 }
 
-TEST_CASE("Windtrap damage keeps output until destruction while city reactors scale", "[power]") {
+TEST_CASE("Unscaled generators keep output until destruction while city reactors scale", "[power]") {
+    // The `false` helper is what scoutposts and the non-city reactor use: full
+    // output at any surviving health, nothing once destroyed.
     using DuneCity::generatorOutput;
     REQUIRE(generatorOutput(100, 100, 100, false) == 100);
     REQUIRE(generatorOutput(100, 1, 100, false) == 100);
@@ -653,6 +655,20 @@ TEST_CASE("Windtrap damage keeps output until destruction while city reactors sc
     const int before = generatorOutput(100,25,100,false);
     REQUIRE(100 - before + generatorOutput(100,0,100,false) == 0);
     REQUIRE(0 - generatorOutput(100,0,100,false) == 0); // destructor after lethal damage
+}
+
+TEST_CASE("Windtrap output follows health with no half-output floor", "[power]") {
+    using DuneCity::windtrapOutput;
+    REQUIRE(windtrapOutput(100, 100, 100) == 100);
+    REQUIRE(windtrapOutput(100, 50, 100) == 50);    // half health, half power
+    REQUIRE(windtrapOutput(300, 25, 100) == 75);
+    REQUIRE(windtrapOutput(100, 200, 200) == 100);  // never above nominal
+    REQUIRE(windtrapOutput(100, 100, 200) == 50);
+    REQUIRE(windtrapOutput(100, 1, 100) == 1);      // no floor short of destruction
+    REQUIRE(windtrapOutput(100, 0, 100) == 0);
+    REQUIRE(windtrapOutput(100, 50, 0) == 0);
+    // The bare-rock placement penalty alone halves a windtrap's contribution.
+    REQUIRE(windtrapOutput(100, 200, 200) - windtrapOutput(100, 100, 200) == 50);
 }
 
 TEST_CASE("Main waves require both actual numbers and value", "[quantbot][attack]") {
@@ -1707,4 +1723,134 @@ TEST_CASE("New expansion yards demand three turrets and are covered first", "[ai
     // The interim ceiling still scales with demand rather than jumping.
     CHECK(coverageTurretCap(12)==5);
     CHECK(coverageTurretCap(15)>coverageTurretCap(12)-1);
+}
+
+// --- Concrete foundation policy --------------------------------------------
+// QuantBot founds a building because its health does work, not because concrete
+// looks tidy. These fix which buildings that covers and what the slabs must
+// never be allowed to cost.
+
+TEST_CASE("Foundation priority follows the engine's health-dependent functions", "[quantbot][concrete]") {
+    // BuilderBase multiplies build speed by the builder's health fraction.
+    REQUIRE(healthScaledProduction(Structure_ConstructionYard));
+    REQUIRE(healthScaledProduction(Structure_HeavyFactory));
+    REQUIRE(healthScaledProduction(Structure_HighTechFactory));
+    REQUIRE(healthScaledProduction(Structure_LightFactory));
+    REQUIRE(healthScaledProduction(Structure_Barracks));
+    REQUIRE(healthScaledProduction(Structure_WOR));
+    // The Starport delivers imports on its own timer; its condition is not a
+    // production rate, so it is not founded for that reason.
+    REQUIRE_FALSE(healthScaledProduction(Structure_StarPort));
+    REQUIRE_FALSE(healthScaledProduction(Structure_Radar));
+
+    // Output that is literally a health fraction.
+    REQUIRE(healthScaledOutput(Structure_WindTrap, false));
+    REQUIRE(healthScaledOutput(Structure_AdvancedWindTrap, false));
+    REQUIRE(healthScaledOutput(Structure_Refinery, false));
+    REQUIRE(healthScaledOutput(Structure_Worfinery, false));
+    // generatorOutput() only scales the reactor inside the city simulation.
+    REQUIRE(healthScaledOutput(Structure_NuclearPlant, true));
+    REQUIRE_FALSE(healthScaledOutput(Structure_NuclearPlant, false));
+    REQUIRE_FALSE(healthScaledOutput(Structure_Scoutpost, true));
+
+    REQUIRE(defensiveEmplacement(Structure_GunTurret));
+    REQUIRE(defensiveEmplacement(Structure_RocketTurret));
+
+    // Tile states and the wall are excluded from degradation entirely, so they
+    // are never given a foundation of their own — including in city mode.
+    for (Uint32 exempt : {Uint32(Structure_Wall), Uint32(Structure_Slab1), Uint32(Structure_Slab4),
+                          Uint32(Structure_Road), Uint32(Structure_PowerLine), Uint32(NONE_ID)}) {
+        REQUIRE(foundationExemptItem(exempt));
+        REQUIRE_FALSE(foundationPriorityStructure(exempt, true));
+        REQUIRE_FALSE(foundationPriorityStructure(exempt, false));
+    }
+}
+
+TEST_CASE("City mode founds the whole colony, vanilla only what health drives", "[quantbot][concrete][city]") {
+    // Outside the city simulation, only production, output and defence.
+    REQUIRE(foundationPriorityStructure(Structure_WindTrap, false));
+    REQUIRE(foundationPriorityStructure(Structure_Refinery, false));
+    REQUIRE(foundationPriorityStructure(Structure_HeavyFactory, false));
+    REQUIRE(foundationPriorityStructure(Structure_GunTurret, false));
+    REQUIRE(foundationPriorityStructure(Structure_RocketTurret, false));
+    REQUIRE_FALSE(foundationPriorityStructure(Structure_Palace, false));
+    REQUIRE_FALSE(foundationPriorityStructure(Structure_Radar, false));
+    REQUIRE_FALSE(foundationPriorityStructure(Structure_Silo, false));
+    REQUIRE_FALSE(foundationPriorityStructure(Structure_StarPort, false));
+
+    // In city mode every footprint scales its own land value by its health, so
+    // every city building is productive ground.
+    REQUIRE(foundationPriorityStructure(Structure_ZoneResidential, true));
+    REQUIRE(foundationPriorityStructure(Structure_ZoneCommercial, true));
+    REQUIRE(foundationPriorityStructure(Structure_ZoneIndustrial, true));
+    REQUIRE(foundationPriorityStructure(Structure_PoliceStation, true));
+    REQUIRE(foundationPriorityStructure(Structure_Stadium, true));
+    REQUIRE(foundationPriorityStructure(Structure_Airport, true));
+    REQUIRE(foundationPriorityStructure(Structure_NuclearPlant, true));
+    REQUIRE(foundationPriorityStructure(Structure_Palace, true));
+}
+
+TEST_CASE("Discretionary foundations use the engine's own repair price", "[quantbot][concrete][economy]") {
+    // Radar: 500 max health, 400 credits. The engine charges
+    // ((2*256)/500)*400/1280 credits per hitpoint and placement on bare rock
+    // costs 250 of them.
+    REQUIRE(repairCreditsPerHitpointMilli(500, 400) == 312);
+    REQUIRE(placementRepairCost(500, 400) == 78);
+    REQUIRE(foundationPaysForItself(500, 400, 20));   // 2x2 of five-credit slab
+
+    // Above 512 maximum health the engine's integer repair fraction is zero and
+    // repairs are currently free, so slabs cannot pay for themselves there.
+    REQUIRE(repairCreditsPerHitpointMilli(1000, 2000) == 0);
+    REQUIRE(placementRepairCost(1000, 2000) == 0);
+    REQUIRE_FALSE(foundationPaysForItself(1000, 2000, 45));  // Palace, 3x3
+    REQUIRE_FALSE(foundationPaysForItself(750, 2000, 45));   // reactor, 3x3
+
+    // A 100-credit zone does not recover 20 credits of slab through repairs.
+    // City mode founds it for its land value, never on these grounds.
+    REQUIRE(placementRepairCost(200, 100) == 15);
+    REQUIRE_FALSE(foundationPaysForItself(200, 100, 20));
+
+    // A silo and a repair yard do recover their slab bill.
+    REQUIRE(foundationPaysForItself(150, 300, 20));
+    REQUIRE(foundationPaysForItself(200, 700, 30));
+    REQUIRE_FALSE(foundationPaysForItself(500, 400, 0));     // nothing to buy
+}
+
+TEST_CASE("Foundation funding preserves reserves and permits urgent bare construction", "[quantbot][concrete][economy]") {
+    REQUIRE(foundationAffordable(1000, 400, 30, 500));
+    REQUIRE_FALSE(foundationAffordable(929, 400, 30, 500));
+    REQUIRE(foundationAffordable(930, 400, 30, 500));
+
+    // Enough for the building but not its foundation. Only an urgent order —
+    // a blackout, an attack in progress, a colony with no refinery — goes
+    // ahead on bare ground; otherwise the yard saves for the slabs.
+    REQUIRE(placeWithoutFoundation(true, 410, 400, 30));
+    REQUIRE_FALSE(placeWithoutFoundation(false, 410, 400, 30));
+    // Not even the building is affordable: urgency does not conjure credits.
+    REQUIRE_FALSE(placeWithoutFoundation(true, 390, 400, 30));
+    // Fully funded orders always take their foundation.
+    REQUIRE_FALSE(placeWithoutFoundation(true, 430, 400, 30));
+}
+
+TEST_CASE("The yard upgrades for the bulk slab once income can pay for it", "[quantbot][concrete][production]") {
+    const int cost = 200;     // Construction Yard price 400, upgrade costs half
+    const int reserve = 400;  // one refinery held back after the upgrade
+    const int slab4Level = 1;
+
+    // Purely a concrete unlock: no concrete, or no reachable Slab4, no upgrade.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(false, true, 0, slab4Level, 2, true, 5000, cost, reserve, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, false, 0, slab4Level, 2, true, 5000, cost, reserve, false));
+    // A mod that does not gate Slab4 behind an upgrade needs no upgrade either.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, 0, 2, true, 5000, cost, reserve, false));
+
+    // Core income first, then a reserve that survives the upgrade.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, false, 5000, cost, reserve, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, true, cost + reserve - 1, cost, reserve, false));
+    REQUIRE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, true, cost + reserve, cost, reserve, false));
+
+    // Already unlocked, or a yard that cannot reach the level at all.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 1, slab4Level, 2, true, 5000, cost, reserve, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 0, true, 5000, cost, reserve, false));
+    // One yard upgrades at a time so the others keep building.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, true, 5000, cost, reserve, true));
 }

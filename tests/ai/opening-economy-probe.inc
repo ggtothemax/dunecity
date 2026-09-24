@@ -1,5 +1,6 @@
 #include <structures/Refinery.h>
 #include <units/Harvester.h>
+#include <players/QuantBotBuildPolicy.h>
 
 // Drive real build decisions on All against Atreides, with its empty market.
 void runOpeningEconomyProbe(Game& game) {
@@ -59,6 +60,116 @@ void runOpeningEconomyProbe(Game& game) {
         return Uint32(NONE_ID);
     };
     place(Structure_WindTrap);place(Structure_Refinery);
+    // Real queue checks while the opening still has an unambiguous productive
+    // next building. Isolate policies from the later mature-base fixtures.
+    {
+        const bool savedConcrete=game.gameInitSettings.gameOptions.concreteRequired;
+        const auto savedDifficulty=bot->difficulty;
+        const auto savedUpgrade=yard->curUpgradeLev;
+        const auto slab4=game.objectData.data[Structure_Slab4][HOUSE_ATREIDES];
+        if (house->getNumItems(Unit_Harvester)==0) {
+            auto* income=house->createUnit(Unit_Harvester,true);
+            require(income!=nullptr,"Could not create opening income worker");
+        }
+        game.gameInitSettings.gameOptions.concreteRequired=true;
+        for (auto difficulty : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                               QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            bot->difficulty=difficulty;
+            yard->curUpgradeLev=0;yard->updateBuildList();
+            build(100000);
+            require(yard->isUpgrading(),"Funded opening did not upgrade the yard before optional infrastructure");
+        }
+        // The rest of the opening tests exercise build selection after the
+        // new foundation upgrade, so give them the unlocked level explicitly.
+        clearOrders();yard->curUpgradeLev=std::max<int>(savedUpgrade,slab4.upgradeLevel);
+        auto queueCheck=[&](bool required,bool bulk) {
+            game.gameInitSettings.gameOptions.concreteRequired=required;
+            game.objectData.data[Structure_Slab4][HOUSE_ATREIDES].enabled=bulk;
+            yard->updateBuildList();
+            for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x) {
+                auto* tile=currentGameMap->getTile(x,y);
+                if(!tile->hasAStructure() && tile->isConcrete())tile->setType(Terrain_Rock);
+            }
+            const auto item=build(100000);
+            require(item!=NONE_ID,"Foundation opening did not order a building");
+            const auto size=getStructureSize(item);
+            const auto& info=game.objectData.data[item][HOUSE_ATREIDES];
+            const bool wanted=QuantBotBuildPolicy::foundationPriorityStructure(item,game.isCitySimEnabled())
+                || QuantBotBuildPolicy::foundationPaysForItself(info.hitpoints,info.price,
+                    size.x*size.y*game.objectData.data[Structure_Slab1][HOUSE_ATREIDES].price);
+            int singles=0,large=0;
+            for(const auto& order:yard->currentProductionQueue) {
+                singles+=order.itemID==Structure_Slab1;
+                large+=order.itemID==Structure_Slab4;
+            }
+            if(required && wanted) {
+                require(singles+4*large==size.x*size.y,"Productive opening building lacks its full foundation");
+                if(bulk && size.x>=2 && size.y>=2)require(large>0,"Upgraded yard failed to use 2x2 concrete");
+                if(!bulk)require(large==0,"Disabled 2x2 concrete was ordered");
+            } else require(singles==0 && large==0,"Disabled or uneconomic concrete entered the AI queue");
+        };
+        for (auto difficulty : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                               QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            bot->difficulty=difficulty;
+            queueCheck(false,true);queueCheck(true,false);queueCheck(true,true);
+        }
+        // Legacy non-city campaigns use a separate reconstruction branch.
+        // It must share both the early upgrade and the foundation queue rules.
+        if (!game.isCitySimEnabled()) {
+            const auto mode=bot->gameMode;
+            const auto type=game.gameType;
+            const int originalLight=bot->initialItemCount[Structure_LightFactory];
+            bot->gameMode=QuantBot::GameMode::Campaign;game.gameType=GameType::Campaign;
+            bot->initialItemCount[Structure_LightFactory]=1;
+            for (auto difficulty : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                                   QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+                bot->difficulty=difficulty;
+                game.gameInitSettings.gameOptions.concreteRequired=true;
+                yard->curUpgradeLev=0;yard->updateBuildList();
+                build(100000);
+                require(yard->isUpgrading(),"Campaign rebuild bypassed the early concrete upgrade");
+                clearOrders();yard->curUpgradeLev=std::max<int>(savedUpgrade,slab4.upgradeLevel);
+                queueCheck(false,true);queueCheck(true,false);queueCheck(true,true);
+            }
+            clearOrders();bot->gameMode=mode;game.gameType=type;
+            bot->initialItemCount[Structure_LightFactory]=originalLight;
+        }
+        if (game.isCitySimEnabled()) {
+            bot->clearPlacementCache();
+            const auto oldSite=bot->findPlaceLocation(Structure_ZoneResidential);
+            require(oldSite.isValid(),"Missing city-zone foundation site");
+            currentGameMap->getTile(oldSite)->setType(Terrain_Sand);
+            bot->clearPlacementCache();
+            const auto site=bot->findPlaceLocation(Structure_ZoneResidential);
+            require(site.isValid(),"No alternative prepared-ground city site");
+            for(int dy=0;dy<2;++dy)for(int dx=0;dx<2;++dx)
+                require(currentGameMap->getTile(site.x+dx,site.y+dy)->isRock(),
+                    "QuantBot selected sand for a required concrete foundation");
+        }
+        // Raw power matters even in Vanilla. At 50 credits and exactly half
+        // health neither the rich nor emergency-health repair rule applies.
+        StructureBase* wind=nullptr;
+        for(auto* structure:structureList)
+            if(structure->getOwner()==house && structure->getItemID()==Structure_WindTrap)wind=structure;
+        require(wind!=nullptr,"Missing windtrap repair fixture");
+        for (auto difficulty : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                               QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            clearOrders();bot->difficulty=difficulty;
+            wind->setHealth(FixPoint(wind->getMaxHealth())/2);wind->repairing=false;
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=50;
+            house->producedPower=0;
+            bot->build(5100);
+            require(wind->isRepairing(),"Damaged windtrap was not repaired during a power shortage");
+            wind->setHealth(wind->getMaxHealth());wind->repairing=false;
+        }
+        clearOrders();bot->difficulty=savedDifficulty;
+        game.gameInitSettings.gameOptions.concreteRequired=savedConcrete;
+        game.objectData.data[Structure_Slab4][HOUSE_ATREIDES]=slab4;
+        yard->updateBuildList();
+        for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x)
+            if(!currentGameMap->getTile(x,y)->hasAStructure())currentGameMap->getTile(x,y)->setType(Terrain_Slab);
+        SDL_Log("FOUNDATION_POLICY_PASS: all difficulties, early yard upgrade, singles, bulk and concrete disabled");
+    }
     require(build(100000)==Structure_LightFactory,"Rich empty-market opening failed to unlock factory before extra refineries");
     house->getChoam().addItem(Unit_Harvester,0); // Supported, temporarily sold out.
     require(build(1800)==Structure_Refinery,"Poor opening lost the supported Starport economy path");

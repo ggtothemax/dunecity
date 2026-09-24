@@ -4477,7 +4477,7 @@ bool Game::loadSaveGame(InputStream& stream) {
     logLoadStage("objects");
     objectManager.load(stream);
 
-    // Older saves stored health-scaled windtrap totals. Reconstruct generation
+    // Reconstruct saved generation totals (including older constant-output windtraps)
     // from the loaded generators using current rules, without changing demand.
     std::array<int, NUM_HOUSES> loadedGeneration{};
     for (const auto* structure : structureList) {

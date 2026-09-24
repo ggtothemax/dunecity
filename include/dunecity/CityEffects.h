@@ -102,6 +102,14 @@ constexpr int kPoliceCoverageRocketTurret = kPoliceCoverageFull * 15 / 100;  // 
 
 constexpr int kMaxLandValue = 250;
 
+/// Damage devalues a developed building's own land proportionally. Applied
+/// after amenity bonuses; repairs restore value on the next effects scan.
+inline int conditionLandValue(int value, FixPoint health, int maxHealth) {
+    if (value <= 0) return 0;
+    if (maxHealth <= 0) return value;
+    return std::clamp((FixPoint(value) * std::max(FixPoint(0), health) / maxHealth).floor(), 1, value);
+}
+
 constexpr int kMaxPollution = 250;
 
 /// SimCity Classic feedback: when crime exceeds this threshold on a block,

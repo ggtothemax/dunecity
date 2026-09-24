@@ -96,5 +96,5 @@ void AdvancedWindTrap::setHealth(FixPoint newHealth) {
 
 int AdvancedWindTrap::getProducedPower() const {
     const int nominal = abs(currentGame->objectData.data[itemID][originalHouseID].power);
-    return DuneCity::generatorOutput(nominal, getHealth(), getMaxHealth(), false);
+    return DuneCity::windtrapOutput(nominal, getHealth(), getMaxHealth());
 }

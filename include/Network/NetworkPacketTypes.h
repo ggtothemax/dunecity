@@ -84,7 +84,8 @@
 // Version 27: Combined AI changes and Dynasty turret/launcher cadence.
 // Version 28: Starport prerequisites change AI tech progression decisions.
 // Version 29: Dynasty-aligned foundation and power degradation change simulation health.
-#define NETWORK_PROTOCOL_VERSION            29
+// Version 30: Health-scaled windtraps, city land condition and AI concrete policy.
+#define NETWORK_PROTOCOL_VERSION            30
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

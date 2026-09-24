@@ -112,9 +112,9 @@ GameOptionsWindow::GameOptionsWindow(SettingsClass::GameOptionsClass& initialGam
     vboxLeft.addWidget(VSpacer::create(14));
 
 
-    concreteRequiredCheckbox.setText(_("Concrete Required"));
+    concreteRequiredCheckbox.setText(_("Concrete is required"));
     /* xgettext:no-c-format */
-    concreteRequiredCheckbox.setTooltipText(_("If checked building on bare rock will result in 50% structure health penalty."));
+    concreteRequiredCheckbox.setTooltipText(_("Enable concrete. Missing foundations reduce initial health and cause decay. Unchecked: concrete is disabled and these penalties do not apply."));
     concreteRequiredCheckbox.setChecked(gameOptions.concreteRequired);
     vboxRight.addWidget(&concreteRequiredCheckbox);
     vboxRight.addWidget(VSpacer::create(6));

@@ -1,3 +1,44 @@
+## 2026-09-24 — Windtrap condition, city land value and QuantBot concrete
+
+Local candidate 1.0.776 on `fix/dynasty-structure-degradation`, building on the
+local 1.0.775 degradation commit. Standard and advanced windtraps now scale
+output linearly with health using Dynasty enhanced integer output rules; there
+is no 50% output floor. Existing load reconstruction refreshes saved generation.
+Every damaged structure in city mode proportionally lowers land value on its
+footprint; shared blocks use the worst condition, and repairs restore value on
+the next effects scan. This feeds the existing growth and tax calculations.
+
+Game Rules now labels the existing option **Concrete is required**. Default is
+off in DuneCity, on in Vanilla; player overrides remain respected. Off hides and
+rejects slab production/placement and suppresses placement/foundation damage,
+including stale saved foundation flags. Roads/authored slabs remain supported.
+Power-shortage damage is independent. The removed degrade-on-concrete setting
+stays removed. No save-layout change; protocol 30 and telemetry policy v78.
+
+QuantBot uses foundations for productive buildings, windtrap variants, refineries
+and defensive emplacements; city mode extends this to other buildings for land
+value. Passive optional foundations outside city mode require >5,000 spendable
+credits, positive repair savings and a post-purchase reserve. Urgent recovery
+and cash-limited zoning can skip unaffordable foundations. Yard upgrades for
+2x2 slabs move ahead of optional infrastructure after income exists, subject to
+actual tech/availability, cash reserves and immediate defence/power needs.
+Only one yard upgrades for slabs at once. City zoning with foundations selects
+rock rather than unpaveable sand. Legacy campaign reconstruction/power orders
+share the same foundation queue and early upgrade. Low-power repairs include advanced windtraps
+and real Vanilla shortages. No changes to general factory/refinery repair gates.
+
+Inventory and economic rationale: `docs/building-condition-and-concrete.md`.
+Focused native checks pass: all-difficulty real AI opening/queue/repair checks
+in Vanilla, DuneCity and Dune2R; generator/land-value/foundation/save probes in
+all four modes; unit checks and menu rendering/persistence. All 41 CTest
+targets passed (full suite plus targeted reruns). Shared-spending fixtures now
+isolate cash sharing after the early yard upgrade; campaign queues are checked
+across all difficulties. Native dependency audit and version checks passed.
+Receipts: `/Users/stefan/Documents/projects/outputs/concrete-policy/`.
+
+Built app: `dunecity-degradation/build/bin/dunecity.app`. Local changes only;
+not pushed, released or installed over the user's game.
+
 ## 2026-09-24 — Dynasty structure degradation across all modes
 
 Local candidate 1.0.775, branch `fix/dynasty-structure-degradation`, based on

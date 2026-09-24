@@ -444,6 +444,11 @@ void BuilderBase::updateBuildList()
     for(int i = 0; itemOrder[i] != ItemID_Invalid; i++) {
 
         int itemID2Add = itemOrder[i];
+        if ((itemID2Add == Structure_Slab1 || itemID2Add == Structure_Slab4)
+            && !currentGame->getGameInitSettings().getGameOptions().concreteRequired) {
+            removeItem(buildList, iter, itemID2Add);
+            continue;
+        }
 
         // City zones and Road are only available when the active mod opts into
         // DuneCity city-sim features. Hide them from the build list otherwise.
@@ -768,6 +773,8 @@ bool BuilderBase::doUpgrade() {
 }
 
 void BuilderBase::doProduceItem(Uint32 itemID, bool multipleMode) {
+    if ((itemID == Structure_Slab1 || itemID == Structure_Slab4)
+        && !currentGame->getGameInitSettings().getGameOptions().concreteRequired) return;
     for(BuildItem& buildItem : buildList) {
         if(buildItem.itemID == itemID) {
             for(int i = 0; i < (multipleMode ? 5 : 1); i++) {

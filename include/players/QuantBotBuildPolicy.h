@@ -297,6 +297,113 @@ inline std::array<Uint32, 3> rankZones(int residential, int commercial, int indu
     return result;
 }
 
+// ---------------------------------------------------------------------------
+// Concrete foundations
+//
+// A building placed on unprepared ground loses half its health on placement and
+// then decays back to that floor whenever it is repaired. Health is not
+// cosmetic: windtraps convert it straight into power, refineries unload more
+// slowly, every builder builds more slowly, and in city mode a damaged
+// footprint scales down the land value under itself. Those buildings are
+// founded on principle. For the rest it is a pure financial question — slabs
+// now against repair credits later — so the decision uses the engine's own
+// repair price.
+// ---------------------------------------------------------------------------
+
+// Tile states and the one structure the engine excludes from degradation. They
+// never carry a foundation of their own.
+inline bool foundationExemptItem(Uint32 item) {
+    return item == NONE_ID || item == Structure_Wall || item == Structure_Slab1
+        || item == Structure_Slab4 || item == Structure_Road || item == Structure_PowerLine;
+}
+
+// BuilderBase::updateProductionProgress() multiplies build speed by the
+// builder's health fraction. The Starport is deliberately absent: it delivers
+// imports on a timer its own condition does not touch.
+inline bool healthScaledProduction(Uint32 item) {
+    return item == Structure_ConstructionYard || item == Structure_Barracks
+        || item == Structure_WOR || item == Structure_LightFactory
+        || item == Structure_HeavyFactory || item == Structure_HighTechFactory
+        || item == Structure_Worfinery || item == Structure_ChaosFactory;
+}
+
+// Output that follows health directly: windtrapOutput() for every windtrap
+// family, the Refinery/Worfinery extraction scale, and generatorOutput() for
+// the reactor, which only scales in city mode.
+inline bool healthScaledOutput(Uint32 item, bool citySim) {
+    if (item == Structure_NuclearPlant) return citySim;
+    return item == Structure_WindTrap || item == Structure_AdvancedWindTrap
+        || item == Structure_AdvancedWindTrapMK2 || item == Structure_AdvancedWindTrapMK3
+        || item == Structure_Refinery || item == Structure_Worfinery;
+}
+
+// Emplacements spend health as armour, and a one-tile footprint is the
+// cheapest ground on the map to prepare.
+inline bool defensiveEmplacement(Uint32 item) {
+    return item == Structure_GunTurret || item == Structure_RocketTurret
+        || item == Structure_Scoutpost || item == Structure_Flamepost
+        || item == Structure_Chemipost;
+}
+
+// Founded whenever concrete is in play. In city mode that is the whole colony:
+// CityEffects scales each footprint's land value by the building's health, so a
+// half-health building halves the value of the ground it stands on.
+inline bool foundationPriorityStructure(Uint32 item, bool citySim) {
+    if (foundationExemptItem(item)) return false;
+    return citySim || healthScaledProduction(item) || healthScaledOutput(item, citySim)
+        || defensiveEmplacement(item);
+}
+
+// Credits the engine charges per hitpoint of repair, in thousandths.
+// StructureBase::update() restores 5/30 hp per tick for
+// ((2*256)/maxHealth)*price/256/30 credits, so a hitpoint costs
+// fraction*price/1280. That integer fraction is zero above 512 maximum health,
+// which is why the largest buildings currently repair for nothing.
+inline int repairCreditsPerHitpointMilli(int maxHealth, int price) {
+    if (maxHealth <= 0 || price <= 0) return 0;
+    return int(int64_t((2 * 256) / maxHealth) * price * 1000 / 1280);
+}
+
+// What repairing the bare-ground placement penalty costs. Placement removes
+// maxHealth/2, and foundation decay only ever returns a repaired building to
+// that same floor, so this is the recurring bill a foundation avoids.
+inline int placementRepairCost(int maxHealth, int price) {
+    return maxHealth <= 0 ? 0
+        : int(int64_t(maxHealth / 2) * repairCreditsPerHitpointMilli(maxHealth, price) / 1000);
+}
+
+// Discretionary foundations are an investment, not a rule: only worth laying
+// when the slabs cost less than the repairs they replace.
+inline bool foundationPaysForItself(int maxHealth, int price, int foundationCost) {
+    return foundationCost > 0 && placementRepairCost(maxHealth, price) > foundationCost;
+}
+
+// Discretionary foundations must leave the requested operating reserve.
+inline bool foundationAffordable(int credits, int itemPrice, int foundationCost, int reserve) {
+    return int64_t(credits) >= int64_t(itemPrice) + foundationCost + std::max(0, reserve);
+}
+
+// Power blackouts, defended bases and a colony without income need the
+// building itself more than they need it at full health.
+inline bool placeWithoutFoundation(bool urgent, int credits, int itemPrice, int foundationCost) {
+    return urgent && credits >= itemPrice
+        && int64_t(credits) < int64_t(itemPrice) + foundationCost;
+}
+
+// The 2x2 slab is one order and one placement where Slab1 needs four, so a bot
+// that founds its buildings wants the yard upgrade as soon as the economy can
+// pay for it — not as a late side effect of the rocket-turret prerequisite.
+// It is only ever a slab unlock: no concrete, no upgrade for this reason.
+inline bool upgradeYardForBulkSlab(bool concreteRequired, bool bulkSlabAvailable,
+                                   int currentUpgradeLevel, int requiredUpgradeLevel,
+                                   int maxUpgradeLevel, bool coreIncome, int credits,
+                                   int upgradeCost, int reserve, bool anotherYardUpgrading) {
+    return concreteRequired && bulkSlabAvailable && coreIncome && !anotherYardUpgrading
+        && requiredUpgradeLevel > 0 && currentUpgradeLevel < requiredUpgradeLevel
+        && maxUpgradeLevel >= requiredUpgradeLevel && upgradeCost > 0
+        && int64_t(credits) >= int64_t(upgradeCost) + std::max(0, reserve);
+}
+
 // A road is already foundation: a bulk slab must not erase it. Coordinates
 // below are relative to the building footprint, independently of queue order.
 template<class Prepared>
