@@ -13,6 +13,7 @@
 #include <players/QuantBotPowerInvestmentPolicy.h>
 #include <players/CityEconomyInvestmentPolicy.h>
 #include <players/QuantBotSpendingPolicy.h>
+#include <players/QuantBotColonisationPolicy.h>
 #include <set>
 #include <utility>
 
@@ -2563,4 +2564,130 @@ TEST_CASE("Local deployment searches beyond rejected ground-access candidates", 
     CHECK(site.x==27);
     CHECK(site.y==22);
     CHECK(rejected>4);
+}
+
+// --- Space-driven colonisation -------------------------------------------
+// Ordering an MCV because the city has nowhere left to build is a separate
+// decision from growing production capacity: it answers "is there still room
+// here", not "are there enough yards".
+
+namespace {
+
+struct ColonyRoom {
+    static constexpr int w = 12, h = 12;
+    std::vector<char> tiles = std::vector<char>(w*h, 0);
+    void rock(int x0,int y0,int x1,int y1) {
+        for(int y=y0;y<y1;++y) for(int x=x0;x<x1;++x) tiles[y*w+x]=1;
+    }
+    int footprints(int limit = 64) const {
+        return QuantBotColonisationPolicy::freeFootprints(w,h,tiles,2,2,limit);
+    }
+};
+
+QuantBotColonisationPolicy::Demand builtOutCity() {
+    QuantBotColonisationPolicy::Demand demand;
+    demand.citySim = true;
+    demand.customGame = true;
+    demand.siteAvailable = true;
+    demand.freeFootprints = 0;
+    demand.yards = 6;
+    return demand;
+}
+
+}
+
+TEST_CASE("Building room counts whole footprints, not free tiles", "[quantbot][colonisation]") {
+    ColonyRoom room;
+    // A 3x3 patch is nine free tiles and exactly one more building.
+    room.rock(1,1,4,4);
+    CHECK(room.footprints() == 1);
+
+    // A single wide strip holds no building at all: counting tiles would call
+    // twelve of them room to grow.
+    ColonyRoom strip;
+    strip.rock(0,5,12,6);
+    CHECK(strip.footprints() == 0);
+
+    // Four separate corners are four buildings.
+    ColonyRoom corners;
+    corners.rock(0,0,2,2); corners.rock(10,0,12,2);
+    corners.rock(0,10,2,12); corners.rock(10,10,12,12);
+    CHECK(corners.footprints() == 4);
+
+    // The count stops at the limit; the decision only needs "cramped or not".
+    ColonyRoom plenty;
+    plenty.rock(0,0,12,12);
+    CHECK(plenty.footprints(4) == 4);
+    CHECK(plenty.footprints(64) == 36);
+
+    // A degenerate survey never reads as room.
+    CHECK(QuantBotColonisationPolicy::freeFootprints(0,0,{},2,2,4) == 0);
+    CHECK(QuantBotColonisationPolicy::freeFootprints(4,4,std::vector<char>(9,1),2,2,4) == 0);
+}
+
+TEST_CASE("A city out of building rock orders a colonist whatever its yard count",
+          "[quantbot][colonisation]") {
+    auto demand = builtOutCity();
+    CHECK(QuantBotColonisationPolicy::due(demand));
+    // Production capacity is irrelevant: a dozen yards on full rock still
+    // cannot build anything more.
+    demand.yards = 12;
+    CHECK(QuantBotColonisationPolicy::due(demand));
+
+    // The placement search refusing another factory is the same verdict, even
+    // while a few odd corners of rock remain.
+    auto blocked = builtOutCity();
+    blocked.freeFootprints = QuantBotColonisationPolicy::kCrampedFootprints + 2;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(blocked));
+    blocked.productionRoomBlocked = true;
+    CHECK(QuantBotColonisationPolicy::due(blocked));
+}
+
+TEST_CASE("Colonisation stays shut where it would be wrong", "[quantbot][colonisation]") {
+    const auto base = builtOutCity();
+
+    // Room to build at home: grow there instead of driving across the map.
+    auto roomy = base;
+    roomy.freeFootprints = QuantBotColonisationPolicy::kCrampedFootprints;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(roomy));
+
+    // No destination the survey accepts: unsafe, unreachable or too small rock
+    // never produces a site, so nothing is ordered.
+    auto nowhere = base;
+    nowhere.siteAvailable = false;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(nowhere));
+
+    // One colonist at a time: an MCV alive, paid for or queued is the answer.
+    auto alreadyBought = base;
+    alreadyBought.mcvsIncludingQueued = 1;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(alreadyBought));
+
+    // No yard means the base is gone: that is recovery, not colonisation.
+    auto homeless = base;
+    homeless.yards = 0;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(homeless));
+
+    // Campaign missions keep the base the script gave them, and a helper on
+    // someone else's house does not found cities of its own.
+    auto campaign = base;
+    campaign.campaignGame = true;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(campaign));
+    auto scripted = base;
+    scripted.customGame = false;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(scripted));
+    auto helper = base;
+    helper.supportMode = true;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(helper));
+
+    // Vanilla games keep their own MCV rule.
+    auto vanilla = base;
+    vanilla.citySim = false;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(vanilla));
+
+    // The game option ceiling is a hard limit on yards, colony or not.
+    auto capped = base;
+    capped.yardLimit = capped.yards;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(capped));
+    capped.yardLimit = capped.yards + 1;
+    CHECK(QuantBotColonisationPolicy::due(capped));
 }

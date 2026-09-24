@@ -1,3 +1,47 @@
+## 2026-09-24 — Space-driven MCV colonisation (local 1.0.781)
+
+Separate custom DuneCity colonisation demand now bypasses a satisfied production
+construction-yard target. Every 15 game seconds the rock survey counts up to four
+disjoint free 2x2 footprints within the base's build range and checks whether a
+Heavy Factory can legally fit. Fewer than four footprints, or no factory site,
+requests one MCV when safe reachable unoccupied rock exists. Existing/queued MCVs,
+credit reserves, the yard cap and remote expansion defence requirements still
+apply. All custom difficulties share the rule; campaigns and support helpers do
+not gain this new purchase trigger. Production MCVs retain prompt local deployment
+while the base has room. Cramped bases prefer remote settlement, retaining valid
+trip assignments and falling back locally if no remote site can be used.
+
+Captured Air 780 session 1790245284856094-0 (seed 1804669015) had six yards, no
+MCVs and 57,588 credits at 34.48 game minutes. It repeatedly found remote sites,
+but 620 scattered free tiles kept the old raw-tile exhaustion trigger off. The
+capture alone does not prove every local placement was impossible; the new rule
+measures usable footprints as well as raw area. Newly cleared enemy rock becomes
+eligible on the next survey, rather than remaining permanently excluded.
+
+Version 781, network protocol 35, policy space-driven-colonisation-v83. The two
+survey fields are in observer-runtime checkpoint version 5; older network
+checkpoints are rejected. Ordinary save layout is unchanged.
+
+Native Release build and both dependency audits pass. All 42 ordinary CTest
+targets pass. The expanded real-engine MCV probe proves: a roomy base buys no
+colonist; a cramped base with 78 loose free tiles and zero 2x2 footprints rejects
+unreachable/enemy-held rock; removing the enemy causes exactly one accepted MCV
+order despite the production quota already being met; an existing MCV suppresses
+duplicates; it drives from (68,10) to (97,5), deploys there, and stops further
+colonist purchases once room is available. Earlier local-deployment coverage at
+all four difficulties remains. Fixture isolation retires earlier test MCVs and
+removes stale map ownership before surveying the new terrain.
+
+The current live seed 1804669015 wins against four Hard AI Player opponents in
+56.29 game minutes, with concrete required and rocket-turret power required.
+That match retains local building room and does not exercise the new colony
+trigger; the controlled engine probe above is the direct colonisation evidence.
+The three existing match regressions also won (seed: game minutes):
+1841712204: 55.80; 41562270: 71.89; 1430976924: 61.78.
+Claude implemented the bounded task but reached its turn limit; Codex reviewed,
+completed fixture isolation, and independently built and ran CTest. Evidence:
+../outputs/quantbot-colonisation-781/. Not installed, pushed or released.
+
 ## 2026-09-24 — QuantBot city production, foundations and aircraft (1.0.780)
 
 Local candidate on `fix/dynasty-structure-degradation`, based on 95f27106.

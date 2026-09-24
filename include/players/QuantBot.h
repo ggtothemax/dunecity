@@ -225,9 +225,26 @@ private:
     bool onOwnRockFormation(Coord site) const;
     /// Sites remembered by our other, still undeployed MCVs.
     std::vector<Coord> otherMcvSites(const MCV* mcv) const;
+    /// Has the base built out its own rock, so that further growth needs a new
+    /// formation? Read from the last rock survey, never from a memory of an
+    /// earlier one: clearing an enemy out restores the ground it denied us.
+    bool baseBuiltOut() const;
+    /// Should another MCV be bought to settle free rock? This is colonisation
+    /// only: local production yards and replacing a lost yard are separate.
+    /// \a mcvsIncludingQueued counts MCVs alive, paid for and queued, and
+    /// \a yardLimit is the game-option ceiling (0 = none).
+    bool colonisationMcvDue(int mcvsIncludingQueued, int yardLimit) const;
+    /// Is this MCV's job settling another formation rather than growing the
+    /// base? Only a built-out base with a surveyed destination sends one away.
+    bool colonyMissionDue() const;
     Uint32 rockSurveyCycle = std::numeric_limits<Uint32>::max();
     Coord rockExpansionSite = Coord::Invalid();
     int availableBaseRock = 0;
+    /// Building slots left on the base's own rock, and whether the placement
+    /// search can still find room for another production building. Both are
+    /// refreshed by the rock survey and are part of the observer checkpoint.
+    int availableBaseFootprints = 0;
+    bool baseProductionRoomBlocked = false;
     Uint32 refineryQueueSince = std::numeric_limits<Uint32>::max();
     std::unordered_map<Uint32,Coord> mcvExpansionSites;
     std::unordered_map<Uint32,Uint32> mcvSurveyCycles;

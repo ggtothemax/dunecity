@@ -1,5 +1,6 @@
 #include <players/RockExpansionPolicy.h>
 #include <players/McvDeployPolicy.h>
+#include <players/QuantBotColonisationPolicy.h>
 #include <dunecity/CityStructurePopulation.h>
 #include <dunecity/ZonePower.h>
 #include <players/LocalPointIndex.h>
@@ -1065,9 +1066,15 @@ void QuantBot::onDamage(const ObjectBase* pObject, int damage, Uint32 damagerID)
 }
 
 Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
-    if (!expansionDefenceReady()) return Coord::Invalid();
+    const bool defenceReady=expansionDefenceReady();
+    // A per-MCV query has nothing to measure, so the shut gate still costs
+    // nothing. The base survey runs first and reports how much room the base
+    // has left even while colonisation itself is blocked: that measurement is
+    // what tells production the city has nowhere left to build.
+    if(!defenceReady && mcv) return Coord::Invalid();
     const int w=getMap().getSizeX(),h=getMap().getSizeY();
     std::vector<RockExpansionPolicy::Tile> tiles(w*h);
+    std::vector<char> buildable(static_cast<size_t>(w)*h,0);
     std::vector<int> starts,enemies,reserved;
     int freeBase=0;
     for(int y=0;y<h;++y) for(int x=0;x<w;++x) {
@@ -1084,12 +1091,36 @@ Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
         // chain of replacements.
         out.unsafe=dangerAt(Coord(x,y),Coord(1,1))>0||nearRecentStructureLoss(x,y,1,1)
             ||lostYardsNear(x,y,kRepeatedYardLossRadius)>=kRepeatedYardLossLimit;
-        if(out.rock&&out.free&&getMap().isWithinBuildRange(x,y,getHouse())) {
+        const bool inBuildRange=out.rock&&getMap().isWithinBuildRange(x,y,getHouse());
+        if(inBuildRange&&out.free) {
             ++freeBase;
             if(!mcv)starts.push_back(y*w+x);
         }
+        // Room for a future building, which is not the same as a free tile:
+        // zoned and reserved ground is spoken for, and a unit parked on rock
+        // is traffic, not a reason to call the base full.
+        if(!mcv) buildable[y*w+x]=inBuildRange&&!out.unsafe&&!tile->hasAStructure()&&!tile->hasCityZone()
+            &&!overlapsReservedStructure(x,y,1,1);
     }
+    if(!mcv) {
+        availableBaseRock=freeBase;
+        availableBaseFootprints=QuantBotColonisationPolicy::freeFootprints(w,h,buildable,2,2,
+            QuantBotColonisationPolicy::kCrampedFootprints);
+    }
+    if(!defenceReady) return Coord::Invalid();
     if(mcv && mcv->getLocation().isValid()) starts.push_back(mcv->getY()*w+mcv->getX());
+    if(!mcv && starts.empty()) {
+        // A base with no free rock left still stands somewhere. Start the route
+        // survey from the open ground around its buildings: the city that most
+        // needs to settle elsewhere is exactly the one with nothing left to
+        // start from, and it must not be the one that finds nowhere to go.
+        for(const auto* structure:getStructureList()) {
+            if(structure->getOwner()!=getHouse()) continue;
+            const Coord at=structure->getLocation(),size=structure->getStructureSize();
+            for(int x=at.x-1;x<=at.x+size.x;++x) for(int y=at.y-1;y<=at.y+size.y;++y)
+                if(getMap().tileExists(x,y)&&tiles[y*w+x].walkable) starts.push_back(y*w+x);
+        }
+    }
     auto enemy=[&](const ObjectBase* object) {
         if(object->getOwner() && object->getOwner()->getTeamID()!=getHouse()->getTeamID()
             && object->isVisible(getHouse()->getTeamID())&&object->getLocation().isValid())
@@ -1110,7 +1141,6 @@ Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
             && (!mainYard || structure->getObjectID()<mainYard->getObjectID())) mainYard=structure;
     const int mainBase=mainYard ? mainYard->getY()*w+mainYard->getX() : -1;
     const auto result=RockExpansionPolicy::choose(w,h,tiles,starts,enemies,reserved,mainBase);
-    if(!mcv)availableBaseRock=freeBase;
     if(!result.valid())return Coord::Invalid();
     const Coord site(result.x,result.y);
     if(!overlapsReservedStructure(site.x,site.y,2,2)&&preservesGroundAccess(Structure_ConstructionYard,site)) {
@@ -1118,10 +1148,47 @@ Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
             .set("x",site.x).set("y",site.y).set("free_base_rock",freeBase)
             .set("local_free_rock",result.room).set("enemy_clearance",result.clearance).set("route_tiles",result.distance)
             .set("main_base_x",mainYard?mainYard->getX():-1).set("main_base_y",mainYard?mainYard->getY():-1)
-            .set("base_distance",result.baseDistance).set("selection_rule","nearest_main_base_safe_rock"));
+            .set("base_distance",result.baseDistance).set("selection_rule","nearest_main_base_safe_rock")
+            .set("base_free_footprints",availableBaseFootprints)
+            .set("base_production_room_blocked",baseProductionRoomBlocked));
         return site;
     }
     return Coord::Invalid();
+}
+
+bool QuantBot::baseBuiltOut() const {
+    QuantBotColonisationPolicy::Demand demand;
+    demand.productionRoomBlocked=baseProductionRoomBlocked;
+    demand.freeFootprints=availableBaseFootprints;
+    return QuantBotColonisationPolicy::builtOut(demand);
+}
+
+bool QuantBot::colonisationMcvDue(int mcvsIncludingQueued, int yardLimit) const {
+    QuantBotColonisationPolicy::Demand demand;
+    demand.citySim=currentGame->isCitySimEnabled();
+    demand.customGame=gameMode==GameMode::Custom;
+    // Campaign missions keep the base the script gave them, whatever mode the
+    // helper bot runs in. Colonisation is a custom-game rule only.
+    demand.campaignGame=isCampaignGameType(currentGame->gameType);
+    demand.supportMode=supportMode;
+    demand.siteAvailable=rockExpansionSite.isValid();
+    demand.productionRoomBlocked=baseProductionRoomBlocked;
+    demand.freeFootprints=availableBaseFootprints;
+    demand.yards=getHouse()->getNumItems(Structure_ConstructionYard);
+    demand.mcvsIncludingQueued=mcvsIncludingQueued;
+    demand.yardLimit=yardLimit;
+    return QuantBotColonisationPolicy::due(demand);
+}
+
+bool QuantBot::colonyMissionDue() const {
+    // The MCV in hand may have been bought for anything; what decides its job
+    // is the base it is standing in. While the base still has room, the fast
+    // local deployment path keeps every MCV, which is what the production
+    // yards depend on. Only a built-out base with a surveyed destination
+    // sends one across the map — and only under exactly the rules that would
+    // have bought a colonist in the first place, so campaigns, helpers and
+    // capped games keep the behaviour they had.
+    return colonisationMcvDue(0,getGameInitSettings().getGameOptions().maximumNumberOfConstructionYardsOverride);
 }
 
 // The opening search, for an MCV that is not growing an existing city base:
@@ -1373,9 +1440,28 @@ void QuantBot::manageMcv(const MCV* pMCV) {
         // has no room left does colonising a new one apply, under its own
         // gates. A stalled trip can use the nearest clear footprint; moving
         // MCVs retain their assignments above.
-        Coord site=findLocalDeploySite(pMCV,(deployableHere||stale) ? Coord::Invalid() : target);
-        choice=site.isValid() ? "local" : "expansion";
-        if(!site.isValid()) site=findRockExpansionSite(pMCV);
+        //
+        // A base that is out of room reverses the order: the last cramped
+        // corner of home rock is not worth another yard when the city needs a
+        // new formation, so the colony is offered first and the local search
+        // stays as the fallback. Everywhere else the local path is untouched,
+        // so extra production yards still deploy on the spot.
+        const bool colonise=colonyMissionDue();
+        // A colony trip already under way is kept while its site is still a
+        // legal footprint. The survey re-runs every five seconds and ranks
+        // formations by distance from the main base, so without this an MCV
+        // could be sent between two equally good formations for ever.
+        const bool onTrip=colonise&&target.isValid()&&mcvSiteUsable(pMCV,target)
+            &&!onOwnRockFormation(target);
+        Coord site=!colonise ? Coord::Invalid() : onTrip ? target : findRockExpansionSite(pMCV);
+        choice=site.isValid() ? "colony" : "local";
+        if(!site.isValid()) {
+            site=findLocalDeploySite(pMCV,(deployableHere||stale) ? Coord::Invalid() : target);
+            if(!site.isValid()) {
+                choice="expansion";
+                if(!colonise) site=findRockExpansionSite(pMCV);
+            }
+        }
         if(site.isValid()) {
             target=site;
             mcvExpansionSites[id]=site;
@@ -1421,6 +1507,9 @@ void QuantBot::manageMcv(const MCV* pMCV) {
             .set("site",choice).set("expansion",expansion).set("deployed",deployed)
             .set("at_target",atTarget).set("can_deploy",couldDeploy)
             .set("own_formation",ownFormation)
+            .set("colony_mission",colonyMissionDue())
+            .set("base_free_footprints",availableBaseFootprints)
+            .set("base_production_room_blocked",baseProductionRoomBlocked)
             .set("danger",dangerAt(location,Coord(2,2)))
             .set("defence_ready",expansionDefenceReady())
             .set("yards",getHouse()->getNumItems(Structure_ConstructionYard)));
@@ -3963,6 +4052,11 @@ void QuantBot::build(int militaryValue) {
     if(citySimEnabled&&(rockSurveyCycle==std::numeric_limits<Uint32>::max()
         || getGameCycleCount()-rockSurveyCycle>=MILLI2CYCLES(15000))) {
         rockSurveyCycle=getGameCycleCount();rockExpansionSite=findRockExpansionSite();
+        // Free rock is not the same as somewhere to build. The placement search
+        // applies the rules a factory actually has to satisfy — access, roads,
+        // neighbours, safety — so its verdict is what "no room left" means
+        // here. It runs at the survey cadence, not once per pass.
+        baseProductionRoomBlocked=!findPlaceLocation(Structure_HeavyFactory).isValid();
     }
     const bool rockExpansionNeeded=citySimEnabled&&rockExpansionSite.isValid()
         && (availableBaseRock<48 || (unloadingBacklog&&!findPlaceLocation(Structure_Refinery).isValid()));
@@ -4062,6 +4156,12 @@ void QuantBot::build(int militaryValue) {
     const int yardLimit = getGameInitSettings().getGameOptions().maximumNumberOfConstructionYardsOverride;
     if(yardLimit > 0) cityYardTarget = std::min(cityYardTarget, yardLimit);
     const int cityConstructionCapacity = itemCount[Structure_ConstructionYard] + itemCount[Unit_MCV];
+    // Settling free rock is a space decision, not a capacity one: it is due
+    // when the city has nowhere left to build and somewhere safe to go, and it
+    // is the only thing that keeps a built-out city growing. It runs beside
+    // the yard target rather than through it, so production capacity is still
+    // governed by that target alone.
+    const bool colonisationNeeded = colonisationMcvDue(itemCount[Unit_MCV],yardLimit);
 
     // Custom-game city size ceiling for this bot, including shared-house
     // helpers. Campaign games keep their own separate gates.
@@ -4114,6 +4214,10 @@ void QuantBot::build(int militaryValue) {
             .set("waiting_to_unload",waitingHarvesters).set("unloading_backlog",unloadingBacklog)
             .set("free_refineries",freeRefineries).set("busy_refineries",busyRefineries)
             .set("free_base_rock",availableBaseRock).set("rock_expansion_needed",rockExpansionNeeded)
+            .set("base_free_footprints",availableBaseFootprints)
+            .set("base_production_room_blocked",baseProductionRoomBlocked)
+            .set("base_built_out",baseBuiltOut())
+            .set("colonisation_due",colonisationNeeded)
             .set("economy_reserve", economyReserve).set("queued_production_cost", queuedProductionCost).set("queued_military_value", queuedMilitaryValue)
             .set("power_produced", getHouse()->getProducedPower()).set("power_required", getHouse()->getPowerRequirement())
             .set("zone_power_current",currentZonePower).set("zone_power_mature",matureZonePower)
@@ -5445,16 +5549,22 @@ void QuantBot::build(int militaryValue) {
             const bool cityNeed=citySimEnabled && cityConstructionCapacity<cityYardTarget
                 && (rockExpansionNeeded || availableBaseRock>=48)
                 && (rockExpansionNeeded || ownResValve>0 || ownComValve>0 || ownIndValve>0);
+            // Colonisation is not production capacity, so it does not wait for
+            // the yard target. A city that has built out its own rock cannot
+            // grow at all until someone settles the next formation, however
+            // many yards it already runs.
+            const bool colonyNeed=colonisationNeeded;
             const bool vanillaNeed=!citySimEnabled && DuneCity::prioritizeVanillaMcv(money,
                 actualHarvesters,itemCount[Structure_ConstructionYard],itemCount[Unit_MCV],mcv.price);
-            if (!(cityNeed || vanillaNeed)) mcv.reason="construction_capacity_available";
+            if (!(cityNeed || colonyNeed || vanillaNeed)) mcv.reason="construction_capacity_available";
             else if (forecastFunding<mcv.cost+std::max(1000,cityWorkingReserve)) mcv.reason="income_bottleneck";
             else {
                 mcv.capacity=forecastFunding-mcv.cost-cityWorkingReserve;
                 // Establish demanded city throughput before filling the entire
                 // transport ratio. The first Carryall still ranks above this.
-                mcv.score=cityNeed ? 5000 : 4500;
-                mcv.reason=rockExpansionNeeded ? "available_rock_exhausted" : "funded_construction_bottleneck";
+                mcv.score=(cityNeed || colonyNeed) ? 5000 : 4500;
+                mcv.reason=colonyNeed&&!cityNeed ? "base_rock_exhausted"
+                    : rockExpansionNeeded ? "available_rock_exhausted" : "funded_construction_bottleneck";
             }
             capitalCandidates.push_back(mcv);
         }
@@ -6207,7 +6317,11 @@ void QuantBot::build(int militaryValue) {
 					int reserved;
 					~RestoreReservedCredits() { money += reserved; }
                 } reserve{money, 0};
-                const bool expansionProducer=rockExpansionNeeded&&itemCount[Unit_MCV]==0
+                // The factory that has to supply the next yard: either because
+                // the rock ran out under the old exhaustion rule, or because
+                // the city is built out and has somewhere to settle. Both save
+                // for that MCV instead of spending the same cash on units.
+                const bool expansionProducer=(rockExpansionNeeded||colonisationNeeded)&&itemCount[Unit_MCV]==0
                     && pBuilder->getItemID()==Structure_HeavyFactory;
                 const bool openingWorker = openingWorkersNeeded() && getHouse()->hasPower();
                 const bool workerProducer = pBuilder->getItemID() == Structure_HeavyFactory
@@ -6220,7 +6334,7 @@ void QuantBot::build(int militaryValue) {
                     ? 0 : std::max({strategicReserveCost,economyReserve,civicReserveCost});
                 // A cramped start still needs power, income and a factory before
                 // it can expand. Don't protect cash for an MCV we cannot build.
-                if (rockExpansionNeeded && mcvBuildAvailable && itemCount[Unit_MCV]==0 && !expansionProducer)
+                if ((rockExpansionNeeded||colonisationNeeded) && mcvBuildAvailable && itemCount[Unit_MCV]==0 && !expansionProducer)
                     protectedCash=std::max(protectedCash,int(data[Unit_MCV][houseID].price));
                 if (!openingWorker && !expansionProducer && pBuilder->getItemID() != Structure_ConstructionYard)
                     protectedCash = std::max(protectedCash,civicReserveCost);
@@ -6469,8 +6583,12 @@ void QuantBot::build(int militaryValue) {
                         && !getHouse()->isGroundUnitLimitReached()
                         && DuneCity::prioritizeVanillaMcv(money, getHouse()->getNumItems(Unit_Harvester),
                             itemCount[Structure_ConstructionYard], itemCount[Unit_MCV], data[Unit_MCV][houseID].price));
+                    // A built-out city needs one yard it cannot express as a
+                    // capacity shortfall, so the factory may still unlock MCV
+                    // production for it.
                     const int mcvShortfall = citySimEnabled
-                        ? std::max(0, cityYardTarget - itemCount[Structure_ConstructionYard] - itemCount[Unit_MCV])
+                        ? std::max(colonisationNeeded ? 1 : 0,
+                            cityYardTarget - itemCount[Structure_ConstructionYard] - itemCount[Unit_MCV])
                         : DuneCity::vanillaMcvShortfall(money, getHouse()->getNumItems(Unit_Harvester),
                             itemCount[Structure_ConstructionYard], itemCount[Unit_MCV]);
                     if (emitStatsLog && AITelemetry::log().enabled())
@@ -10490,9 +10608,11 @@ void QuantBot::saveObserverRuntime(OutputStream& s) const {
     s.writeUint32(placementCacheExcludedBuilder);
     s.writeUint32(cityReadyYardCount);
     s.writeSint32(availableBaseRock);
+    s.writeSint32(availableBaseFootprints);
     s.writeSint32(cityBuildTimer);
     s.writeSint32(ornithopterStrikeTeam.minMembers);
     s.writeBool(planningCityProductionPlots);
+    s.writeBool(baseProductionRoomBlocked);
     coord(rockExpansionSite);
     s.writeUint32(idleHarvesterCounters.size()); for(const auto& e : idleHarvesterCounters) { s.writeUint32(e.first); s.writeUint32(e.second); }
     s.writeUint32(harvesterMovingCounters.size()); for(const auto& e : harvesterMovingCounters) { s.writeUint32(e.first); s.writeUint32(e.second); }
@@ -10527,9 +10647,11 @@ void QuantBot::loadObserverRuntime(InputStream& s) {
     placementCacheExcludedBuilder=s.readUint32();
     cityReadyYardCount=s.readUint32();
     availableBaseRock=s.readSint32();
+    availableBaseFootprints=s.readSint32();
     cityBuildTimer=s.readSint32();
     ornithopterStrikeTeam.minMembers=s.readSint32();
     planningCityProductionPlots=s.readBool();
+    baseProductionRoomBlocked=s.readBool();
     rockExpansionSite=coord();
     idleHarvesterCounters.clear(); for(Uint32 n=count(); n; --n) { auto id=s.readUint32(); idleHarvesterCounters[id]=s.readUint32(); }
     harvesterMovingCounters.clear(); for(Uint32 n=count(); n; --n) { auto id=s.readUint32(); harvesterMovingCounters[id]=s.readUint32(); }

@@ -486,6 +486,18 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
                 set_tests_properties(quantbot_city_hard_match_${seed} PROPERTIES
                     TIMEOUT 2500 RUN_SERIAL TRUE LABELS "full-match")
             endforeach()
+            # The reported 1.0.780 game used powered rocket turrets and this seed.
+            add_test(NAME quantbot_city_reclaimed_rock_match COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --repeatable --require-win
+                --mod dunecity --house atreides --partner-difficulty brutal
+                --enemy-ai ai-player --enemy-difficulty hard --concrete-required
+                --rocket-turrets-need-power
+                --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
+                --seed 1804669015 --minutes 90 --wall-timeout 2400 --capture-mib 512
+                --build-dir ${CMAKE_BINARY_DIR}
+                --output-dir ${CMAKE_BINARY_DIR}/city-reclaimed-rock-match)
+            set_tests_properties(quantbot_city_reclaimed_rock_match PROPERTIES
+                TIMEOUT 2500 RUN_SERIAL TRUE LABELS "full-match")
         endif()
         add_test(NAME quantbot_city_growth COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --city-growth-probe --repeatable

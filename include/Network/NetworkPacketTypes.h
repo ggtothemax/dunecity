@@ -88,7 +88,8 @@
 // Version 32: QuantBot anticipates queued demand and maintains a Vanilla power buffer.
 // Version 33: QuantBot local MCV deployment decisions change.
 // Version 34: City growth and air interception decisions, stadium requirement.
-#define NETWORK_PROTOCOL_VERSION            34
+// Version 35: Space-driven QuantBot colonisation decisions.
+#define NETWORK_PROTOCOL_VERSION            35
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size
