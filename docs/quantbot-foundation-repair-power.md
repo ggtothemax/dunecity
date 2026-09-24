@@ -1,6 +1,6 @@
 # QuantBot foundations, repairs and power
 
-Local candidate 1.0.778. This policy is shared across QuantBot difficulties and
+Local candidate 1.0.780. This policy is shared across QuantBot difficulties and
 its custom-game and campaign planning paths. No gameplay damage rates change.
 
 ## Foundations
@@ -11,16 +11,19 @@ rules permit it. Low-tech missions retain 1x1 foundations rather than waiting
 for an unavailable upgrade. With the option disabled, there are no foundation
 orders or upgrades for this purpose.
 
-Ordinary constructed buildings receive a complete prepared foundation before
-placement. Existing roads count. Walls, roads and slabs need no foundations;
+QuantBot attempts to prepare foundations before ordinary construction. Existing
+roads count. A completed building is placed on a legal site even if its concrete
+is incomplete, accepting normal engine placement damage rather than cancelling
+the building or indefinitely waiting for foundations. Walls, roads and slabs need no foundations;
 an MCV's deployed construction yard is not a yard construction order.
 
 Large slabs may extend beyond the building footprint to finish a 1x2 or 2x1
 strip. Placement must remain within the map, on legal terrain, avoid existing
 structures and preserve roads. Singles remain a fallback for isolated tiles
 or sites where a large slab cannot fit safely. Planned coverage must account
-for earlier slab orders, and final building placement must recheck actual
-coverage so an interrupted slab sequence cannot place a damaged building.
+for earlier slab orders. Interrupted slabs or a necessary site change do not
+justify cancelling the completed building; terrain, occupancy and road legality
+still apply.
 
 ## Repairs
 
@@ -64,3 +67,20 @@ Repair prices follow the existing integer expression
 `floor(512 / maximumHP) * buildingPrice / 1280` per HP. Power damage is roughly
 four HP per game minute. Free-to-repair buildings therefore add no repair-credit
 benefit to new generation. This policy does not alter that repair formula.
+
+## City production and aircraft
+
+DuneCity interleaves optional additional rocket-turret overlap with at least
+three other construction orders. First coverage for an uncovered core asset
+and enemy aircraft near the base retain defensive priority. Merely owning
+aircraft elsewhere on the map no longer gives the enemy unlimited priority over
+city production. Existing core factory and MCV deployment rules remain active.
+
+Damaged ornithopters remain eligible for combat because aircraft cannot use the
+ground-unit repair path. A valid forced target is retained against equal or
+lower priorities, while attacks on owned buildings outrank remote harvester
+rescues and both outrank raids. Offensive raids still respect anti-air safety;
+human orders remain protected.
+
+The Palace retains its land-value bonus. Only a Stadium satisfies the civic
+requirement for residential growth beyond 500 population.

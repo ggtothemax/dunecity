@@ -472,6 +472,21 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --build-dir ${CMAKE_BINARY_DIR}
             --output-dir ${CMAKE_BINARY_DIR}/mcv-deployment-probe)
         set_tests_properties(quantbot_mcv_deployment PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        option(DUNECITY_ENABLE_AI_MATCH_TESTS "Enable long, victory-required QuantBot matches" OFF)
+        if(DUNECITY_ENABLE_AI_MATCH_TESTS)
+            foreach(seed 1841712204 41562270 1430976924)
+                add_test(NAME quantbot_city_hard_match_${seed} COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --repeatable --require-win
+                    --mod dunecity --house atreides --partner-difficulty brutal
+                    --enemy-ai ai-player --enemy-difficulty hard --concrete-required
+                    --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
+                    --seed ${seed} --minutes 90 --wall-timeout 2400 --capture-mib 512
+                    --build-dir ${CMAKE_BINARY_DIR}
+                    --output-dir ${CMAKE_BINARY_DIR}/city-hard-match-${seed})
+                set_tests_properties(quantbot_city_hard_match_${seed} PROPERTIES
+                    TIMEOUT 2500 RUN_SERIAL TRUE LABELS "full-match")
+            endforeach()
+        endif()
         add_test(NAME quantbot_city_growth COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --city-growth-probe --repeatable
             --custom-map "${CMAKE_SOURCE_DIR}/data/maps/multiplayer/6P - 256x256 - Alkozeltser 4.ini"

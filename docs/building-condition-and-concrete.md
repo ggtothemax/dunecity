@@ -1,6 +1,6 @@
 # Building condition and concrete
 
-Local implementation: 1.0.777. These are DuneCity engine rules, shared by the
+Local implementation: 1.0.780. These are DuneCity engine rules, shared by the
 Vanilla/DuneCity/Dune2R/Tornie modes; they are not a claim that every economic
 mechanic matches Dune Dynasty.
 
@@ -63,6 +63,10 @@ Construction yards are a special case: placement itself does not remove half
 their health, but missing-foundation decay can subsequently damage them and
 slow their production. An MCV deployment is not an ordinary yard-built building
 with a preceding slab order.
+
+The Palace retains its land-value amenity bonus, but does not satisfy the
+stadium requirement for residential growth above 500 population. An actual
+stadium is required to remove that civic growth cap.
 
 ## Economic interpretation
 

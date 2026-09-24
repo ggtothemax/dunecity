@@ -33,6 +33,8 @@ parser.add_argument('--house', choices=tuple(h for h in house_names if h!='neutr
 parser.add_argument('--roster', help='Explicit custom-map house:team slots in lobby order, comma-separated')
 parser.add_argument('--harvester-limit', type=int, choices=range(-1,101), default=-1)
 parser.add_argument('--rocket-turrets-need-power', action=argparse.BooleanOptionalAction, default=None)
+parser.add_argument('--concrete-required', action=argparse.BooleanOptionalAction, default=None)
+parser.add_argument('--require-win', action='store_true', help='Fail a full-match run on defeat or time limit')
 parser.add_argument('--partner-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
 parser.add_argument('--enemy-ai', choices=('quantbot','ai-player'), default='quantbot', help='Enemy controller family; AI Player has Easy/Medium/Hard')
 parser.add_argument('--enemy-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
@@ -71,8 +73,8 @@ parser.add_argument('--seed', type=int, default=486409243)
 parser.add_argument('--minutes', type=int, default=20)
 parser.add_argument('--attack-percent', type=int, choices=range(101), default=25)
 args = parser.parse_args()
-if not 1 <= args.minutes <= 60 or not 0 <= args.seed <= 0xffffffff:
-    parser.error('Use 1–60 minutes and a 32-bit unsigned seed.')
+if not 1 <= args.minutes <= 120 or not 0 <= args.seed <= 0xffffffff:
+    parser.error('Use 1–120 minutes and a 32-bit unsigned seed.')
 if not 256 <= args.capture_mib <= 4096 or args.wall_timeout < 1:
     parser.error('Use 256–4096 MiB of capture space and a positive wall timeout.')
 if args.free_for_all and not args.custom_map:
@@ -174,6 +176,8 @@ env = dict(os.environ,DUNECITY_USERDIR=str(out/'profile'),SDL_VIDEODRIVER='dummy
 env['BALANCE_CAPTURE_MIB'] = str(args.capture_mib)
 if args.rocket_turrets_need_power is not None:
     env['BALANCE_ROCKET_TURRETS_NEED_POWER'] = str(int(args.rocket_turrets_need_power))
+if args.concrete_required is not None:
+    env['BALANCE_CONCRETE_REQUIRED'] = str(int(args.concrete_required))
 if args.custom_map:
     env['BALANCE_CUSTOM_MAP'] = str(args.custom_map.resolve())
     env['BALANCE_ROSTER'] = ','.join(f'{house}:{team}' for house, team in roster)
@@ -239,3 +243,6 @@ summary = {'result':results[0],'sourceCommit':source_commit,
 (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
 print(results[0])
 print('Telemetry:',events)
+
+if args.require_win and 'outcome=won' not in results[0]:
+    raise RuntimeError('Full-match acceptance requires victory: ' + results[0])

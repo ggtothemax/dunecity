@@ -69,6 +69,8 @@ int runCampaignBalanceProbe() {
     if (std::getenv("BALANCE_ROCKET_TURRETS_NEED_POWER"))
         settings.gameOptions.rocketTurretsNeedPower=std::atoi(std::getenv("BALANCE_ROCKET_TURRETS_NEED_POWER"))!=0;
     settings.gameOptions.immortalHumanPlayer = false;
+    if (std::getenv("BALANCE_CONCRETE_REQUIRED"))
+        settings.gameOptions.concreteRequired=std::atoi(std::getenv("BALANCE_CONCRETE_REQUIRED"))!=0;
     if (std::getenv("BALANCE_HARVESTER_LIMIT"))
         settings.gameOptions.maximumNumberOfHarvestersOverride=std::atoi(std::getenv("BALANCE_HARVESTER_LIMIT"));
     if (std::getenv("BALANCE_PACING_PROBE")) settings.gameOptions.maximumNumberOfHarvestersOverride=100;

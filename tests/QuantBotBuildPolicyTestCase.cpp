@@ -1536,6 +1536,52 @@ TEST_CASE("Air defence preempts building raids without hunting unrelated ground 
     CHECK(AirStrikePolicy::targetRank(false,true)>0);
     CHECK(AirStrikePolicy::safetyRange(7)==12);
 }
+
+TEST_CASE("An attack on the base outranks a remote worker rescue", "[quantbot][air]") {
+    const int base=AirStrikePolicy::underAttackRank(true);
+    const int worker=AirStrikePolicy::underAttackRank(false);
+    CHECK(base>worker);
+    CHECK(worker>AirStrikePolicy::targetRank(false,true));
+    CHECK(AirStrikePolicy::emergencyRank(base));
+    CHECK(AirStrikePolicy::emergencyRank(worker));
+    CHECK_FALSE(AirStrikePolicy::emergencyRank(AirStrikePolicy::DefenseRank));
+    CHECK_FALSE(AirStrikePolicy::emergencyRank(AirStrikePolicy::RaidRank));
+}
+
+TEST_CASE("A forced interception stands until something more urgent appears", "[quantbot][air][regression]") {
+    using namespace AirStrikePolicy;
+    // Nothing held: the best candidate always wins.
+    CHECK_FALSE(holdsInterception(0,RaidRank));
+    CHECK_FALSE(holdsInterception(0,BaseUnderAttackRank));
+    // An equal or lower ranked alternative never restarts the attack run,
+    // whatever its score: 144 of 149 observed switches abandoned a live target.
+    CHECK(holdsInterception(UnderAttackRank,UnderAttackRank));
+    CHECK(holdsInterception(UnderAttackRank,DefenseRank));
+    CHECK(holdsInterception(RaidRank,RaidRank));
+    CHECK(holdsInterception(BaseUnderAttackRank,UnderAttackRank));
+    // A strictly more urgent class does replace it.
+    CHECK_FALSE(holdsInterception(UnderAttackRank,BaseUnderAttackRank));
+    CHECK_FALSE(holdsInterception(RaidRank,DefenseRank));
+}
+
+TEST_CASE("Proactive turret overlap is interleaved with city growth", "[quantbot][city][defence][regression]") {
+    using RocketTurretPolicy::proactiveCoverageTurn;
+    using RocketTurretPolicy::growthOrdersPerProactiveTurret;
+    // Aircraft over our own buildings and a core asset nothing covers are
+    // present losses: they take the slot immediately.
+    CHECK(proactiveCoverageTurn(true,0,0));
+    CHECK(proactiveCoverageTurn(false,1,0));
+    // Deeper overlap on covered assets waits its turn instead of taking every
+    // order, which is how one match ordered twenty-seven emplacements in ten
+    // minutes with five heavy factories.
+    for(unsigned orders=0;orders<growthOrdersPerProactiveTurret;++orders)
+        CHECK_FALSE(proactiveCoverageTurn(false,0,orders));
+    CHECK(proactiveCoverageTurn(false,0,growthOrdersPerProactiveTurret));
+    CHECK(proactiveCoverageTurn(false,0,growthOrdersPerProactiveTurret+3));
+    // The interim ceiling still bounds peaceful coverage on a large base.
+    CHECK(RocketTurretPolicy::coverageTurretCap(0)==2);
+    CHECK(RocketTurretPolicy::coverageTurretCap(40)==12);
+}
 TEST_CASE("Air withdrawal exits new coverage without crossing a second defended area", "[quantbot][air]") {
     AirStrikePolicy::Coverage map(40,40);
     map.add(Coord(10,20),5);

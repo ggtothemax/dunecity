@@ -271,8 +271,12 @@ private:
     void moveToOptimalSquadPosition(const UnitBase* pUnit, FixPoint squadRadius, int* orderBudget = nullptr);
     void kiteAwayFromThreat(const UnitBase* pUnit, const ObjectBase* pThreat, int desiredRange);
 
+    // `emergencyOnBase` reports whether the reported attacker was hitting one of
+    // our buildings rather than a worker in the field; a base emergency outranks
+    // a remote rescue when aircraft choose between two live interceptions.
     bool tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettings& diffSettings,
-                                    const QuantBotConfig& config, const ObjectBase* emergencyAttacker = nullptr);
+                                    const QuantBotConfig& config, const ObjectBase* emergencyAttacker = nullptr,
+                                    bool emergencyOnBase = false);
 
     std::list<Coord> placeLocations;    ///< Where to place structures
     // Runtime-only plans; the legacy list above remains in the save layout.

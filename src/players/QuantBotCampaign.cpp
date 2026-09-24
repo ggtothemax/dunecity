@@ -222,6 +222,11 @@ bool QuantBot::campaignCombatUnit(const UnitBase* unit) const {
 }
 
 bool QuantBot::reserveDamagedUnitForRepair(const UnitBase* unit) const {
+    // Only a unit that can actually be repaired may be withheld for repair.
+    // UnitBase::doRepair is empty and only GroundUnit drives to a repair yard,
+    // so reserving a damaged aircraft removes it from every later order and
+    // never heals it. Damaged aircraft remain available for combat.
+    if (unit->isAFlyingUnit()) return false;
     // Easy/Medium campaign troops cannot recover at home without a repair yard.
     // Keep them available for combat instead of withdrawing and excluding them
     // from every later wave. Explicit retreat/manual orders remain protected.

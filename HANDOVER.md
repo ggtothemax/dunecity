@@ -1,3 +1,60 @@
+## 2026-09-24 — QuantBot city production, foundations and aircraft (1.0.780)
+
+Local candidate on `fix/dynasty-structure-degradation`, based on 95f27106.
+Finished buildings no longer get refunded because their foundations are incomplete.
+Slab failures refund only the unusable slab and retain the building queue/site.
+Nearby fully prepared sites are preferred only when normal placement, access,
+road, threat and reactor-clearance checks pass; otherwise the engine applies
+normal foundation damage. Foundation planning and the early 2x2 upgrade remain.
+
+Aircraft are excluded from the ground-unit repair reservation: damaged
+ornithopters remain available to attack. Forced targets survive equal/lower
+priority alternatives; a building under attack outranks a remote worker rescue,
+and both outrank raids. Offensive anti-air avoidance and human control remain.
+City optional turret overlap is interleaved with three non-service construction
+orders; uncovered core assets and aircraft near the base retain defensive priority.
+The existing local MCV deployment and Vanilla power-buffer rules remain.
+
+The Palace keeps its +40 land-value bonus and radius 8, plus its R+C roles.
+It no longer satisfies the Stadium requirement above 500 residential population.
+Protocol 34, telemetry policy city-production-air-recovery-v82; no save-layout change.
+
+Native Release build and dependency audit passed. All 42 ordinary CTest targets
+passed, including damaged-air/stable-target/base-priority probes in Vanilla,
+DuneCity and Dune2R, all-mode foundation fallback/repair opening checks, city
+coverage interleaving, MCV deployment, Palace civic and land-value assertions,
+menu/network/weapon/movement/degradation regressions. New placement fixtures use
+passive silos so they do not change later factory-spending checks, and check the
+structure's remembered foundation flag because placement consumes slab tiles.
+
+Full matches: Brutal Atreides QuantBot against four Hard AI Player opponents on
+`5P - 128x128 - All against Atreides`, concrete required on, fog off, no immortal
+human or special bonuses. Actual engine victories:
+
+| Seed | Victory (game minutes) |
+| --- | ---: |
+| 1841712204 | 52.56 |
+| 41562270 | 54.55 |
+| 1430976924 | 61.78 |
+
+The third seed first reached the 60-minute cutoff with three opponents defeated
+and a small fourth base remaining. Extending the horizon alone produced victory
+at 61.78; no AI code or opponent settings changed between those runs. Optional
+`DUNECITY_ENABLE_AI_MATCH_TESTS=ON` registers all three victory-required CTests
+with a 90-minute game limit; defeat/time limit fails while retaining telemetry.
+The 1.0.779 baseline on seed 1841712204 did not win within 60 minutes. At 10.16
+minutes the fixed AI had 8 Heavy Factories versus 6 and a stadium versus none;
+its stadium first appeared at 9.15 minutes. It placed 37 incomplete-foundation
+buildings instead of refunding them; remaining foundation cancellations were
+slabs only. The baseline cancelled 39 completed buildings for missing concrete.
+These three seeds are regression evidence, not a guarantee on every map/seed.
+
+Receipts: `../outputs/quantbot-city-recovery-780/`, plus per-seed
+`build/city-hard-match-*/run-*/summary.json` and isolated decision logs. The bounded
+Claude implementation worker reached its turn limit; Codex reviewed/completed
+integration and independently ran all builds and checks. Local only: not pushed,
+released or installed over the MBA's 1.0.779 testing app.
+
 ## 2026-09-24 — Windtrap condition, city land value and QuantBot concrete
 
 Local candidate 1.0.776 on `fix/dynasty-structure-degradation`, building on the

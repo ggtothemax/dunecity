@@ -87,12 +87,62 @@ void runAirDefenseProbe(Game& game) {
         launcher->setHealth(0);attacker->setHealth(0);
         bot->tryLaunchOrnithopterStrike(settings,config);
         require(air->getTarget()==raid,"Aircraft failed to resume raids after the emergency ended");
+
+        // Damaged aircraft keep fighting. Nothing repairs an ornithopter —
+        // UnitBase::doRepair is empty and only ground units drive to a repair
+        // yard — so reserving one for repair parks it for the rest of the match.
+        attacker->setHealth(attacker->getMaxHealth());
+        launcher->setHealth(launcher->getMaxHealth());
+        launcher->setLocation(origin+Coord(3,7));launcher->doAttackObject(base,true);
+        air->setHealth(air->getMaxHealth()/8);
+        require(air->isBadlyDamaged(),"Damaged-air fixture is not badly damaged");
+        require(!bot->reserveDamagedUnitForRepair(air),
+                "An unrepairable damaged aircraft was still reserved for repair");
+        bot->doSetAttackMode(air,STOP);bot->doAttackObject(air,raid,true);
+        bot->tryLaunchOrnithopterStrike(settings,config);
+        require(air->getTarget()==launcher,"A damaged ornithopter refused to defend its base");
+
+        // A live interception is stable. Repeated damage callbacks and a moving
+        // attacker must not restart the attack run: the reported match had 149
+        // target switches in five minutes, 144 of them while the previous
+        // target was still alive.
+        const ObjectBase* held=air->getTarget();
+        attacker->setLocation(origin+Coord(2,3));attacker->doAttackObject(base,true);
+        for(int volley=0;volley<6;++volley) {
+            bot->defenceResponseCycles.clear();
+            launcher->setLocation(origin+Coord(3+volley%3,7+volley%2));
+            launcher->doAttackObject(base,true);
+            bot->onDamage(base,1,volley%2 ? attacker->getObjectID() : launcher->getObjectID());
+            require(air->getTarget()==held,"Aircraft re-chose its target on a later volley");
+        }
+        // A worker attacked out in the field does not pull aircraft off the base.
+        attacker->setLocation(origin+Coord(18,19));attacker->doAttackObject(worker,true);
+        bot->defenceResponseCycles.clear();
+        bot->onDamage(worker,1,attacker->getObjectID());
+        require(air->getTarget()==launcher,"A remote harvester rescue outranked an attack on the base");
+        // With the base safe the same wing does rescue the worker, and a fresh
+        // attack on the base then takes it back.
+        launcher->doSetAttackMode(STOP);launcher->setHealth(0);
+        bot->doSetAttackMode(air,STOP);bot->tryLaunchOrnithopterStrike(settings,config);
+        require(air->getTarget()==attacker,"Aircraft ignored the remaining harvester attacker");
+        launcher->setHealth(launcher->getMaxHealth());
+        launcher->setLocation(origin+Coord(3,7));launcher->doAttackObject(base,true);
+        bot->defenceResponseCycles.clear();
+        bot->onDamage(base,1,launcher->getObjectID());
+        require(air->getTarget()==launcher,"An attack on the base did not outrank a rescue under way");
+        air->setHealth(air->getMaxHealth());
+        launcher->setHealth(0);attacker->setHealth(0);
+        bot->tryLaunchOrnithopterStrike(settings,config);
+        require(air->getTarget()==raid,"Aircraft did not resume raiding after the stable interception ended");
+
         unitList.remove(launcher);
         bot->onHumanUnitOrder(air->getObjectID());bot->doAttackObject(air,raid,true);
         bot->tryLaunchOrnithopterStrike(settings,config);
         require(air->getTarget()==raid,"Defensive automation replaced a human aircraft order");
     } catch(...) {unitList=savedUnits;structureList=savedStructures;throw;}
     unitList=savedUnits;structureList=savedStructures;
-    SDL_Log("AIR_DEFENSE_PASS: base/harvester attacks preempt raids and AA avoidance; proximity safety, resumption and human control preserved");
+    SDL_Log("AIR_DEFENSE_PASS: base/harvester attacks preempt raids and AA avoidance; damaged air still attacks,"
+        " interceptions stay stable across volleys, base outranks remote rescue;"
+        " proximity safety, resumption and human control preserved");
     SDL_Log("CAMPAIGN_BALANCE_RESULT: probe=air_defense outcome=passed");
 }

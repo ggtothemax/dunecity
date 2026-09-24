@@ -5046,19 +5046,32 @@ void QuantBot::build(int militaryValue) {
         getHouse()->getNumItems(Structure_RepairYard));
     const int transportTarget=QuantBotBuildPolicy::supportQueueTarget(transportBaseline,
         getHouse()->getNumItems(Unit_Carryall),itemCount[Unit_Carryall],busyTransports,int(pickupQueue.size()));
-    // Largest single enemy wing, matching the per-yard counter-ornithopter rule.
-    int enemyAircraft=0;
-    for (int h=0;h<NUM_HOUSES;++h) {
-        const House* other=currentGame->getHouse(h);
-        if (other && other->getTeamID()!=getHouse()->getTeamID())
-            enemyAircraft=std::max(enemyAircraft,other->getNumItems(Unit_Ornithopter));
-    }
     // Coverage the core still lacks, counting existing and planned turrets.
     // This is a spatial demand, not a count goal: it stops by itself once the
     // yards, refineries and factories have the difficulty's overlap, so it can
     // drive defence proactively without turning into turret spam. Coverage
     // starts once the first refinery pays for it, not after the full fleet.
     const int coverageTier=rocketCoverageTier(difficulty);
+    // Enemy aircraft that have actually reached our territory. A wing counted
+    // from the enemy's item list is a plan the base can prepare for between
+    // other construction; aircraft over our own buildings are a present loss.
+    bool airEngaged=false;
+    for (const auto* aircraft:getUnitList()) {
+        if (airEngaged) break;
+        if (!aircraft->isAFlyingUnit() || !aircraft->isActive() || aircraft->getHealth()<=0
+            || !aircraft->canAttack() || !aircraft->getOwner()
+            || aircraft->getOwner()->getTeamID()==getHouse()->getTeamID()
+            || !aircraft->isVisible(getHouse()->getTeamID())) continue;
+        const int reach=std::max(1,aircraft->getWeaponRange())+8;
+        for (const auto* structure:getStructureList())
+            if (structure->getOwner()==getHouse() && structure->getHealth()>0
+                && blockDistance(aircraft->getLocation(),
+                    structure->getClosestPoint(aircraft->getLocation()))<=reach) { airEngaged=true; break; }
+    }
+    // Core assets that no turret covers at all, as opposed to those short of
+    // the difficulty's overlap. First cover is defence; further overlap is a
+    // plan that has to share the yards with the city it protects.
+    int uncoveredCoreAssets=0;
     auto coreCoverageShortfall=[&]() {
         if (!citySimEnabled || itemCount[Structure_Refinery]==0) return 0;
         const int radius=std::max(1,data[Structure_RocketTurret][houseID].weaponrange-1);
@@ -5069,6 +5082,7 @@ void QuantBot::build(int militaryValue) {
         for (const auto& entry:reservedStructures)
             if (entry.second.item==Structure_RocketTurret) turrets.push_back(entry.second.location);
         int shortfall=0;
+        uncoveredCoreAssets=0;
         const Uint32 mainYard=mainConstructionYardID();
         auto account=[&](Uint32 item,Coord origin,Coord size,Uint32 objectID) {
             if (!RocketTurretPolicy::coreAsset(item)) return;
@@ -5077,6 +5091,7 @@ void QuantBot::build(int militaryValue) {
             int covered=0;
             for (const Coord turret:turrets)
                 if (RocketTurretPolicy::coversBuilding(turret,origin,size,radius)) ++covered;
+            if (demand>0 && covered==0) ++uncoveredCoreAssets;
             shortfall+=std::max(0,demand-covered);
         };
         for (const auto* structure:getStructureList())
@@ -5087,6 +5102,9 @@ void QuantBot::build(int militaryValue) {
             account(entry.second.item,entry.second.location,getStructureSize(entry.second.item),NONE_ID);
         return shortfall;
     };
+    // Prime the first-cover count for the rules that consult it before any
+    // shortfall is evaluated; later calls refresh it against new reservations.
+    coreCoverageShortfall();
     // Cover the base actually demands, used both as the interim emplacement
     // ceiling and to bound proactive coverage below.
     int coverageDemand=0;
@@ -5147,11 +5165,19 @@ void QuantBot::build(int militaryValue) {
         && findPlaceLocation(Structure_Refinery).isValid();
     const bool routineRocketsAllowed=(coreInfrastructureReady && !advancedTechPending && !refiningCapacityPending)
         || itemCount[Structure_RocketTurret]<2;
+    // Coverage worth buying this pass. The unbounded shortfall belongs to
+    // aircraft that have actually reached the base — owning ornithopters
+    // somewhere on the map kept a 1v4 chasing an overlap it could never
+    // complete — and every claim is interleaved with construction unless a
+    // core asset still has no cover at all.
     auto proactiveCoverageShortfall=[&]() {
         if (!routineRocketsAllowed) return 0;
-        if (enemyAircraft>0) return coreCoverageShortfall();
+        const int shortfall=coreCoverageShortfall();
+        if (!RocketTurretPolicy::proactiveCoverageTurn(airEngaged,uncoveredCoreAssets,
+            nonServiceConstructionOrders)) return 0;
+        if (airEngaged) return shortfall;
         return itemCount[Structure_RocketTurret]>=RocketTurretPolicy::coverageTurretCap(coverageDemand)
-            ? 0 : coreCoverageShortfall();
+            ? 0 : shortfall;
     };
     // A proactive goal keeps its savings only while the forecast cannot also
     // fund a city plot. Growth pays the bills that reach the saved price, so a
@@ -5266,11 +5292,11 @@ void QuantBot::build(int militaryValue) {
                     true,service.item,service.site)) {
                     service.score=dangerousCrimeProperties>0 ? 6000 : 2500;
                     service.reason=dangerousCrimeProperties>0 ? "crime_prevention" : "crime_maintenance";
-                } else if ((enemyAircraft>0 || coreShortfall>0
+                } else if ((airEngaged || coreShortfall>0
                         || (!openingWorkersNeeded() && itemCount[Structure_Refinery]>0))
-                    && (enemyAircraft>0 || coreShortfall>0
+                    && (airEngaged || uncoveredCoreAssets>0
                         || nonServiceConstructionOrders>=3 || itemCount[Structure_RocketTurret]==0)
-                    && (!openingSupplierDue || enemyAircraft>0)
+                    && (!openingSupplierDue || airEngaged)
                     && routineRocketsAllowed
                     && campaignAvailableToBuild(builder,Structure_RocketTurret)
                     && (!turretPowerRequired || getHouse()->getProducedPower()-getHouse()->getPowerRequirement()>=rocketPowerBuffer)) {
@@ -5281,9 +5307,9 @@ void QuantBot::build(int militaryValue) {
                         // an uncovered yard/refinery/factory outranks covering an
                         // ordinary building, but both stay below crime prevention.
                         service.item=Structure_RocketTurret;
-                        service.score=enemyAircraft>0 ? 3000 : coreShortfall>0 ? 2600 : 2000;
-                        service.reason=enemyAircraft>0 ? "air_coverage"
-                            : coreShortfall>0 ? "core_coverage" : "uncovered_base";
+                        service.score=airEngaged ? 3000 : uncoveredCoreAssets>0 ? 2600 : 2000;
+                        service.reason=airEngaged ? "air_coverage"
+                            : uncoveredCoreAssets>0 ? "core_coverage" : "uncovered_base";
                     }
                 }
                 if (service.item!=NONE_ID && service.site.isValid()) {
@@ -7143,7 +7169,7 @@ void QuantBot::build(int militaryValue) {
                 if (itemID == NONE_ID && !skipRemainingStructureLogic && citySimEnabled
                     && !higherPriorityCapital
                     && ((openingWorkerSupplier && itemCount[Structure_RocketTurret] >= 2)
-                        || ((itemCount[Structure_Refinery] >= 3 || enemyAircraft > 0)
+                        || ((itemCount[Structure_Refinery] >= 3 || airEngaged)
                             && proactiveCoverageShortfall() > 0
                             && data[Structure_RocketTurret][houseID].enabled
                             && data[Structure_RocketTurret][houseID].techLevel <= currentGame->techLevel))) {
@@ -7446,12 +7472,16 @@ void QuantBot::build(int militaryValue) {
                 // do not make that coverage wait for the opening worker fleet,
                 // a heavy factory or a spare zone's price. Peaceful coverage
                 // keeps interleaving with growth on the established terms.
-                const bool airThreatSeen = maxEnemyOrnithopters > 0;
+                // A wing counted from the enemy's item list is a plan; aircraft
+                // that have reached our buildings are the present loss.
+                const bool airThreatSeen = airEngaged;
                 // An uncovered yard, refinery or factory is the same kind of
                 // present loss as an enemy wing: it does not wait for the
                 // opening worker fleet, a heavy factory or a spare zone's price.
+                // Deepening the overlap on assets already covered does.
                 const int coreShortfall = isCitySim ? proactiveCoverageShortfall() : 0;
-                const bool coreDefenceDue = airThreatSeen || coreShortfall > 0;
+                const bool coreDefenceDue = airThreatSeen
+                    || (coreShortfall > 0 && uncoveredCoreAssets > 0);
                 if (itemID == NONE_ID && !skipRemainingStructureLogic && isCitySim
                     && !higherPriorityCapital
                     && (coreDefenceDue
@@ -7472,6 +7502,7 @@ void QuantBot::build(int militaryValue) {
                             .set("x",site.x).set("y",site.y).set("uncovered_building_weight",uncoveredWeight)
                             .set("core_coverage_shortfall",coreShortfall).set("coverage_tier",coverageTier)
                             .set("coverage_turret_cap",RocketTurretPolicy::coverageTurretCap(coverageDemand))
+                            .set("uncovered_core_assets",uncoveredCoreAssets).set("air_engaged",airEngaged)
                             .set("enemy_aircraft",maxEnemyOrnithopters));
                     }
                 }
@@ -8558,9 +8589,8 @@ void QuantBot::build(int militaryValue) {
                             // Re-plan the reserved building's foundation against
                             // the map as it is now and use the first order of this
                             // kind. Concrete the ground no longer needs is
-                            // refunded; a footprint that can no longer be prepared
-                            // hands the building back as well, so the next pass
-                            // can choose another site.
+                            // refunded while the reserved building keeps its
+                            // queue position and can use incomplete foundations.
                             const Coord oldSite = location;
                             location = Coord::Invalid();
                             const auto reserved = reservedStructures.find(planningBuilder);
@@ -8582,16 +8612,15 @@ void QuantBot::build(int militaryValue) {
                                 doCancelItem(pConstYard, itemToBePlaced);
                                 placeLocations.pop_front();
                             } else {
+                                // The ground can no longer take this slab. Refund
+                                // the concrete only: the building behind it is
+                                // finished or paid for and keeps both its queue
+                                // place and its planned site. Placing it on a
+                                // partly bare footprint incurs normal foundation
+                                // damage instead of wasting its construction time.
                                 tracePlacementIssue("placement_cancel", "foundation_unavailable", oldSite);
                                 doCancelItem(pConstYard, itemToBePlaced);
-                                if (reserved != reservedStructures.end()) {
-                                    const int queued = pConstYard->getProductionQueueSize();
-                                    doCancelItem(pConstYard, reserved->second.item);
-                                    if (pConstYard->getProductionQueueSize() < queued)
-                                        --itemCount[reserved->second.item];
-                                }
-                                placeLocations.clear();
-                                reservedStructures.erase(planningBuilder);
+                                placeLocations.pop_front();
                                 clearPlacementCache();
                             }
 							placementIssueHandled = true;
@@ -8699,32 +8728,66 @@ void QuantBot::build(int militaryValue) {
                             location=Coord::Invalid();
                             placementIssueHandled=true;
                         }
-                        // Last gate before the ground is committed: whatever
-                        // happened to the planned slabs — cancelled, blocked,
-                        // overwritten, or a different site chosen dynamically —
-                        // a finished building is never dropped onto tiles that
-                        // are not prepared. Refund it and let the next pass
-                        // order its foundation and the building together.
+                        // Last gate before the ground is committed. Foundations
+                        // are still planned and ordered before every building,
+                        // but once a building is finished, cancelling it because
+                        // its slabs were lost throws away the whole building and
+                        // the yard time that made it: forty-eight were refunded
+                        // this way in one match, three of them inside the first
+                        // ten minutes. Prefer an equally good prepared footprint
+                        // nearby, and otherwise place it where it was planned and
+                        // let the engine apply its own foundation damage.
                         if (location.isValid() && !placingSlab
                             && getGameInitSettings().getGameOptions().concreteRequired
                             && QuantBotBuildPolicy::foundationRequiredForItem(itemToBePlaced)) {
                             const Coord span=getStructureSize(itemToBePlaced);
-                            bool prepared=true;
-                            for (int dx=0;dx<span.x && prepared;++dx)
-                                for (int dy=0;dy<span.y && prepared;++dy) {
-                                    const int x=location.x+dx, y=location.y+dy;
-                                    prepared=getMap().tileExists(x,y)
-                                        && getMap().getTile(x,y)->hasPreparedFoundation();
+                            auto footprintPrepared=[&](const Coord& site) {
+                                for (int dx=0;dx<span.x;++dx)
+                                    for (int dy=0;dy<span.y;++dy) {
+                                        const int x=site.x+dx, y=site.y+dy;
+                                        if (!getMap().tileExists(x,y)
+                                            || !getMap().getTile(x,y)->hasPreparedFoundation()) return false;
+                                    }
+                                return true;
+                            };
+                            if (!footprintPrepared(location)) {
+                                // Same legality the planned site had to satisfy:
+                                // real engine placement, no reservation overlap,
+                                // ground access, roads and neighbouring lots.
+                                auto usableSite=[&](const Coord& site) {
+                                    return footprintPrepared(site)
+                                        && getMap().okayToPlaceStructure(site.x,site.y,span.x,span.y,
+                                            false,getHouse(),false,itemToBePlaced)
+                                        && !overlapsReservedStructure(site.x,site.y,span.x,span.y)
+                                        && preservesGroundAccess(itemToBePlaced,site)
+                                        && (itemToBePlaced==Structure_RocketTurret || itemToBePlaced==Structure_GunTurret
+                                            || (!nearRecentStructureLoss(site.x,site.y,span.x,span.y)
+                                                && dangerAt(site,span)==0
+                                                && TacticalSafetyPolicy::reactorPlacementAllowed(itemToBePlaced,
+                                                    reactorClearance(itemToBePlaced,site))))
+                                        && cityRoadImpact(getMap(),site.x,site.y,span.x,span.y,itemToBePlaced).preservesConnections
+                                        && !(currentGame->isCitySimEnabled()
+                                            && wouldLandlockNeighbouringZone(getMap(),houseID,site.x,site.y,span.x,span.y));
+                                };
+                                constexpr int preparedSearchRadius=8;
+                                Coord prepared=Coord::Invalid();
+                                int bestDistance=std::numeric_limits<int>::max();
+                                for (int y=location.y-preparedSearchRadius;y<=location.y+preparedSearchRadius;++y)
+                                    for (int x=location.x-preparedSearchRadius;x<=location.x+preparedSearchRadius;++x) {
+                                        const Coord site(x,y);
+                                        const int distance=std::abs(x-location.x)+std::abs(y-location.y);
+                                        if (distance>=bestDistance || !usableSite(site)) continue;
+                                        bestDistance=distance; prepared=site;
+                                    }
+                                if (prepared.isValid()) {
+                                    tracePlacementIssue("placement_replan","prepared_footprint_preferred",prepared);
+                                    location=prepared;
+                                } else {
+                                    // Never a cancellation, and never a perpetual
+                                    // block: the building goes up on the ground
+                                    // it was planned for.
+                                    tracePlacementIssue("placement_unprepared","footprint_not_prepared",location);
                                 }
-                            if (!prepared) {
-                                tracePlacementIssue("placement_cancel","footprint_not_prepared",location);
-                                doCancelItem(pConstYard,itemToBePlaced);
-                                placeLocations.clear();
-                                reservedStructures.erase(planningBuilder);
-                                --itemCount[itemToBePlaced];
-                                clearPlacementCache();
-                                location=Coord::Invalid();
-                                placementIssueHandled=true;
                             }
                         }
 						if (location.isValid()) {
@@ -8806,7 +8869,8 @@ void QuantBot::scrambleUnitsAndDefend(const ObjectBase* intruder, bool clearingS
     if (!clearingSpice && (isProtectedAsset(protectedAsset) || isProtectedAsset(victim))) {
         const auto& config=getQuantBotConfig();
         tryLaunchOrnithopterStrike(config.getSettings(static_cast<int>(difficulty)),config,
-            isProtectedAsset(protectedAsset) ? intruder : nullptr);
+            isProtectedAsset(protectedAsset) ? intruder : nullptr,
+            isProtectedAsset(protectedAsset) && protectedAsset->isAStructure());
     }
     auto value = [&](const ObjectBase* object) {
         const int price = currentGame->objectData.data[object->getItemID()][object->getOriginalHouseID()].price;
@@ -8879,7 +8943,8 @@ void QuantBot::scrambleUnitsAndDefend(const ObjectBase* intruder, bool clearingS
 }
 
 bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettings& diffSettings,
-                                          const QuantBotConfig& config, const ObjectBase* emergencyAttacker) {
+                                          const QuantBotConfig& config, const ObjectBase* emergencyAttacker,
+                                          bool emergencyOnBase) {
     const int myTeam=getHouse()->getTeamID();
     const Map& map=getMap();
     std::vector<const UnitBase*> aircraft;
@@ -8930,13 +8995,18 @@ bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettin
         const Coord size=object->isAStructure()
             ? static_cast<const StructureBase*>(object)->getStructureSize() : Coord(1,1);
         const auto* victim=object->getTarget();
-        const bool underAttack=object==emergencyAttacker || (victim && victim->isActive()
+        const bool engagingAsset=victim && victim->isActive()
             && victim->getHealth()>0 && victim->getOwner()==getHouse()
             && (victim->isAStructure() || victim->getItemID()==Unit_Harvester
                 || victim->getItemID()==Unit_RebelHarvester)
             && object->canAttack(victim)
             && blockDistance(object->getLocation(),victim->getClosestPoint(object->getLocation()))
-                <= object->getWeaponRange()+3);
+                <= object->getWeaponRange()+3;
+        const bool underAttack=object==emergencyAttacker || engagingAsset;
+        // A building of ours is the base; a worker in the field is not. The
+        // damage callback reports which one it was for its own attacker.
+        const bool attackingBase=engagingAsset ? victim->isAStructure()
+            : (object==emergencyAttacker && emergencyOnBase);
         // Avoid AA during raids and speculative patrols. An actual attack on
         // our economy/base is different: recall the aircraft and kill the
         // attacker, including launchers, rather than declaring rescue unsafe.
@@ -8953,7 +9023,7 @@ bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettin
                         defensiveContact=true;
                 });
         }
-        const int rank=underAttack ? AirStrikePolicy::UnderAttackRank
+        const int rank=underAttack ? AirStrikePolicy::underAttackRank(attackingBase)
             : AirStrikePolicy::targetRank(object->isAStructure(),defensiveContact);
         if (rank==AirStrikePolicy::RaidRank && !diffSettings.ornithopterAttackEnabled) return;
         if (isCampaignEnemy() && rank==AirStrikePolicy::DefenseRank && !campaignLocalContact(object)) return;
@@ -8970,6 +9040,12 @@ bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettin
         const ObjectBase* target=nullptr;
         double bestScore=-1;
         int bestRank=0;
+        // The interception this aircraft is already flying, if it is still a
+        // legal target of the same search. It wins every equal-or-lower ranked
+        // comparison below, so a wing finishes its attack runs instead of
+        // re-choosing between equivalent targets on every damage callback.
+        const ObjectBase* held=nullptr;
+        int heldRank=0;
         if(!reserveDamagedUnitForRepair(unit) && unit->getAttackMode()!=RETREAT) {
             for(const auto& candidate:candidates) {
                 if (isCampaignEnemy() && candidate.rank==AirStrikePolicy::RaidRank
@@ -8977,13 +9053,18 @@ bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettin
                 if(!unit->canAttack(candidate.object)) continue;
                 const Coord endpoint=candidate.object->getClosestPoint(unit->getLocation());
                 double score=double(candidate.weight)/(blockDistance(unit->getLocation(),endpoint).toDouble()+1);
-                if(candidate.object==unit->getTarget()) score*=1.15; // Avoid oscillating between equal safe targets.
-                if(candidate.rank<bestRank || (candidate.rank==bestRank && score<=bestScore)
-                    || (candidate.rank!=AirStrikePolicy::UnderAttackRank
-                        && !coverage.clearApproach(unit->getLocation(),endpoint))) continue;
+                if(!AirStrikePolicy::emergencyRank(candidate.rank)
+                    && !coverage.clearApproach(unit->getLocation(),endpoint)) continue;
+                if(candidate.object==unit->getTarget() && unit->wasForced()
+                    && candidate.rank>heldRank) { held=candidate.object; heldRank=candidate.rank; }
+                if(candidate.rank<bestRank || (candidate.rank==bestRank && score<=bestScore)) continue;
                 bestRank=candidate.rank;
                 bestScore=score;
                 target=candidate.object;
+            }
+            if(AirStrikePolicy::holdsInterception(heldRank,bestRank)) {
+                target=held;
+                bestRank=heldRank;
             }
         }
         const bool modeChanged=unit->getAttackMode()!=STOP;
@@ -8999,7 +9080,9 @@ bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettin
                 traceDecision("ornithopter_safe_strike",AITelemetry::Record().set("unit",unit->getObjectID())
                     .set("target",target->getObjectID()).set("target_item",target->getItemID())
                     .set("visible_anti_air",visibleAntiAir).set("safety_margin_tiles",5)
-                    .set("reason",bestRank==AirStrikePolicy::UnderAttackRank ? "intercept_active_attacker"
+                    .set("held_target",held==target)
+                    .set("reason",bestRank==AirStrikePolicy::BaseUnderAttackRank ? "intercept_base_attacker"
+                        : bestRank==AirStrikePolicy::UnderAttackRank ? "intercept_active_attacker"
                         : bestRank==AirStrikePolicy::RaidRank ? "exposed_building" : "defend_base_or_harvester"));
             }
         } else {

@@ -2,6 +2,7 @@
 #include <units/Harvester.h>
 #include <players/QuantBotBuildPolicy.h>
 #include <players/QuantBotPowerInvestmentPolicy.h>
+#include <set>
 
 // Drive real build decisions on All against Atreides, with its empty market.
 void runOpeningEconomyProbe(Game& game) {
@@ -351,16 +352,18 @@ void runOpeningEconomyProbe(Game& game) {
         pavePlain();
         clearOrders();
     }
-    // The final coverage gate. However the slabs were lost — cancelled,
-    // blocked, overwritten, or a site chosen dynamically — a finished building
-    // is refunded and re-planned rather than dropped onto bare ground.
+    // The final coverage gate. Foundations are still planned and ordered
+    // first, but a building that is already finished is never thrown away for
+    // the sake of its concrete: whatever happened to the slabs, it goes up.
+    // The bot prefers a prepared footprint nearby and otherwise accepts the
+    // engine's own foundation damage on the site it planned.
     {
         const bool savedConcrete=game.gameInitSettings.gameOptions.concreteRequired;
         game.gameInitSettings.gameOptions.concreteRequired=true;
         yard->updateBuildList();
         stripConcrete();
         clearOrders();
-        const Uint32 bare=Structure_LightFactory;
+        const Uint32 bare=Structure_Silo;
         bot->clearPlacementCache();
         const auto site=bot->findPlaceLocation(bare);
         require(site.isValid(),"No fixture site for the bare-placement guard");
@@ -376,15 +379,72 @@ void runOpeningEconomyProbe(Game& game) {
         house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
         house->producedPower=10000;bot->lastCalculatedSpice=1300000;
         bot->build(5100);
-        require(house->getNumItems(bare)==before,
-            "A finished building was placed onto ground no slab had prepared");
+        require(house->getNumItems(bare)==before+1,
+            "A finished building was cancelled instead of placed because its concrete was missing");
         require(yard->getProductionQueueSize()==0,
             "The unprepared building was neither placed nor refunded");
+        // No synthetic damage and no free concrete: the engine's own placement
+        // rule decides what standing on bare rock costs.
+        const StructureBase* placed=nullptr;
+        for(auto* structure:structureList)
+            if(structure->getOwner()==house && structure->getItemID()==bare
+                && structure->getLocation()==site)placed=structure;
+        require(placed!=nullptr,"The kept building was not placed at its planned site");
+        require(placed->foundationDegrades && placed->getHealth()<placed->getMaxHealth(),
+            "The bare building did not receive normal engine foundation damage");
         clearOrders();
         game.gameInitSettings.gameOptions.concreteRequired=savedConcrete;
         yard->updateBuildList();
         pavePlain();
-        SDL_Log("FOUNDATION_GUARD_PASS: an unprepared finished building is refunded, never placed bare");
+        SDL_Log("FOUNDATION_GUARD_PASS: a finished building is placed, never cancelled for missing concrete");
+    }
+    // The same building with a legal prepared footprint beside its planned one
+    // uses the prepared ground instead of taking the foundation damage.
+    {
+        const bool savedConcrete=game.gameInitSettings.gameOptions.concreteRequired;
+        game.gameInitSettings.gameOptions.concreteRequired=true;
+        yard->updateBuildList();
+        stripConcrete();
+        clearOrders();
+        const Uint32 kept=Structure_Silo;
+        bot->clearPlacementCache();
+        const auto site=bot->findPlaceLocation(kept);
+        require(site.isValid(),"No fixture site for the prepared-preference check");
+        const auto span=getStructureSize(kept);
+        // Prepared ground everywhere except the footprint the bot planned.
+        pavePlain();
+        for(int dx=0;dx<span.x;++dx)for(int dy=0;dy<span.y;++dy)
+            currentGameMap->getTile(site.x+dx,site.y+dy)->setType(Terrain_Rock);
+        yard->doProduceItem(kept);
+        yard->currentProducedItem=kept;
+        yard->productionProgress=game.objectData.data[kept][HOUSE_ATREIDES].price;
+        require(yard->isWaitingToPlace(),"Fixture could not finish the prepared-preference building");
+        bot->builderPlaceLocations[yard->getObjectID()].clear();
+        bot->builderPlaceLocations[yard->getObjectID()].push_back(site);
+        bot->reservedStructures[yard->getObjectID()]={kept,site};
+        const int before=house->getNumItems(kept);
+        std::set<Uint32> existing;
+        for(auto* structure:structureList)
+            if(structure->getItemID()==kept)existing.insert(structure->getObjectID());
+        house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+        house->producedPower=10000;bot->lastCalculatedSpice=1300000;
+        bot->build(5100);
+        require(house->getNumItems(kept)==before+1,"The prepared-preference building was lost");
+        const StructureBase* placed=nullptr;
+        for(auto* structure:structureList)
+            if(structure->getOwner()==house && structure->getItemID()==kept
+                && !existing.count(structure->getObjectID()))placed=structure;
+        require(placed!=nullptr && placed->getLocation()!=site,
+            "A prepared footprint beside the planned one was not preferred");
+        // Placement consumes the tile's slab state; the structure remembers it.
+        require(!placed->foundationDegrades && placed->getHealth()==placed->getMaxHealth(),
+            "The preferred alternative site did not provide a full foundation");
+        SDL_Log("FOUNDATION_PREFERENCE_PASS: prepared footprint at %d,%d used instead of %d,%d",
+            placed->getLocation().x,placed->getLocation().y,site.x,site.y);
+        clearOrders();
+        game.gameInitSettings.gameOptions.concreteRequired=savedConcrete;
+        yard->updateBuildList();
+        pavePlain();
     }
     place(Structure_HeavyFactory);
     house->getChoam().availableItems.clear();
