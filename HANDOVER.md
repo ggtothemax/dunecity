@@ -1,3 +1,294 @@
+## 2026-09-24 — Opening space, prompt colonies and launcher air defence (local 1.0.783)
+
+Captured MBA 782 session 1790250645152912-0 on Sihaya-O'Donnell 128x64,
+seed 444573528, DuneCity tech 8, concrete off and turret power required.
+House 1's MCV 215 arrived at 11.80 game minutes but had no destination until
+12.73, then deployed at 13.09. The base briefly reported four free plots while
+no local yard footprint was usable; missing Heavy/High-Tech/Repair buildings
+closed remote expansion again. Ornithopters also destroyed remote yards at
+(90,52), (36,52) and (90,10), plus surrounding buildings. Generic reinforcement
+selection retained launchers in ground fights, and forced attacks on distant
+flying targets were dropped by the unit engine outside weapon range.
+
+Custom opening combat units now take distinct short steps toward visible enemies
+(or map centre) onto safe connected sand. Human orders, existing forced orders,
+workers, MCVs, transports, saboteurs and already-off-rock units are preserved.
+No safe nearby sand means no opening order. A 90-second hold keeps ordinary
+regrouping from pulling those units straight back onto the construction rock;
+combat can still take precedence. Campaign and support openings are unchanged.
+The hold and destinations persist in ordinary saves/checkpoints (save 9848);
+older saves load with no invented opening state.
+
+An already-delivered MCV whose local deployment search actually fails may waive
+the factory-core prerequisite when seeking safe remote rock, independently of a
+temporarily optimistic space survey. Approved remote destinations retain that
+exception at deployment. Existing turret cover, threat/loss/route checks and
+purchase limits remain; this changes deployment, not MCV purchase frequency.
+
+Aircraft targeting any owned structure trigger mobile anti-air response before
+the first damage callback. Launchers are preferred; ordinary AI ground attacks
+and rally orders yield, human orders and necessary repair do not. Responders
+move to reachable ground within two tiles of the attacked building instead of
+chasing the aircraft's tile. Transit is committed against incidental ground
+contacts, in-range responders fire, and ended attacks release the assignment.
+The existing saved defenceAssignments map holds the mission. Up to three
+responders per aircraft are recruited within 40 tiles, with stable assignments.
+Ground reachability uses a bounded eight-neighbour search around the journey,
+ignoring movable traffic but respecting buildings and vehicle terrain barriers.
+
+Version 783, protocol 37, policy opening-and-colony-defence-v85. Claude provided
+the initial implementation and fixtures; its second bounded run timed out after
+writing the patch. Codex completed reachability, committed transit, ground-contact
+priority, actual-firing tests and integration. Evidence lives in
+../outputs/quantbot-opening-space-783/. This candidate has not been installed,
+pushed or released.
+
+Native build, dependency audits, version consistency and diff checks pass.
+All 42 ordinary CTest targets pass. After the final route-selection optimization,
+the app was rebuilt and all three air-defence probes passed again. The probes
+require real travel and a launcher missile fired at the aircraft, protection
+against incidental ground-contact orders, human-order preservation, rejection of
+an enclosed launcher, stable in-range firing and release after the attack ends.
+The expanded MCV probe passes first-call remote assignment with missing factories
+and a misleading four-plot survey, actual travel/deployment, opening sand moves,
+no-safe-sand fallback and current/older save restoration. No new full-match
+victory result is claimed for this build.
+
+## 2026-09-24 — Cramped production and Starport colonists (local 1.0.782)
+
+Current Air 781 session 1790248536426276-0, DuneCity Sihaya-O'Donnell 128x64,
+seed 673490541, Rebels Brutal vs Fremen Brutal, tech 8, concrete off, powered
+rocket turrets. At 17.28 minutes Rebels had 2,919 credits, one yard, one Starport,
+no Heavy Factory and no MCV. It reported 63 free rock tiles but no factory site;
+base_built_out was true and colonisation_due false. The Starport kept buying
+combat units. Heavy-production and repair-capacity orders were rejected for
+no_site. Missing Heavy/High-Tech/Repair buildings also closed the remote survey,
+a circular prerequisite when the reason to expand is lack of room for them.
+
+Production placement now tries both ordinary searches first, then a city-only
+fallback relaxing road continuity/frontage and neighbouring road-access layout
+preferences for builders and factories. Engine legality, ground egress,
+reservations, threat and reactor clearance stay mandatory; existing buildings
+are not demolished by this fallback. Preferred road-fronted sites still win.
+This may reduce city road connectivity locally, as explicitly requested to
+unblock production. Telemetry reports roading_relaxed and search pass 2.
+
+Built-out bases may survey/deploy remotely before completing the missing factory
+core. The current survey's footprint measurement controls that exception;
+existing expansion turret coverage, target/route danger and loss checks remain.
+A custom city with no MCV-capable factory can select a Starport colonist through
+the shared capital plan, at actual market price. That reserves its cash against
+other producers and makes the port wait rather than spend its savings on
+bargains. Stock, unit/yard caps, existing/paid/queued MCVs and campaign/helper
+boundaries remain. First-yard emergency recovery is unchanged.
+
+Version 782, network protocol 36, policy cramped-city-starport-v84. No new saved
+fields or checkpoint-layout change. Claude implemented the initial patch and
+fixtures, then hit its bounded turn limit; Codex reviewed and completed shared
+capital reservation, current-survey gating and city-only fallback scope.
+
+Native build and dependency audits pass. Seven focused CTests pass, including
+all-mode opening economy, both Starport recovery probes and unit tests. The
+expanded MCV engine probe also passes with Heavy/High-Tech/Repair counts all
+zero: sold-out and unaffordable orders are refused, one funded MCV is dispatched,
+paid cargo and a second port cannot duplicate it, and the factory path resumes
+when restored. Cramped placement accepts the only legal unfronted site, refuses
+a mountain-enclosed exit, and prefers proper frontage when available. Existing
+local/remote MCV travel/deployment checks remain.
+
+Same map/seed/roster/settings 20-minute baseline and candidate simulations do
+not exactly replay the live trajectory. Baseline orders HF at 5.33 minutes and
+MCV at 9.68; candidate HF at 14.72 and MCV at 17.78, ending with two yards and a
+Heavy/High-Tech Factory. These are progression smoke checks, not a claim of a
+speed improvement or a match victory. Direct fixtures prove the blocked cases.
+All 42 ordinary CTest targets pass (seven focused plus 35 remaining). The
+full-match regression, seed 1804669015 on All against Atreides, wins against
+four Hard AI Player opponents at 53.70 game minutes, with concrete and
+rocket-turret power required. This checks broader play, not a replay of Sihaya.
+Evidence: ../outputs/quantbot-cramped-starport-782/. Subsequently installed on
+the MBA; version, signature, matching binary and runtime rendering verified
+(../outputs/mba-test-782/install-verification.log). Not pushed or released.
+
+## 2026-09-24 — Space-driven MCV colonisation (local 1.0.781)
+
+Separate custom DuneCity colonisation demand now bypasses a satisfied production
+construction-yard target. Every 15 game seconds the rock survey counts up to four
+disjoint free 2x2 footprints within the base's build range and checks whether a
+Heavy Factory can legally fit. Fewer than four footprints, or no factory site,
+requests one MCV when safe reachable unoccupied rock exists. Existing/queued MCVs,
+credit reserves, the yard cap and remote expansion defence requirements still
+apply. All custom difficulties share the rule; campaigns and support helpers do
+not gain this new purchase trigger. Production MCVs retain prompt local deployment
+while the base has room. Cramped bases prefer remote settlement, retaining valid
+trip assignments and falling back locally if no remote site can be used.
+
+Captured Air 780 session 1790245284856094-0 (seed 1804669015) had six yards, no
+MCVs and 57,588 credits at 34.48 game minutes. It repeatedly found remote sites,
+but 620 scattered free tiles kept the old raw-tile exhaustion trigger off. The
+capture alone does not prove every local placement was impossible; the new rule
+measures usable footprints as well as raw area. Newly cleared enemy rock becomes
+eligible on the next survey, rather than remaining permanently excluded.
+
+Version 781, network protocol 35, policy space-driven-colonisation-v83. The two
+survey fields are in observer-runtime checkpoint version 5; older network
+checkpoints are rejected. Ordinary save layout is unchanged.
+
+Native Release build and both dependency audits pass. All 42 ordinary CTest
+targets pass. The expanded real-engine MCV probe proves: a roomy base buys no
+colonist; a cramped base with 78 loose free tiles and zero 2x2 footprints rejects
+unreachable/enemy-held rock; removing the enemy causes exactly one accepted MCV
+order despite the production quota already being met; an existing MCV suppresses
+duplicates; it drives from (68,10) to (97,5), deploys there, and stops further
+colonist purchases once room is available. Earlier local-deployment coverage at
+all four difficulties remains. Fixture isolation retires earlier test MCVs and
+removes stale map ownership before surveying the new terrain.
+
+The current live seed 1804669015 wins against four Hard AI Player opponents in
+56.29 game minutes, with concrete required and rocket-turret power required.
+That match retains local building room and does not exercise the new colony
+trigger; the controlled engine probe above is the direct colonisation evidence.
+The three existing match regressions also won (seed: game minutes):
+1841712204: 55.80; 41562270: 71.89; 1430976924: 61.78.
+Claude implemented the bounded task but reached its turn limit; Codex reviewed,
+completed fixture isolation, and independently built and ran CTest. Evidence:
+../outputs/quantbot-colonisation-781/. Later installed on the MBA at
+/Applications/dunecity.app; version/signature/binary hash and rendering verified
+(../outputs/mba-test-781/install-verification.log). Not pushed or released.
+
+## 2026-09-24 — QuantBot city production, foundations and aircraft (1.0.780)
+
+Local candidate on `fix/dynasty-structure-degradation`, based on 95f27106.
+Finished buildings no longer get refunded because their foundations are incomplete.
+Slab failures refund only the unusable slab and retain the building queue/site.
+Nearby fully prepared sites are preferred only when normal placement, access,
+road, threat and reactor-clearance checks pass; otherwise the engine applies
+normal foundation damage. Foundation planning and the early 2x2 upgrade remain.
+
+Aircraft are excluded from the ground-unit repair reservation: damaged
+ornithopters remain available to attack. Forced targets survive equal/lower
+priority alternatives; a building under attack outranks a remote worker rescue,
+and both outrank raids. Offensive anti-air avoidance and human control remain.
+City optional turret overlap is interleaved with three non-service construction
+orders; uncovered core assets and aircraft near the base retain defensive priority.
+The existing local MCV deployment and Vanilla power-buffer rules remain.
+
+The Palace keeps its +40 land-value bonus and radius 8, plus its R+C roles.
+It no longer satisfies the Stadium requirement above 500 residential population.
+Protocol 34, telemetry policy city-production-air-recovery-v82; no save-layout change.
+
+Native Release build and dependency audit passed. All 42 ordinary CTest targets
+passed, including damaged-air/stable-target/base-priority probes in Vanilla,
+DuneCity and Dune2R, all-mode foundation fallback/repair opening checks, city
+coverage interleaving, MCV deployment, Palace civic and land-value assertions,
+menu/network/weapon/movement/degradation regressions. New placement fixtures use
+passive silos so they do not change later factory-spending checks, and check the
+structure's remembered foundation flag because placement consumes slab tiles.
+
+Full matches: Brutal Atreides QuantBot against four Hard AI Player opponents on
+`5P - 128x128 - All against Atreides`, concrete required on, fog off, no immortal
+human or special bonuses. Actual engine victories:
+
+| Seed | Victory (game minutes) |
+| --- | ---: |
+| 1841712204 | 52.56 |
+| 41562270 | 54.55 |
+| 1430976924 | 61.78 |
+
+The third seed first reached the 60-minute cutoff with three opponents defeated
+and a small fourth base remaining. Extending the horizon alone produced victory
+at 61.78; no AI code or opponent settings changed between those runs. Optional
+`DUNECITY_ENABLE_AI_MATCH_TESTS=ON` registers all three victory-required CTests
+with a 90-minute game limit; defeat/time limit fails while retaining telemetry.
+The 1.0.779 baseline on seed 1841712204 did not win within 60 minutes. At 10.16
+minutes the fixed AI had 8 Heavy Factories versus 6 and a stadium versus none;
+its stadium first appeared at 9.15 minutes. It placed 37 incomplete-foundation
+buildings instead of refunding them; remaining foundation cancellations were
+slabs only. The baseline cancelled 39 completed buildings for missing concrete.
+These three seeds are regression evidence, not a guarantee on every map/seed.
+
+Receipts: `../outputs/quantbot-city-recovery-780/`, plus per-seed
+`build/city-hard-match-*/run-*/summary.json` and isolated decision logs. The bounded
+Claude implementation worker reached its turn limit; Codex reviewed/completed
+integration and independently ran all builds and checks. Local only: not pushed,
+released or installed over the MBA's 1.0.779 testing app.
+
+## 2026-09-24 — Windtrap condition, city land value and QuantBot concrete
+
+Local candidate 1.0.776 on `fix/dynasty-structure-degradation`, building on the
+local 1.0.775 degradation commit. Standard and advanced windtraps now scale
+output linearly with health using Dynasty enhanced integer output rules; there
+is no 50% output floor. Existing load reconstruction refreshes saved generation.
+Every damaged structure in city mode proportionally lowers land value on its
+footprint; shared blocks use the worst condition, and repairs restore value on
+the next effects scan. This feeds the existing growth and tax calculations.
+
+Game Rules now labels the existing option **Concrete is required**. Default is
+off in DuneCity, on in Vanilla; player overrides remain respected. Off hides and
+rejects slab production/placement and suppresses placement/foundation damage,
+including stale saved foundation flags. Roads/authored slabs remain supported.
+Power-shortage damage is independent. The removed degrade-on-concrete setting
+stays removed. No save-layout change; protocol 30 and telemetry policy v78.
+
+QuantBot uses foundations for productive buildings, windtrap variants, refineries
+and defensive emplacements; city mode extends this to other buildings for land
+value. Passive optional foundations outside city mode require >5,000 spendable
+credits, positive repair savings and a post-purchase reserve. Urgent recovery
+and cash-limited zoning can skip unaffordable foundations. Yard upgrades for
+2x2 slabs move ahead of optional infrastructure after income exists, subject to
+actual tech/availability, cash reserves and immediate defence/power needs.
+Only one yard upgrades for slabs at once. City zoning with foundations selects
+rock rather than unpaveable sand. Legacy campaign reconstruction/power orders
+share the same foundation queue and early upgrade. Low-power repairs include advanced windtraps
+and real Vanilla shortages. No changes to general factory/refinery repair gates.
+
+Inventory and economic rationale: `docs/building-condition-and-concrete.md`.
+Focused native checks pass: all-difficulty real AI opening/queue/repair checks
+in Vanilla, DuneCity and Dune2R; generator/land-value/foundation/save probes in
+all four modes; unit checks and menu rendering/persistence. All 41 CTest
+targets passed (full suite plus targeted reruns). Shared-spending fixtures now
+isolate cash sharing after the early yard upgrade; campaign queues are checked
+across all difficulties. Native dependency audit and version checks passed.
+Receipts: `/Users/stefan/Documents/projects/outputs/concrete-policy/`.
+
+Built app: `dunecity-degradation/build/bin/dunecity.app`. Local changes only;
+not pushed, released or installed over the user's game.
+
+## 2026-09-24 — Dynasty structure degradation across all modes
+
+Local candidate 1.0.775, branch `fix/dynasty-structure-degradation`, based on
+`e3eb127e` in `dunecity-degradation`. All modes now use independent power damage
+(1 absolute HP every 15 game seconds, down to Dynasty's quantized supply/demand
+threshold with a half-health minimum) and foundation decay (3 HP Harkonnen,
+2 HP Ordos, 1 HP all other houses every 180 game seconds). Complete prepared
+foundations prevent foundation decay. The existing Concrete Required switch
+still exempts foundation requirements when disabled. Power damage uses actual
+supply/demand even in Vanilla, without changing unrelated turret/power rules.
+Walls are excluded; foundation decay is exempt in campaign levels 1–2. A final
+foundation hit can cross half health, matching Dynasty's pre-hit threshold.
+
+Removed Structures Degrade On Concrete from UI, defaults, mod parsing, option
+hash/equality, telemetry, AI branches, translations and probe controls. Old
+settings streams retain an ignored reserved byte; config writes remove the
+obsolete key. Updated Tornie's payload checksum and made the diagnostic driver
+fail if its requested mod does not activate, preventing false Vanilla fallback
+passes. Degradation probes explicitly load each mod's real defaults.
+
+Save format 9847 persists both timers and the original foundation flag. Old
+saves' terrain and single timer cannot reliably identify the original slab
+coverage, so existing buildings loaded from pre-9847 saves receive power damage
+but no foundation decay. New placements record the flag normally. Protocol 29
+rejects peers using the old health rules. Placement health penalties unchanged.
+
+Validation: native app build and dependency audit; unit suite; real-engine
+placement, simultaneous damage, thresholds, wall exclusion, campaign gates,
+save/load continuation and old-save migration probes in Vanilla, DuneCity,
+Dune2R and Tornie; all 41 CTest targets passed (including corrected reruns). Initial menu/weapon failures exposed the
+Tornie checksum omission and were rerun after correction. Receipts:
+`/Users/stefan/Documents/projects/outputs/degradation/`.
+
+Built app: `dunecity-degradation/build/bin/dunecity.app`. Committed locally only;
+not pushed, released or installed over the user's game.
+
 ## 2026-09-24 — QuantBot builds an empty-market Starport for late tech
 
 User observed House IX locked because QuantBot skipped an empty CHOAM Starport.
@@ -9399,3 +9690,110 @@ The earlier MBA install request remains pending: signed/notarized1.0.770 was cop
 and verified on the MBA, staged at /Applications/.dunecity-install-770.vLeoFr/dunecity.app,
 but the installed1.0.768 process was running. It was not interrupted or replaced.
 No app was launched by this task.
+
+
+## 2026-09-24 — QuantBot foundations, condition repairs and Vanilla power (local 1.0.777)
+
+QuantBot now prioritises the Construction Yard bulk-slab upgrade whenever
+Concrete is required and the actual technology permits it. It holds other yard
+construction while saving or repairing for that upgrade; unavailable technology
+uses single slabs. All ordinary construction receives a complete foundation.
+The deterministic planner prefers 2x2 slabs for residual strips, extending them
+beside the footprint when legal, preserves roads, and handles blocked boundaries.
+Walls/roads/slabs/power lines and MCV deployment remain outside yard foundation
+orders. Disabling concrete skips both foundations and the concrete-only upgrade.
+Campaign and custom queues share this policy across all four difficulties.
+Partial rejected queues refund their slabs, redevelopment plans for cleared
+zones, and a final actual-coverage check refunds a finished bare building.
+
+Repairs start below full health for health-scaled production/output and exactly
+free-to-repair buildings; DuneCity maintains every structure for land value.
+Other buildings qualify above 5,000 available credits, with existing survival
+and engaged-defence rules retained. Repairs require the engine's five-credit
+minimum. Original-owner prices and the integer repair formula are preserved.
+
+Vanilla buys additional generation after the refinery/worker and available
+Light/Heavy Factory core exists. The whole shortage must fit cash after reserves
+and forecast income must replace its capital in 30 game seconds. It also needs
+10-minute avoided-repair payback or more than 5,000 spare credits after reserve.
+Existing generator damage and pending orders prevent redundant purchases.
+City operational power rules stay unchanged. No damage rates or save fields
+changed. Protocol31, save9847, telemetry policy foundation-first-repair-power-v79.
+
+Claude implemented a bounded worker task and one focused continuation; Codex
+reviewed and corrected overhang tie-breaking, queue rollback, redevelopment,
+free-repair classification, upgrade priority and Vanilla campaign power gating.
+Reference: docs/quantbot-foundation-repair-power.md. Evidence and worker reports:
+../outputs/quantbot-foundation-repair/. Native build and dependency audits passed;
+all 41 CTest targets pass across the full run and two focused reruns. The full
+run passed 39/41; the two Starport tech fixtures had disabled concrete together
+with unrelated purchases, so their required slab offers are now enabled and
+both reruns pass. The native unit target passes (854 cases, 3 intentional skips).
+Final logs: build4.log, full-ctest.log and starport-rerun.log. No push, release or
+installation.
+
+
+## 2026-09-24 — Vanilla QuantBot power buffer (local 1.0.778)
+
+Air1.0.777 session1790237738860854-0 confirms generation chased live demand:
+at cycle43099 supply1798 plus2 repairable power faced1840 demand, and the AI
+ordered just one100-power windtrap. Subsequent small shortages repeatedly
+triggered another single purchase as queued buildings landed.
+
+Economic generation now targets actual plus queued building demand, plus the
+larger of20% anticipated demand (rounded up) and one available standard
+windtrap. Existing output, restorable condition and all pending generation
+count toward the target; pending output no longer blocks an incomplete package.
+The same core, income, cash reserve and benefit gates remain. If the buffered
+package is refused, an operating shortage can pass the same gates on its own,
+using its own cheapest generator. No city/other-mod operational power changes.
+Telemetry records target, queued demand, effective capacity, reserve and fallback.
+Version778/protocol32/policy vanilla-power-buffer-v80; no saved fields changed.
+
+Claude's bounded run produced the implementation and tests but hit its turn
+limit before a final report; Codex reviewed it and completed build/verification.
+Native build and dependency audits pass. Unit and all three opening-economy
+CTest targets pass, including a Vanilla fixture rerun after resetting its second
+yard's leftover upgrade state. Added real queued-factory demand coverage.
+Evidence: ../outputs/quantbot-power-buffer/ (Air capture, log-findings.json,
+build.log, focused.log, vanilla-rerun.log). Full regression follows the queued
+MCV deployment fix. Committed locally; not pushed or installed over the Air game.
+
+
+## 2026-09-24 — Prompt local MCV deployment (local 1.0.779)
+
+Air 1.0.777 DuneCity session 1790238318405393-0 confirms delayed deployment,
+not a complete inability to deploy: Atreides had five MCVs and only one yard
+at 275 game seconds, over 87,000 credits, and one Light/Heavy Factory. Yard two
+appeared at 366 seconds; yard six at 853 seconds. The second Heavy Factory
+appeared at 822 seconds. The base was eventually overwhelmed; these timings
+identify the growth bottleneck but do not establish the only cause of defeat.
+
+Every additional city yard previously passed the remote-colony defence gate,
+including yards on home rock. findRockExpansionSite returned before surveying
+free home rock when advanced factories/turret coverage were missing. Deployment
+also independently required that gate, causing serial defence waits per yard.
+Local deployment now searches reachable, safe, unreserved 2x2 sites on connected
+rock already occupied by the base before considering remote colonisation.
+Exact connected rock is used: nearby build range across sand is not ownership.
+Existing engine deployment rules, ground access, threats, repeated-loss checks
+and remote-colony defence requirements remain. Trips keep their destinations;
+five seconds without movement permit a retry, while permanent site obstacles
+trigger replanning. Live MCV reservations avoid duplicate sites. The actual
+successful deployment result controls cleanup, with no reads of the deleted
+MCV. Existing saved assignment/timing maps are reused; no save-format changes.
+Deployment telemetry records location, target, ownership, defence gate and result.
+
+Version 779/protocol 33/policy local-mcv-deployment-v81, including the preceding
+778 power-buffer fix. Claude produced the planner and a bounded probe follow-up;
+Codex reviewed and corrected connected-rock classification, candidate filtering,
+retry timing and deployment lifetime/result handling. Evidence and captured Air
+logs: ../outputs/quantbot-mcv-local-deploy/. Native build and dependency audits
+pass. All 41 existing CTest targets pass (full-ctest.log), plus the new real-engine
+quantbot_mcv_deployment target (mcv-ctest.log): twelve home-rock MCVs deploy on
+the first pass across all four difficulties; a travelling MCV moves and deploys
+in 550 cycles / 8.8 game seconds. Reservations, transient traffic, stalled retry,
+permanent obstruction, disconnected nearby rock and first-yard cases pass.
+The focused unit/opening-economy tests also pass in all three modes. No full
+match win/loss claim is made by these regression fixtures.
+No push, release or installation over the running Air game.

@@ -69,6 +69,7 @@ target_sources(dunelegacy_tests
         ValueModelTestCase/ValueModelTestCase.cpp
         PoliceStationTestCase/PoliceStationTestCase.cpp
         SaveCompatTestCase/SaveCompatTestCase.cpp
+        StructureDegradationTestCase/StructureDegradationTestCase.cpp
         NeutralHouseTestCase/NeutralHouseTestCase.cpp
         Dune2RAssetManagerTestCase/Dune2RAssetManagerTestCase.cpp
         EnhancedAtlasCacheTestCase/EnhancedAtlasCacheTestCase.cpp
@@ -460,6 +461,44 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --mod dunecity --build-dir ${CMAKE_BINARY_DIR}
             --output-dir ${CMAKE_BINARY_DIR}/police-budget-probe)
         set_tests_properties(quantbot_police_budget PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        # MCVs must turn into yards on the rock the base already stands on,
+        # even while the advanced core and its turret cover are unfinished.
+        # The reported match ran this map and mod; the fixture asserts that
+        # the colonisation gate really is shut before it measures anything.
+        add_test(NAME quantbot_mcv_deployment COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --mcv-deployment-probe --repeatable
+            --mod dunecity
+            --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
+            --build-dir ${CMAKE_BINARY_DIR}
+            --output-dir ${CMAKE_BINARY_DIR}/mcv-deployment-probe)
+        set_tests_properties(quantbot_mcv_deployment PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        option(DUNECITY_ENABLE_AI_MATCH_TESTS "Enable long, victory-required QuantBot matches" OFF)
+        if(DUNECITY_ENABLE_AI_MATCH_TESTS)
+            foreach(seed 1841712204 41562270 1430976924)
+                add_test(NAME quantbot_city_hard_match_${seed} COMMAND ${Python3_EXECUTABLE}
+                    ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --repeatable --require-win
+                    --mod dunecity --house atreides --partner-difficulty brutal
+                    --enemy-ai ai-player --enemy-difficulty hard --concrete-required
+                    --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
+                    --seed ${seed} --minutes 90 --wall-timeout 2400 --capture-mib 512
+                    --build-dir ${CMAKE_BINARY_DIR}
+                    --output-dir ${CMAKE_BINARY_DIR}/city-hard-match-${seed})
+                set_tests_properties(quantbot_city_hard_match_${seed} PROPERTIES
+                    TIMEOUT 2500 RUN_SERIAL TRUE LABELS "full-match")
+            endforeach()
+            # The reported 1.0.780 game used powered rocket turrets and this seed.
+            add_test(NAME quantbot_city_reclaimed_rock_match COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --repeatable --require-win
+                --mod dunecity --house atreides --partner-difficulty brutal
+                --enemy-ai ai-player --enemy-difficulty hard --concrete-required
+                --rocket-turrets-need-power
+                --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
+                --seed 1804669015 --minutes 90 --wall-timeout 2400 --capture-mib 512
+                --build-dir ${CMAKE_BINARY_DIR}
+                --output-dir ${CMAKE_BINARY_DIR}/city-reclaimed-rock-match)
+            set_tests_properties(quantbot_city_reclaimed_rock_match PROPERTIES
+                TIMEOUT 2500 RUN_SERIAL TRUE LABELS "full-match")
+        endif()
         add_test(NAME quantbot_city_growth COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --city-growth-probe --repeatable
             --custom-map "${CMAKE_SOURCE_DIR}/data/maps/multiplayer/6P - 256x256 - Alkozeltser 4.ini"
@@ -472,6 +511,17 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
                 --mod ${starport_mod} --build-dir ${CMAKE_BINARY_DIR}
                 --output-dir ${CMAKE_BINARY_DIR}/starport-${starport_mod}-probe)
             set_tests_properties(quantbot_starport_${starport_mod} PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
+        endforeach()
+        # Dynasty-aligned degradation: power damage on the raw produced/required
+        # figures, foundation decay from real placement, walls excluded, the
+        # campaign exemption and the 9847 save state. Every mod is measured,
+        # including Tornie, which needs no concrete but still loses power damage.
+        foreach(degradation_mod IN ITEMS vanilla dunecity Dune2R Tornie)
+            add_test(NAME structure_degradation_${degradation_mod} COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --degradation-probe --repeatable
+                --level 9 --mod ${degradation_mod} --build-dir ${CMAKE_BINARY_DIR}
+                --output-dir ${CMAKE_BINARY_DIR}/degradation-${degradation_mod}-probe)
+            set_tests_properties(structure_degradation_${degradation_mod} PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         endforeach()
         add_test(NAME quantbot_custom_attack COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --custom-attack-probe --repeatable

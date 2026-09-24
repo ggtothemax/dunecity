@@ -873,7 +873,7 @@ TEST_CASE("Regression: Starport raises industrial demand/cap",
     CHECK(withStarport.indValve >= noStarport.indValve);
 }
 
-TEST_CASE("Regression: Stadium/Palace raises residential cap",
+TEST_CASE("Regression: Only a stadium raises the residential cap",
           "[city-effects][regression][scenario]") {
     ValveInputs vi;
     vi.resPop = 600;  vi.prevResPop = 600;  // above SC threshold 500
@@ -884,9 +884,13 @@ TEST_CASE("Regression: Stadium/Palace raises residential cap",
     vi.hasStadium = false;
     vi.hasPalace = false;
     const auto noCivic = computeDemandValves(vi);
-    vi.hasStadium = true;
     vi.hasPalace = true;
+    const auto palaceOnly = computeDemandValves(vi);
+    CHECK(palaceOnly.resValve == noCivic.resValve);
+    CHECK(missingDemandCivics(vi) & NeedStadium);
+    vi.hasStadium = true;
     const auto withCivic = computeDemandValves(vi);
+    CHECK_FALSE(missingDemandCivics(vi) & NeedStadium);
 
     CHECK(withCivic.resValve >= noCivic.resValve);
 }
@@ -1287,7 +1291,7 @@ TEST_CASE("Demand uses worker-equivalent residential history", "[city-effects][v
     CHECK(computeDemandValves(in).indValve <= 120);
 }
 
-TEST_CASE("Civic demand notices match actual caps and respect Palace substitute", "[city-effects][valves]") {
+TEST_CASE("Civic demand notices require a stadium even with a Palace", "[city-effects][valves]") {
     ValveInputs in;
     in.resPop = in.prevResPop = 800;
     in.comPop = in.prevComPop = 101;
@@ -1299,6 +1303,9 @@ TEST_CASE("Civic demand notices match actual caps and respect Palace substitute"
     CHECK(out.comValve == 0);
     CHECK(out.indValve == 0);
     in.hasPalace = true;
+    CHECK(computeDemandValves(in).civicDemandBlocked & NeedStadium);
+    CHECK(computeDemandValves(in).resValve == 0);
+    in.hasStadium = true;
     CHECK_FALSE(computeDemandValves(in).civicDemandBlocked & NeedStadium);
     in.hasAirport = in.hasStarport = true;
     CHECK(computeDemandValves(in).civicDemandBlocked == 0);
@@ -1498,4 +1505,14 @@ TEST_CASE("Spectator city runtime restores derived state and rejects invalid dim
         IMemoryStream input(saved.getData(),saved.getDataLength()-1);
         REQUIRE_THROWS(restored.loadObserverRuntime(input));
     }
+}
+
+TEST_CASE("Building condition lowers land value and repairs restore it", "[city-effects][condition]") {
+    REQUIRE(conditionLandValue(200,100,100)==200);
+    REQUIRE(conditionLandValue(200,75,100)==150);
+    REQUIRE(conditionLandValue(200,50,100)==100);
+    REQUIRE(conditionLandValue(200,25,100)==50);
+    REQUIRE(conditionLandValue(200,0,100)==1);
+    REQUIRE(conditionLandValue(0,50,100)==0);
+    REQUIRE(conditionLandValue(200,110,100)==200);
 }

@@ -1024,6 +1024,9 @@ StructureBase* House::placeStructure(Uint32 builderID, int itemID, int xPos, int
         return nullptr;
     }
 
+    if (!byScenario && (itemID == Structure_Slab1 || itemID == Structure_Slab4)
+        && !currentGame->getGameInitSettings().getGameOptions().concreteRequired) return nullptr;
+
     const Coord requestedStructureSize = getStructureSize(itemID);
     if(requestedStructureSize.x <= 0 || requestedStructureSize.y <= 0
        || xPos + requestedStructureSize.x > currentGameMap->getSizeX()

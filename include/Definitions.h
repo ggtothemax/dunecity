@@ -79,7 +79,14 @@
 // 9844: Ground route cadence and interpolated tile-step continuation.
 // 9845: Dynasty projectile clock, steering and arming state.
 // 9846: Refundable production payments preserve starting-credit provenance.
-#define SAVEGAMEVERSION     9846
+// 9847: Structures persist power-damage and foundation-decay state separately
+//       (Dynasty-aligned degradation); older saves restore without foundation
+//       decay because their single timer cannot identify the foundation.
+// 9848: QuantBot opening dispersal sites and the cycle at which ordinary
+//       regrouping resumes. They decide whether a starting unit is left alone
+//       or marched back onto the home rock, so a save or network checkpoint
+//       taken during the opening has to carry them.
+#define SAVEGAMEVERSION     9848
 
 // v1.0.0–v1.0.7 shipped SAVEGAMEVERSION 9810 with Num_ItemID=48.
 // v1.0.8–v1.0.10 also used 9810 but with Num_ItemID=52 (4 items added

@@ -102,6 +102,14 @@ constexpr int kPoliceCoverageRocketTurret = kPoliceCoverageFull * 15 / 100;  // 
 
 constexpr int kMaxLandValue = 250;
 
+/// Damage devalues a developed building's own land proportionally. Applied
+/// after amenity bonuses; repairs restore value on the next effects scan.
+inline int conditionLandValue(int value, FixPoint health, int maxHealth) {
+    if (value <= 0) return 0;
+    if (maxHealth <= 0) return value;
+    return std::clamp((FixPoint(value) * std::max(FixPoint(0), health) / maxHealth).floor(), 1, value);
+}
+
 constexpr int kMaxPollution = 250;
 
 /// SimCity Classic feedback: when crime exceeds this threshold on a block,
@@ -791,7 +799,7 @@ struct ValveOutputs {
 enum CivicRequirement : uint8_t { NeedStadium = 1, NeedAirport = 2, NeedStarport = 4 };
 
 inline uint8_t missingDemandCivics(const ValveInputs& in) {
-    return (in.resPop > 500 && !in.hasStadium && !in.hasPalace ? NeedStadium : 0)
+    return (in.resPop > 500 && !in.hasStadium ? NeedStadium : 0)
          | (in.comPop > 100 && !in.hasAirport ? NeedAirport : 0)
          | (in.indPop > 70 && !in.hasStarport ? NeedStarport : 0);
 }
@@ -914,7 +922,7 @@ inline ValveOutputs computeDemandValves(const ValveInputs& in) {
     int newInd = in.indValve + indDelta;
 
     // Civic caps (SC thresholds from message.cpp):
-    //   resCap: resPop > 500 && no stadium/palace → valve capped to 0
+    //   resCap: resPop > 500 && no stadium → valve capped to 0
     //   comCap: comPop > 100 && no airport        → valve capped to 0
     //   indCap: indPop > 70  && no seaport/starport → valve capped to 0
     const uint8_t missingCivics = missingDemandCivics(in);

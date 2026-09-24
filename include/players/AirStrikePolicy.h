@@ -16,9 +16,27 @@ inline bool antiAir(int item) {
 // Unrelated ground units are never hunted across the map.
 constexpr int RaidRank = 1;
 constexpr int DefenseRank = 2;
+// An attacker actually hitting something we own. A remote worker rescue and an
+// attack on the base itself are both emergencies, but they are not the same
+// emergency: the base outranks the field, so a wing already saving a harvester
+// is recalled by an attack on the city and not the other way round. Without
+// that separation every aircraft re-chose its target on every volley.
 constexpr int UnderAttackRank = 3;
+constexpr int BaseUnderAttackRank = 4;
 inline int targetRank(bool structure, bool defensiveContact) {
     return defensiveContact ? DefenseRank : structure ? RaidRank : 0;
+}
+inline int underAttackRank(bool attackingBase) {
+    return attackingBase ? BaseUnderAttackRank : UnderAttackRank;
+}
+// Ranks that describe a present loss rather than an opportunity. They may be
+// approached through anti-air cover and they outrank every raid.
+inline bool emergencyRank(int rank) { return rank >= UnderAttackRank; }
+// A forced interception stands until its target dies or becomes unreachable;
+// only a strictly more urgent class of emergency may replace it. Equal-rank
+// score differences are not a reason to abandon a live attack run.
+inline bool holdsInterception(int heldRank, int bestRank) {
+    return heldRank > 0 && bestRank <= heldRank;
 }
 inline int safetyRange(int weaponRange) { return weaponRange + 5; }
 

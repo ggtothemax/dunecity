@@ -276,7 +276,7 @@ public:
     class GameOptionsClass {
     public:
         GameOptionsClass()
-         : gameSpeed(GAMESPEED_DEFAULT), concreteRequired(true), structuresDegradeOnConcrete(true), fogOfWar(false),
+         : gameSpeed(GAMESPEED_DEFAULT), concreteRequired(true), fogOfWar(false),
            startWithExploredMap(false), instantBuild(false), onlyOnePalace(false), rocketTurretsNeedPower(false),
            sandwormsRespawn(false), killedSandwormsDropSpice(false), manualCarryallDrops(false), maximumNumberOfUnitsOverride(-1),
            maximumNumberOfHarvestersOverride(-1), maximumNumberOfConstructionYardsOverride(-1),
@@ -287,7 +287,6 @@ public:
         bool operator==(const GameOptionsClass& goc) const {
             return (gameSpeed == goc.gameSpeed)
                     && (concreteRequired == goc.concreteRequired)
-                    && (structuresDegradeOnConcrete == goc.structuresDegradeOnConcrete)
                     && (fogOfWar == goc.fogOfWar)
                     && (startWithExploredMap == goc.startWithExploredMap)
                     && (instantBuild == goc.instantBuild)
@@ -316,7 +315,6 @@ public:
             std::string optStr;
             optStr += std::to_string(gameSpeed);
             optStr += std::to_string(concreteRequired);
-            optStr += std::to_string(structuresDegradeOnConcrete);
             optStr += std::to_string(fogOfWar);
             optStr += std::to_string(startWithExploredMap);
             optStr += std::to_string(instantBuild);
@@ -346,7 +344,10 @@ public:
 
         int         gameSpeed;
         bool        concreteRequired;
-        bool        structuresDegradeOnConcrete;
+        // "Structures Degrade On Concrete" was removed with the Dynasty-aligned
+        // degradation rules (include/dunecity/StructureDegradation.h): power
+        // damage applies everywhere, and a complete foundation always suppresses
+        // foundation decay. GameInitSettings still reserves its stream byte.
         bool        fogOfWar;
         bool        startWithExploredMap;
         bool        instantBuild;

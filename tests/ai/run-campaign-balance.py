@@ -28,12 +28,13 @@ parser.add_argument('--free-for-all', action='store_true', help='Give each custo
 parser.add_argument('--capture-mib', type=int, default=1024, help='Diagnostic capture allowance; shipped default is unchanged')
 parser.add_argument('--wall-timeout', type=int, default=1800, help='Maximum wall seconds for the simulation')
 parser.add_argument('--level', type=int, choices=range(1,10), default=4)
-parser.add_argument('--mod', choices=('vanilla','dunecity','Dune2R'), default='vanilla')
+parser.add_argument('--mod', choices=('vanilla','dunecity','Dune2R','Tornie'), default='vanilla')
 parser.add_argument('--house', choices=tuple(h for h in house_names if h!='neutral'), default='harkonnen')
 parser.add_argument('--roster', help='Explicit custom-map house:team slots in lobby order, comma-separated')
 parser.add_argument('--harvester-limit', type=int, choices=range(-1,101), default=-1)
-parser.add_argument('--structures-degrade-on-concrete', action=argparse.BooleanOptionalAction, default=None)
 parser.add_argument('--rocket-turrets-need-power', action=argparse.BooleanOptionalAction, default=None)
+parser.add_argument('--concrete-required', action=argparse.BooleanOptionalAction, default=None)
+parser.add_argument('--require-win', action='store_true', help='Fail a full-match run on defeat or time limit')
 parser.add_argument('--partner-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
 parser.add_argument('--enemy-ai', choices=('quantbot','ai-player'), default='quantbot', help='Enemy controller family; AI Player has Easy/Medium/Hard')
 parser.add_argument('--enemy-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
@@ -51,6 +52,8 @@ parser.add_argument('--credit-storage-probe', action='store_true',
 parser.add_argument('--stats-probe', action='store_true', help='Verify campaign results with a shared human/AI house')
 parser.add_argument('--nuclear-probe', action='store_true')
 parser.add_argument('--reactor-safety-probe', action='store_true')
+parser.add_argument('--degradation-probe', action='store_true',
+                    help='Verify Dynasty-aligned power damage, foundation decay and their save state')
 parser.add_argument('--radar-probe', action='store_true')
 parser.add_argument('--army-probe', action='store_true')
 parser.add_argument('--air-defense-probe', action='store_true')
@@ -58,6 +61,8 @@ parser.add_argument('--police-placement-probe', action='store_true')
 parser.add_argument('--police-budget-probe', action='store_true')
 parser.add_argument('--city-growth-probe', action='store_true',
                     help='Verify continuous city growth while proactive defence/supplier goals are unmet')
+parser.add_argument('--mcv-deployment-probe', action='store_true',
+                    help='Verify MCVs deploy on the rock the base already holds instead of driving around it')
 parser.add_argument('--custom-attack-probe', action='store_true')
 parser.add_argument('--factory-recovery-probe', action='store_true')
 parser.add_argument('--pressure-probe', action='store_true', help='Verify campaign wave readiness, survivor independence and save state')
@@ -68,8 +73,8 @@ parser.add_argument('--seed', type=int, default=486409243)
 parser.add_argument('--minutes', type=int, default=20)
 parser.add_argument('--attack-percent', type=int, choices=range(101), default=25)
 args = parser.parse_args()
-if not 1 <= args.minutes <= 60 or not 0 <= args.seed <= 0xffffffff:
-    parser.error('Use 1–60 minutes and a 32-bit unsigned seed.')
+if not 1 <= args.minutes <= 120 or not 0 <= args.seed <= 0xffffffff:
+    parser.error('Use 1–120 minutes and a 32-bit unsigned seed.')
 if not 256 <= args.capture_mib <= 4096 or args.wall_timeout < 1:
     parser.error('Use 256–4096 MiB of capture space and a positive wall timeout.')
 if args.free_for_all and not args.custom_map:
@@ -171,8 +176,8 @@ env = dict(os.environ,DUNECITY_USERDIR=str(out/'profile'),SDL_VIDEODRIVER='dummy
 env['BALANCE_CAPTURE_MIB'] = str(args.capture_mib)
 if args.rocket_turrets_need_power is not None:
     env['BALANCE_ROCKET_TURRETS_NEED_POWER'] = str(int(args.rocket_turrets_need_power))
-if args.structures_degrade_on_concrete is not None:
-    env['BALANCE_DEGRADE_ON_CONCRETE'] = str(int(args.structures_degrade_on_concrete))
+if args.concrete_required is not None:
+    env['BALANCE_CONCRETE_REQUIRED'] = str(int(args.concrete_required))
 if args.custom_map:
     env['BALANCE_CUSTOM_MAP'] = str(args.custom_map.resolve())
     env['BALANCE_ROSTER'] = ','.join(f'{house}:{team}' for house, team in roster)
@@ -189,12 +194,14 @@ if args.city_placement_probe: env['BALANCE_CITY_PLACEMENT_PROBE'] = '1'
 if args.opening_economy_probe: env['BALANCE_OPENING_ECONOMY_PROBE'] = '1'
 if args.nuclear_probe or args.reactor_safety_probe: env['BALANCE_NUCLEAR_PROBE'] = '1'
 if args.reactor_safety_probe: env['BALANCE_REACTOR_SAFETY_PROBE'] = '1'
+if args.degradation_probe: env['BALANCE_DEGRADATION_PROBE'] = '1'
 if args.radar_probe: env['BALANCE_RADAR_PROBE'] = '1'
 if args.army_probe: env['BALANCE_ARMY_PROBE'] = '1'
 if args.air_defense_probe: env['BALANCE_AIR_DEFENSE_PROBE'] = '1'
 if args.police_placement_probe: env['BALANCE_POLICE_PLACEMENT_PROBE'] = '1'
 if args.police_budget_probe: env['BALANCE_POLICE_BUDGET_PROBE'] = '1'
 if args.city_growth_probe: env['BALANCE_CITY_GROWTH_PROBE'] = '1'
+if args.mcv_deployment_probe: env['BALANCE_MCV_DEPLOYMENT_PROBE'] = '1'
 if args.custom_attack_probe: env['BALANCE_CUSTOM_ATTACK_PROBE'] = '1'
 if args.factory_recovery_probe: env['BALANCE_FACTORY_RECOVERY_PROBE'] = '1'
 if args.starport_probe: env['BALANCE_STARPORT_PROBE'] = '1'
@@ -236,3 +243,6 @@ summary = {'result':results[0],'sourceCommit':source_commit,
 (out/'summary.json').write_text(json.dumps(summary,indent=2)+'\n')
 print(results[0])
 print('Telemetry:',events)
+
+if args.require_win and 'outcome=won' not in results[0]:
+    raise RuntimeError('Full-match acceptance requires victory: ' + results[0])

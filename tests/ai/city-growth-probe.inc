@@ -1,4 +1,5 @@
 #include <units/Harvester.h>
+#include <players/RocketTurretPolicy.h>
 // A funded single-yard city opening must keep developing R/C/I while proactive
 // rocket overlap and the opening worker supplier are still outstanding, and
 // must still refuse to spend an urgent crime reserve on a cheap plot.
@@ -79,7 +80,8 @@ void runCityGrowthProbe(Game& game) {
         }
         yard->upgrading=false;yard->setHealth(yard->getMaxHealth());
         bot->builderPlaceLocations.clear();bot->reservedStructures.clear();bot->clearPlacementCache();
-        house->takeCredits(house->getCredits());house->addCredits(credits);
+        // Starting funds bypass spice-storage limits, matching the funded opening.
+        house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
         house->producedPower=10000;bot->lastCalculatedSpice=1300000;
         bot->build(0);
         for(const auto& order:yard->currentProductionQueue)
@@ -106,6 +108,83 @@ void runCityGrowthProbe(Game& game) {
     const Uint32 funded=decide(20000);
     require(!DuneCity::isCityZoneStructure(funded) && funded!=NONE_ID,
         "Fully funded pass skipped proactive defence and the opening worker supplier");
+
+    // Deepening the overlap on core assets that are already covered is a plan,
+    // not a present loss: it shares the yard with the city instead of taking
+    // every slot. A core asset with no cover at all is still defended at once.
+    {
+        // The production core the city already owns in the reported match, so
+        // routine coverage is unlocked and only the overlap is outstanding.
+        if(!house->getNumItems(Structure_HeavyFactory))put(Structure_HeavyFactory,6,6);
+        if(!house->getNumItems(Structure_HighTechFactory))put(Structure_HighTechFactory,6,10);
+        if(!house->getNumItems(Structure_RepairYard))put(Structure_RepairYard,6,14);
+        if(!house->getNumItems(Structure_StarPort))put(Structure_StarPort,10,10);
+        if(!house->getNumItems(Structure_LightFactory))put(Structure_LightFactory,10,14);
+        const int radius=std::max(1,
+            game.objectData.data[Structure_RocketTurret][HOUSE_HARKONNEN].weaponrange-1);
+        auto coveringTurrets=[&](const StructureBase* asset) {
+            int covered=0;
+            for(const auto* turret:structureList)
+                if(turret->getOwner()==house && turret->getHealth()>0
+                    && turret->getItemID()==Structure_RocketTurret
+                    && RocketTurretPolicy::coversBuilding(turret->getLocation(),
+                        asset->getLocation(),asset->getStructureSize(),radius))++covered;
+            return covered;
+        };
+        // One turret for every core asset that has none, so the base is short of
+        // the difficulty's overlap everywhere but uncovered nowhere.
+        for(bool progressed=true;progressed;) {
+            progressed=false;
+            const StructureBase* uncovered=nullptr;
+            for(auto* structure:structureList)
+                if(!uncovered && structure->getOwner()==house && structure->getHealth()>0
+                    && RocketTurretPolicy::coreAsset(structure->getItemID())
+                    && coveringTurrets(structure)==0)uncovered=structure;
+            if(!uncovered)break;
+            const Coord at=uncovered->getLocation();
+            for(int dy=-radius;dy<=radius && !progressed;++dy)
+                for(int dx=-radius;dx<=radius && !progressed;++dx) {
+                    const Coord site(at.x+dx,at.y+dy);
+                    if(!RocketTurretPolicy::coversBuilding(site,at,uncovered->getStructureSize(),radius)
+                        || !currentGameMap->tileExists(site.x,site.y)
+                        || !currentGameMap->okayToPlaceStructure(site.x,site.y,1,1,false,house,false,
+                            Structure_RocketTurret))continue;
+                    auto* turret=house->placeStructure(NONE_ID,Structure_RocketTurret,site.x,site.y,true,true);
+                    if(!turret)continue;
+                    progressed=RocketTurretPolicy::coversBuilding(site,at,uncovered->getStructureSize(),radius);
+                    if(!progressed)turret->setHealth(0);
+                }
+            require(progressed,"Fixture could not cover a core asset");
+        }
+        for(auto* structure:structureList)
+            require(!(structure->getOwner()==house && structure->getHealth()>0
+                && RocketTurretPolicy::coreAsset(structure->getItemID())
+                && coveringTurrets(structure)==0),"Fixture left a core asset uncovered");
+        setCrime(0);
+        bot->nonServiceConstructionOrders=0;
+        const Uint32 interleaved=decide(20000);
+        require(interleaved!=Structure_RocketTurret,
+            "Extra overlap took the construction slot while every core asset was already covered");
+        // Losing the only turret over a refinery is a present loss again.
+        StructureBase* sacrificed=nullptr;
+        for(auto* structure:structureList)
+            if(!sacrificed && structure->getOwner()==house && structure->getHealth()>0
+                && structure->getItemID()==Structure_Refinery && coveringTurrets(structure)==1)
+                for(auto* turret:structureList)
+                    if(!sacrificed && turret->getOwner()==house && turret->getHealth()>0
+                        && turret->getItemID()==Structure_RocketTurret
+                        && RocketTurretPolicy::coversBuilding(turret->getLocation(),
+                            structure->getLocation(),structure->getStructureSize(),radius))sacrificed=turret;
+        require(sacrificed!=nullptr,"Fixture found no single-turret refinery to uncover");
+        sacrificed->setHealth(0);
+        bot->nonServiceConstructionOrders=0;
+        const Uint32 restored=decide(20000);
+        require(restored==Structure_RocketTurret,
+            "An uncovered core asset did not get its first turret back");
+        sacrificed->setHealth(sacrificed->getMaxHealth());
+        SDL_Log("CITY_DEFENCE_INTERLEAVE_PASS: covered base built %u instead of more overlap;"
+            " uncovered refinery rebuilt cover (%u)",interleaved,restored);
+    }
 
     // An urgent crime reserve still outranks a cheap plot at the same budget.
     // Remove effective turret coverage before demanding a new emergency

@@ -82,7 +82,16 @@
 // Version 25: Map deduplication and mature AI storage prioritization.
 // Version 26: AI progression, aircraft rescue and terrain-reachable Hunt targets.
 // Version 27: Combined AI changes and Dynasty turret/launcher cadence.
-#define NETWORK_PROTOCOL_VERSION            28
+// Version 28: Starport prerequisites change AI tech progression decisions.
+// Version 29: Dynasty-aligned foundation and power degradation change simulation health.
+// Version 30: Health-scaled windtraps, city land condition and AI concrete policy.
+// Version 32: QuantBot anticipates queued demand and maintains a Vanilla power buffer.
+// Version 33: QuantBot local MCV deployment decisions change.
+// Version 34: City growth and air interception decisions, stadium requirement.
+// Version 35: Space-driven QuantBot colonisation decisions.
+// Version 36: Cramped city placement and Starport colonisation decisions.
+// Version 37: Opening space, prompt MCV colonies and launcher air defence change AI orders.
+#define NETWORK_PROTOCOL_VERSION            37
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

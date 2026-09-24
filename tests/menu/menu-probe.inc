@@ -1449,11 +1449,13 @@ int runMenuProbe() {
     {
         auto rules=settings.gameOptions;
         GameOptionsWindow menu(rules);
+        menu.concreteRequiredCheckbox.setChecked(false);
         menu.maxConstructionYardsOverrideCheckbox.setChecked(true);
         menu.maxConstructionYardsOverrideTextBox.setVisible(true);
         menu.maxConstructionYardsOverrideTextBox.setValue(2);
         menuCapture(menu,"game-rules");
         menu.onOK();
+        menuRequire(!menu.getGameOptions().concreteRequired,"Concrete checkbox did not disable requirements");
         menuRequire(menu.getGameOptions().maximumNumberOfConstructionYardsOverride == 2, "Yard limit UI did not save selection");
     }
     SDL_Log("MENU_PROBE_PASS: home, campaign retry, mission ranges, custom roster, online transition, settings validation and rendering");

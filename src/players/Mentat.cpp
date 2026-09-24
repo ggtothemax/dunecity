@@ -1958,7 +1958,8 @@ void Mentat::handleRepairs(const StructureBase* pStructure, MentatBuildContext& 
 		doRepair(pStructure);
 	}
 	else if (pStructure->getItemID() == Structure_RocketTurret) {
-		if (!getGameInitSettings().getGameOptions().structuresDegradeOnConcrete || pStructure->hasATarget()) {
+		// Prioritize engaged turrets; routine repairs are handled above.
+		if (pStructure->hasATarget()) {
 			doRepair(pStructure);
 		}
 	}

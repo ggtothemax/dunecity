@@ -297,18 +297,132 @@ inline std::array<Uint32, 3> rankZones(int residential, int commercial, int indu
     return result;
 }
 
-// A road is already foundation: a bulk slab must not erase it. Coordinates
-// below are relative to the building footprint, independently of queue order.
-template<class Prepared>
-inline bool useBulkFoundation(int width,int height,bool available,Prepared prepared) {
-    if (!available || width<2 || height<2) return false;
-    for (int x=0;x<2;++x) for (int y=0;y<2;++y) if (prepared(x,y)) return false;
-    return true;
+// ---------------------------------------------------------------------------
+// Concrete foundations and structure condition
+//
+// A building placed on unprepared ground loses half its health on placement and
+// then decays back to that floor whenever it is repaired. Health is not
+// cosmetic: windtraps convert it straight into power, refineries unload more
+// slowly, every builder builds more slowly, and in city mode a damaged
+// footprint scales down the land value under itself. Every ordinary building
+// is therefore fully founded before it is ordered — there is no rich, urgent or
+// otherwise selective exception. QuantBotFoundationPolicy lays out the slabs;
+// the predicates below say which buildings the condition rules apply to, and
+// price what the engine charges to repair them.
+// ---------------------------------------------------------------------------
+
+// Tile states and the one structure the engine excludes from degradation. They
+// never carry a foundation of their own, and a construction yard an MCV
+// deploys is never queued, so it cannot be prepared in advance either.
+inline bool foundationExemptItem(Uint32 item) {
+    return item == NONE_ID || item == Structure_Wall || item == Structure_Slab1
+        || item == Structure_Slab4 || item == Structure_Road || item == Structure_PowerLine;
 }
-inline int foundationSlabSize(int x,int y,bool bulk,bool prepared) {
-    if (prepared) return 0;
-    if (bulk && x<2 && y<2) return x==0 && y==0 ? 2 : 0;
-    return 1;
+
+// BuilderBase::updateProductionProgress() multiplies build speed by the
+// builder's health fraction. The Starport is deliberately absent: it delivers
+// imports on a timer its own condition does not touch.
+inline bool healthScaledProduction(Uint32 item) {
+    return item == Structure_ConstructionYard || item == Structure_Barracks
+        || item == Structure_WOR || item == Structure_LightFactory
+        || item == Structure_HeavyFactory || item == Structure_HighTechFactory
+        || item == Structure_Worfinery || item == Structure_ChaosFactory;
+}
+
+// Output that follows health directly: windtrapOutput() for every windtrap
+// family, the Refinery/Worfinery extraction scale, and generatorOutput() for
+// the reactor, which only scales in city mode.
+inline bool healthScaledOutput(Uint32 item, bool citySim) {
+    if (item == Structure_NuclearPlant) return citySim;
+    return item == Structure_WindTrap || item == Structure_AdvancedWindTrap
+        || item == Structure_AdvancedWindTrapMK2 || item == Structure_AdvancedWindTrapMK3
+        || item == Structure_Refinery || item == Structure_Worfinery;
+}
+
+// Emplacements spend health as armour, and a one-tile footprint is the
+// cheapest ground on the map to prepare.
+inline bool defensiveEmplacement(Uint32 item) {
+    return item == Structure_GunTurret || item == Structure_RocketTurret
+        || item == Structure_Scoutpost || item == Structure_Flamepost
+        || item == Structure_Chemipost;
+}
+
+// Whenever concrete is in play, everything that is not a tile state is founded
+// in full before it is placed. In city mode that reading is also the strictest
+// one: CityEffects scales each footprint's land value by the building's health,
+// so a half-health building halves the value of the ground it stands on.
+inline bool foundationRequiredForItem(Uint32 item) {
+    return !foundationExemptItem(item);
+}
+
+// Credits the engine charges per hitpoint of repair, in thousandths.
+// StructureBase::update() restores 5/30 hp per tick for
+// ((2*256)/maxHealth)*price/256/30 credits, so a hitpoint costs
+// fraction*price/1280. That integer fraction is zero above 512 maximum health,
+// which is why the largest buildings currently repair for nothing.
+inline int repairCreditsPerHitpointMilli(int maxHealth, int price) {
+    if (maxHealth <= 0 || price <= 0) return 0;
+    return int(int64_t((2 * 256) / maxHealth) * price * 1000 / 1280);
+}
+
+// What repairing the bare-ground placement penalty costs. Placement removes
+// maxHealth/2, and foundation decay only ever returns a repaired building to
+// that same floor, so this is the recurring bill a foundation avoids.
+inline int placementRepairCost(int maxHealth, int price) {
+    return maxHealth <= 0 ? 0
+        : int(int64_t(maxHealth / 2) * repairCreditsPerHitpointMilli(maxHealth, price) / 1000);
+}
+
+// The engine repairs the largest buildings for nothing, because its integer
+// hitpoint fraction collapses to zero above 512 maximum health. Those are kept
+// at full health unconditionally: it costs the treasury nothing at all.
+// This is the engine's exact fraction, not the rounded milli-credit figure: a
+// one-credit building at 512 maximum health still charges 1/1280 per hitpoint,
+// which rounds to zero thousandths without being free.
+inline bool repairsForFree(int maxHealth, int price) {
+    return maxHealth <= 0 || price <= 0 || (2 * 256) / maxHealth == 0;
+}
+
+// Condition is worth real credits on these buildings, so they are repaired
+// whenever the engine can be paid at all. In city mode every footprint scales
+// its own land value by its health, so that is the whole colony, walls
+// included. Everything else waits for a comfortable treasury.
+inline bool repairMaintainsValue(Uint32 item, bool citySim, int maxHealth, int price) {
+    return citySim || healthScaledProduction(item) || healthScaledOutput(item, citySim)
+        || repairsForFree(maxHealth, price);
+}
+
+// The engine charges per repair tick, so it must have something to charge.
+inline bool canAffordRepairTick(int credits) { return credits >= 5; }
+inline bool repairWhenWealthy(int availableMoney) { return availableMoney > 5000; }
+
+// The 2x2 slab is one order and one placement where Slab1 needs four, and
+// every ordinary building now waits for its full foundation. The yard
+// therefore unlocks bulk concrete as soon as the technology allows it, ahead
+// of any optional construction: no income, reserve, power or defence
+// precondition, because those all depend on buildings this upgrade makes
+// cheaper to found. Only the cost of the upgrade itself gates it.
+//
+// `anotherYardUpgrading` keeps parallel yards from all stopping at once. It is
+// transient by construction — an upgrade finishes — so every yard reaches the
+// level in turn and none is locked out permanently.
+inline bool upgradeYardForBulkSlab(bool concreteRequired, bool bulkSlabAvailable,
+                                   int currentUpgradeLevel, int requiredUpgradeLevel,
+                                   int maxUpgradeLevel, int credits, int upgradeCost,
+                                   bool anotherYardUpgrading) {
+    return concreteRequired && bulkSlabAvailable && !anotherYardUpgrading
+        && requiredUpgradeLevel > 0 && currentUpgradeLevel < requiredUpgradeLevel
+        && maxUpgradeLevel >= requiredUpgradeLevel && upgradeCost > 0
+        && credits >= upgradeCost;
+}
+
+// A yard that still owes this upgrade must not spend the pass on optional
+// construction instead; a damaged yard repairs first so it can accept it.
+inline bool bulkSlabUpgradePending(bool concreteRequired, bool bulkSlabAvailable,
+                                   int currentUpgradeLevel, int requiredUpgradeLevel,
+                                   int maxUpgradeLevel) {
+    return concreteRequired && bulkSlabAvailable && requiredUpgradeLevel > 0
+        && currentUpgradeLevel < requiredUpgradeLevel && maxUpgradeLevel >= requiredUpgradeLevel;
 }
 
 // Divide the remaining map spice between active houses before investing.

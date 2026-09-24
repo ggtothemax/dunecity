@@ -49,12 +49,6 @@ GameOptionsWindow::GameOptionsWindow(SettingsClass::GameOptionsClass& initialGam
     vboxLeft.addWidget(&startWithExploredMapCheckbox);
     vboxLeft.addWidget(VSpacer::create(6));
 
-    structuresDegradeOnConcreteCheckbox.setText(_("Structures Degrade On Concrete"));
-    structuresDegradeOnConcreteCheckbox.setTooltipText(_("If checked structures will degrade on power shortage even if built on concrete."));
-    structuresDegradeOnConcreteCheckbox.setChecked(gameOptions.structuresDegradeOnConcrete);
-    vboxLeft.addWidget(&structuresDegradeOnConcreteCheckbox);
-    vboxLeft.addWidget(VSpacer::create(6));
-
     sandwormsRespawnCheckbox.setText(_("Killed Sandworms Respawn"));
     sandwormsRespawnCheckbox.setTooltipText(_("If checked killed sandworms respawn after some time."));
     sandwormsRespawnCheckbox.setChecked(gameOptions.sandwormsRespawn);
@@ -118,9 +112,9 @@ GameOptionsWindow::GameOptionsWindow(SettingsClass::GameOptionsClass& initialGam
     vboxLeft.addWidget(VSpacer::create(14));
 
 
-    concreteRequiredCheckbox.setText(_("Concrete Required"));
+    concreteRequiredCheckbox.setText(_("Concrete is required"));
     /* xgettext:no-c-format */
-    concreteRequiredCheckbox.setTooltipText(_("If checked building on bare rock will result in 50% structure health penalty."));
+    concreteRequiredCheckbox.setTooltipText(_("Enable concrete. Missing foundations reduce initial health and cause decay. Unchecked: concrete is disabled and these penalties do not apply."));
     concreteRequiredCheckbox.setChecked(gameOptions.concreteRequired);
     vboxRight.addWidget(&concreteRequiredCheckbox);
     vboxRight.addWidget(VSpacer::create(6));
@@ -191,7 +185,6 @@ GameOptionsWindow::~GameOptionsWindow() {
 void GameOptionsWindow::onOK() {
     gameOptions.gameSpeed = currentGameSpeed;
     gameOptions.concreteRequired = concreteRequiredCheckbox.isChecked();
-    gameOptions.structuresDegradeOnConcrete = structuresDegradeOnConcreteCheckbox.isChecked();
     gameOptions.fogOfWar = fogOfWarCheckbox.isChecked();
     gameOptions.startWithExploredMap = startWithExploredMapCheckbox.isChecked();
     gameOptions.instantBuild = instantBuildCheckbox.isChecked();

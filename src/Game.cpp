@@ -648,7 +648,6 @@ void Game::initGame(const GameInitSettings& newGameInitSettings) {
         .set("start_cycle", gameCycleCount)
         .set("options", AITelemetry::Record()
             .set("concrete_required", gameInitSettings.getGameOptions().concreteRequired)
-            .set("structures_degrade_on_concrete", gameInitSettings.getGameOptions().structuresDegradeOnConcrete)
             .set("fog_of_war", gameInitSettings.getGameOptions().fogOfWar)
             .set("immortal_human_player", gameInitSettings.getGameOptions().immortalHumanPlayer)
             .set("harvester_limit_override", gameInitSettings.getGameOptions().maximumNumberOfHarvestersOverride))
@@ -4478,7 +4477,7 @@ bool Game::loadSaveGame(InputStream& stream) {
     logLoadStage("objects");
     objectManager.load(stream);
 
-    // Older saves stored health-scaled windtrap totals. Reconstruct generation
+    // Reconstruct saved generation totals (including older constant-output windtraps)
     // from the loaded generators using current rules, without changing demand.
     std::array<int, NUM_HOUSES> loadedGeneration{};
     for (const auto* structure : structureList) {
@@ -6809,7 +6808,8 @@ void Game::prepareObserverStreams() {
 
 std::string Game::saveObserverRuntime() const {
     OMemoryStream out; out.open();
-    out.writeUint32(4); out.writeUint32(gameCycleCount);
+    // Version 5 includes QuantBot colonisation-space measurements.
+    out.writeUint32(5); out.writeUint32(gameCycleCount);
     out.writeUint32(negotiatedBudget); out.writeUint32(cmdManager.getNetworkCycleBuffer());
     out.writeUint32(currentGameMap->getPathingRevision());
     out.writeUint32(targetRequestQueue.size());
@@ -6839,7 +6839,7 @@ std::string Game::saveObserverRuntime() const {
 void Game::loadObserverRuntime(const std::string& bytes) {
     IMemoryStream in(bytes.data(),bytes.size());
     const auto runtimeVersion=in.readUint32();
-    if((runtimeVersion!=3 && runtimeVersion!=4) || in.readUint32()!=gameCycleCount) throw std::runtime_error("Invalid spectator checkpoint cycle");
+    if((runtimeVersion!=5) || in.readUint32()!=gameCycleCount) throw std::runtime_error("Invalid spectator checkpoint cycle");
     negotiatedBudget=in.readUint32(); const auto buffer=in.readUint32();
     if(negotiatedBudget<kMinBudget || negotiatedBudget>kMaxBudget || buffer>1000) throw std::runtime_error("Invalid spectator checkpoint budget");
     cmdManager.setNetworkCycleBuffer(buffer);

@@ -1411,16 +1411,6 @@ msgstr ""
 msgid "If checked the complete map is unhidden at the beginning of the game."
 msgstr ""
 
-#: src/GUI/dune/GameOptionsWindow.cpp:51
-msgid "Structures Degrade On Concrete"
-msgstr ""
-
-#: src/GUI/dune/GameOptionsWindow.cpp:52
-msgid ""
-"If checked structures will degrade on power shortage even if built on "
-"concrete."
-msgstr ""
-
 #: src/GUI/dune/GameOptionsWindow.cpp:57
 msgid "Killed Sandworms Respawn"
 msgstr ""
@@ -1456,13 +1446,13 @@ msgid ""
 msgstr ""
 
 #: src/GUI/dune/GameOptionsWindow.cpp:90
-msgid "Concrete Required"
+msgid "Concrete is required"
 msgstr ""
 
 #: src/GUI/dune/GameOptionsWindow.cpp:92
 #, no-c-format
 msgid ""
-"If checked building on bare rock will result in 50% structure health penalty."
+"Enable concrete. Missing foundations reduce initial health and cause decay. Unchecked: concrete is disabled and these penalties do not apply."
 msgstr ""
 
 #: src/GUI/dune/GameOptionsWindow.cpp:97

@@ -65,6 +65,25 @@ inline int assetPriority(int item) {
 inline int coverageTurretCap(int coverageDemand) {
     return 2 + std::max(0, coverageDemand) / 4;
 }
+// How much construction the city does between two peaceful emplacements.
+constexpr unsigned growthOrdersPerProactiveTurret = 3;
+// Whether this construction pass may spend its slot on proactive coverage.
+//
+// Deepening the overlap on assets that are already covered is a plan, not a
+// present loss, and it competes with the city for the one thing a construction
+// yard cannot buy more of: build time. Left ungated it took twenty-seven of the
+// first ten minutes' orders while the base still had five heavy factories,
+// because on a spread base the difficulty's overlap demand can never be met.
+//
+// Two things are not optional and keep every slot they need: aircraft that have
+// actually reached our buildings, and a core asset — yard, refinery, factory,
+// reactor — that nothing covers at all. An enemy wing merely owned somewhere on
+// the map is neither. Everything else is interleaved with growth.
+inline bool proactiveCoverageTurn(bool airEngaged, int uncoveredCoreAssets,
+                                  unsigned nonServiceOrders) {
+    return airEngaged || uncoveredCoreAssets > 0
+        || nonServiceOrders >= growthOrdersPerProactiveTurret;
+}
 inline int amenityBenefit(int landValue, bool alreadyCovered, int terrainGain) {
     if (alreadyCovered) return 0;
     return std::min(std::max(0, DuneCity::kMaxLandValue - landValue), std::max(0, terrainGain));

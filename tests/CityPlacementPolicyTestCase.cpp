@@ -2,6 +2,7 @@
 #include <Definitions.h>
 #include <players/CityPlacementPolicy.h>
 #include <players/QuantBotBuildPolicy.h>
+#include <players/QuantBotFoundationPolicy.h>
 #include <players/CityServiceInvestmentPolicy.h>
 #include <dunecity/PopulationDensityPolicy.h>
 #include <players/RocketTurretPolicy.h>
@@ -209,17 +210,18 @@ TEST_CASE("Road restoration clears damage and traffic uses the shared connector"
     REQUIRE(placementSource("src/dunecity/TrafficSimulation.cpp").find("->isRoadConnection()") != std::string::npos);
 }
 
-TEST_CASE("Completed factory placement retries without cancelling or requiring concrete", "[quantbot][placement][regression]") {
+TEST_CASE("Completed placement retries and requires foundations only when enabled", "[quantbot][placement][regression]") {
     const auto source = placementSource("src/players/QuantBot.cpp");
     const auto start = source.find("if (pBuilder->isWaitingToPlace())");
     const auto block = source.substr(start, source.find("void QuantBot::scrambleUnitsAndDefend",start)-start);
     REQUIRE(block.find("itemsize.y, false, getHouse(), false, itemToBePlaced") != std::string::npos);
     REQUIRE(block.find("placement_replan") != std::string::npos);
     REQUIRE(block.find("placement_deferred") != std::string::npos);
-    // Only obsolete concrete is cancelled; completed buildings stay available.
-    const auto cancel = block.find("doCancelItem(pConstYard, itemToBePlaced)");
-    REQUIRE(cancel != std::string::npos);
-    REQUIRE(block.find("doCancelItem(pConstYard, itemToBePlaced)", cancel+1) == std::string::npos);
+    // A changed site may no longer have its promised foundation. The real
+    // opening probe verifies refund/replanning; retain the optional-setting guard.
+    const auto guard = block.find("getGameInitSettings().getGameOptions().concreteRequired");
+    REQUIRE(guard != std::string::npos);
+    REQUIRE(block.find("footprint_not_prepared",guard) != std::string::npos);
 }
 
 TEST_CASE("Ordinary buildings cannot rely on diagonal-only traffic detours", "[city][placement]") {
@@ -456,19 +458,28 @@ TEST_CASE("A spare lane can become foundation while the other lane stays connect
     REQUIRE(blocked.redundantRoadsCovered==0);
 }
 TEST_CASE("Mixed road foundation needs only the missing individual slabs", "[quantbot][placement][roads]") {
-    using namespace QuantBotBuildPolicy;
-    auto prepared=[](int,int y){return y==1;}; // 3x2 factory with three road tiles
-    const bool bulk=useBulkFoundation(3,2,true,prepared);
-    REQUIRE_FALSE(bulk);
-    int orders=0,tiles=0;
-    for (int x=0;x<3;++x) for (int y=0;y<2;++y) {
-        const int size=foundationSlabSize(x,y,bulk,prepared(x,y));
-        if (size) ++orders;
-        tiles+=size*size;
+    using namespace QuantBotFoundationPolicy;
+    // A 3x2 factory in the top-left corner whose lower row is already road.
+    // Every 2x2 slab that could reach the bare row would have to pave a road
+    // tile or a tile off the map, so the plan falls back to single slabs.
+    auto query=[](int x,int y) {
+        TileState state;
+        if (x<0 || y<0 || x>9 || y>9) return state;
+        state.exists=true;
+        state.road=(y==1 && x<3);
+        state.prepared=state.road;
+        state.paveable=!state.road;
+        state.inBuildRange=true;
+        return state;
+    };
+    const auto plan=planFoundation(0,0,3,2,true,true,query);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size()==3);
+    for (const auto& order:plan.orders) {
+        REQUIRE(order.item==Structure_Slab1);
+        REQUIRE(order.y==0);
+        REQUIRE_FALSE(query(order.x,order.y).road);
     }
-    REQUIRE(orders==3);REQUIRE(tiles==3);
-    REQUIRE(useBulkFoundation(3,2,true,[](int,int){return false;}));
-    REQUIRE_FALSE(useBulkFoundation(3,2,true,[](int x,int y){return x==1 && y==1;}));
 }
 
 TEST_CASE("Service placement penalises clusters and favours underserved crime", "[city][placement]") {

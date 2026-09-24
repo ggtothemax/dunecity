@@ -9,9 +9,13 @@
 #include <catch2/catch_test_macros.hpp>
 #include <players/AirStrikePolicy.h>
 #include <players/QuantBotBuildPolicy.h>
+#include <players/QuantBotFoundationPolicy.h>
+#include <players/QuantBotPowerInvestmentPolicy.h>
 #include <players/CityEconomyInvestmentPolicy.h>
 #include <players/QuantBotSpendingPolicy.h>
+#include <players/QuantBotColonisationPolicy.h>
 #include <set>
+#include <utility>
 
 using namespace QuantBotBuildPolicy;
 
@@ -641,7 +645,9 @@ TEST_CASE("Rocket turret power setting is independent of vanilla power bypass", 
     REQUIRE(DuneCity::rocketTurretPowered(true,1100,1000));
 }
 
-TEST_CASE("Windtrap damage keeps output until destruction while city reactors scale", "[power]") {
+TEST_CASE("Unscaled generators keep output until destruction while city reactors scale", "[power]") {
+    // The `false` helper is what scoutposts and the non-city reactor use: full
+    // output at any surviving health, nothing once destroyed.
     using DuneCity::generatorOutput;
     REQUIRE(generatorOutput(100, 100, 100, false) == 100);
     REQUIRE(generatorOutput(100, 1, 100, false) == 100);
@@ -653,6 +659,20 @@ TEST_CASE("Windtrap damage keeps output until destruction while city reactors sc
     const int before = generatorOutput(100,25,100,false);
     REQUIRE(100 - before + generatorOutput(100,0,100,false) == 0);
     REQUIRE(0 - generatorOutput(100,0,100,false) == 0); // destructor after lethal damage
+}
+
+TEST_CASE("Windtrap output follows health with no half-output floor", "[power]") {
+    using DuneCity::windtrapOutput;
+    REQUIRE(windtrapOutput(100, 100, 100) == 100);
+    REQUIRE(windtrapOutput(100, 50, 100) == 50);    // half health, half power
+    REQUIRE(windtrapOutput(300, 25, 100) == 75);
+    REQUIRE(windtrapOutput(100, 200, 200) == 100);  // never above nominal
+    REQUIRE(windtrapOutput(100, 100, 200) == 50);
+    REQUIRE(windtrapOutput(100, 1, 100) == 1);      // no floor short of destruction
+    REQUIRE(windtrapOutput(100, 0, 100) == 0);
+    REQUIRE(windtrapOutput(100, 50, 0) == 0);
+    // The bare-rock placement penalty alone halves a windtrap's contribution.
+    REQUIRE(windtrapOutput(100, 200, 200) - windtrapOutput(100, 100, 200) == 50);
 }
 
 TEST_CASE("Main waves require both actual numbers and value", "[quantbot][attack]") {
@@ -1517,6 +1537,52 @@ TEST_CASE("Air defence preempts building raids without hunting unrelated ground 
     CHECK(AirStrikePolicy::targetRank(false,true)>0);
     CHECK(AirStrikePolicy::safetyRange(7)==12);
 }
+
+TEST_CASE("An attack on the base outranks a remote worker rescue", "[quantbot][air]") {
+    const int base=AirStrikePolicy::underAttackRank(true);
+    const int worker=AirStrikePolicy::underAttackRank(false);
+    CHECK(base>worker);
+    CHECK(worker>AirStrikePolicy::targetRank(false,true));
+    CHECK(AirStrikePolicy::emergencyRank(base));
+    CHECK(AirStrikePolicy::emergencyRank(worker));
+    CHECK_FALSE(AirStrikePolicy::emergencyRank(AirStrikePolicy::DefenseRank));
+    CHECK_FALSE(AirStrikePolicy::emergencyRank(AirStrikePolicy::RaidRank));
+}
+
+TEST_CASE("A forced interception stands until something more urgent appears", "[quantbot][air][regression]") {
+    using namespace AirStrikePolicy;
+    // Nothing held: the best candidate always wins.
+    CHECK_FALSE(holdsInterception(0,RaidRank));
+    CHECK_FALSE(holdsInterception(0,BaseUnderAttackRank));
+    // An equal or lower ranked alternative never restarts the attack run,
+    // whatever its score: 144 of 149 observed switches abandoned a live target.
+    CHECK(holdsInterception(UnderAttackRank,UnderAttackRank));
+    CHECK(holdsInterception(UnderAttackRank,DefenseRank));
+    CHECK(holdsInterception(RaidRank,RaidRank));
+    CHECK(holdsInterception(BaseUnderAttackRank,UnderAttackRank));
+    // A strictly more urgent class does replace it.
+    CHECK_FALSE(holdsInterception(UnderAttackRank,BaseUnderAttackRank));
+    CHECK_FALSE(holdsInterception(RaidRank,DefenseRank));
+}
+
+TEST_CASE("Proactive turret overlap is interleaved with city growth", "[quantbot][city][defence][regression]") {
+    using RocketTurretPolicy::proactiveCoverageTurn;
+    using RocketTurretPolicy::growthOrdersPerProactiveTurret;
+    // Aircraft over our own buildings and a core asset nothing covers are
+    // present losses: they take the slot immediately.
+    CHECK(proactiveCoverageTurn(true,0,0));
+    CHECK(proactiveCoverageTurn(false,1,0));
+    // Deeper overlap on covered assets waits its turn instead of taking every
+    // order, which is how one match ordered twenty-seven emplacements in ten
+    // minutes with five heavy factories.
+    for(unsigned orders=0;orders<growthOrdersPerProactiveTurret;++orders)
+        CHECK_FALSE(proactiveCoverageTurn(false,0,orders));
+    CHECK(proactiveCoverageTurn(false,0,growthOrdersPerProactiveTurret));
+    CHECK(proactiveCoverageTurn(false,0,growthOrdersPerProactiveTurret+3));
+    // The interim ceiling still bounds peaceful coverage on a large base.
+    CHECK(RocketTurretPolicy::coverageTurretCap(0)==2);
+    CHECK(RocketTurretPolicy::coverageTurretCap(40)==12);
+}
 TEST_CASE("Air withdrawal exits new coverage without crossing a second defended area", "[quantbot][air]") {
     AirStrikePolicy::Coverage map(40,40);
     map.add(Coord(10,20),5);
@@ -1707,4 +1773,921 @@ TEST_CASE("New expansion yards demand three turrets and are covered first", "[ai
     // The interim ceiling still scales with demand rather than jumping.
     CHECK(coverageTurretCap(12)==5);
     CHECK(coverageTurretCap(15)>coverageTurretCap(12)-1);
+}
+
+// --- Concrete foundation policy --------------------------------------------
+// QuantBot founds a building because its health does work, not because concrete
+// looks tidy. These fix which buildings that covers and what the slabs must
+// never be allowed to cost.
+
+TEST_CASE("Foundation priority follows the engine's health-dependent functions", "[quantbot][concrete]") {
+    // BuilderBase multiplies build speed by the builder's health fraction.
+    REQUIRE(healthScaledProduction(Structure_ConstructionYard));
+    REQUIRE(healthScaledProduction(Structure_HeavyFactory));
+    REQUIRE(healthScaledProduction(Structure_HighTechFactory));
+    REQUIRE(healthScaledProduction(Structure_LightFactory));
+    REQUIRE(healthScaledProduction(Structure_Barracks));
+    REQUIRE(healthScaledProduction(Structure_WOR));
+    // The Starport delivers imports on its own timer; its condition is not a
+    // production rate, so it is not founded for that reason.
+    REQUIRE_FALSE(healthScaledProduction(Structure_StarPort));
+    REQUIRE_FALSE(healthScaledProduction(Structure_Radar));
+
+    // Output that is literally a health fraction.
+    REQUIRE(healthScaledOutput(Structure_WindTrap, false));
+    REQUIRE(healthScaledOutput(Structure_AdvancedWindTrap, false));
+    REQUIRE(healthScaledOutput(Structure_Refinery, false));
+    REQUIRE(healthScaledOutput(Structure_Worfinery, false));
+    // generatorOutput() only scales the reactor inside the city simulation.
+    REQUIRE(healthScaledOutput(Structure_NuclearPlant, true));
+    REQUIRE_FALSE(healthScaledOutput(Structure_NuclearPlant, false));
+    REQUIRE_FALSE(healthScaledOutput(Structure_Scoutpost, true));
+
+    REQUIRE(defensiveEmplacement(Structure_GunTurret));
+    REQUIRE(defensiveEmplacement(Structure_RocketTurret));
+
+    // Tile states and the wall are excluded from degradation entirely, so they
+    // are never given a foundation of their own — including in city mode.
+    for (Uint32 exempt : {Uint32(Structure_Wall), Uint32(Structure_Slab1), Uint32(Structure_Slab4),
+                          Uint32(Structure_Road), Uint32(Structure_PowerLine), Uint32(NONE_ID)}) {
+        REQUIRE(foundationExemptItem(exempt));
+        REQUIRE_FALSE(foundationRequiredForItem(exempt));
+    }
+}
+
+TEST_CASE("Every ordinary building is founded, in every mode", "[quantbot][concrete]") {
+    // No rich, urgent or otherwise selective exception survives: if it is not a
+    // tile state, it waits for its whole footprint.
+    for (Uint32 item : {Uint32(Structure_WindTrap), Uint32(Structure_Refinery),
+                        Uint32(Structure_HeavyFactory), Uint32(Structure_GunTurret),
+                        Uint32(Structure_RocketTurret), Uint32(Structure_Palace),
+                        Uint32(Structure_Radar), Uint32(Structure_Silo),
+                        Uint32(Structure_StarPort), Uint32(Structure_ZoneResidential),
+                        Uint32(Structure_ZoneCommercial), Uint32(Structure_ZoneIndustrial),
+                        Uint32(Structure_PoliceStation), Uint32(Structure_Stadium),
+                        Uint32(Structure_Airport), Uint32(Structure_NuclearPlant)})
+        REQUIRE(foundationRequiredForItem(item));
+}
+
+TEST_CASE("The engine's own repair price drives repair and generation economics", "[quantbot][concrete][economy]") {
+    // Radar: 500 max health, 400 credits. The engine charges
+    // ((2*256)/500)*400/1280 credits per hitpoint and placement on bare rock
+    // costs 250 of them.
+    REQUIRE(repairCreditsPerHitpointMilli(500, 400) == 312);
+    REQUIRE(placementRepairCost(500, 400) == 78);
+
+    // Above 512 maximum health the engine's integer fraction is zero and
+    // repairs really are free.
+    REQUIRE(repairCreditsPerHitpointMilli(1000, 2000) == 0);
+    REQUIRE(placementRepairCost(1000, 2000) == 0);
+    REQUIRE(repairsForFree(1000, 2000));
+    REQUIRE(repairsForFree(513, 2000));
+    REQUIRE_FALSE(repairsForFree(512, 2000));
+
+    // Exact fraction, not the rounded thousandths: one credit at 512 maximum
+    // health still charges 1/1280 per hitpoint, which rounds to zero milli.
+    REQUIRE(repairCreditsPerHitpointMilli(512, 1) == 0);
+    REQUIRE_FALSE(repairsForFree(512, 1));
+    // A priceless or health-less entry has nothing to charge.
+    REQUIRE(repairsForFree(200, 0));
+    REQUIRE(repairsForFree(0, 300));
+}
+
+TEST_CASE("Repairs follow condition-driven output, wealth and emergencies", "[quantbot][repair]") {
+    const int windHealth = 200, windPrice = 300;   // output is a health fraction
+    const int factoryHealth = 200, factoryPrice = 600;
+    const int palaceHealth = 1000, palacePrice = 2000; // free in the engine formula
+    const int siloHealth = 150, siloPrice = 300;
+
+    // Productive condition is repaired outside the city simulation as well,
+    // with no wealth gate at all.
+    REQUIRE(repairMaintainsValue(Structure_WindTrap, false, windHealth, windPrice));
+    REQUIRE(repairMaintainsValue(Structure_HeavyFactory, false, factoryHealth, factoryPrice));
+    REQUIRE(repairMaintainsValue(Structure_ConstructionYard, false, 400, 400));
+    REQUIRE(repairMaintainsValue(Structure_Refinery, false, 450, 400));
+    // Free repairs cost nothing, so they are never withheld.
+    REQUIRE(repairMaintainsValue(Structure_Palace, false, palaceHealth, palacePrice));
+    // A passive building that does cost credits waits for a wealthy treasury.
+    REQUIRE_FALSE(repairMaintainsValue(Structure_Silo, false, siloHealth, siloPrice));
+    REQUIRE_FALSE(repairMaintainsValue(Structure_Wall, false, 50, 50));
+
+    // City mode repairs the entire colony, walls included: a damaged footprint
+    // scales down its own land value.
+    REQUIRE(repairMaintainsValue(Structure_Silo, true, siloHealth, siloPrice));
+    REQUIRE(repairMaintainsValue(Structure_Wall, true, 50, 50));
+    REQUIRE(repairMaintainsValue(Structure_ZoneResidential, true, 200, 100));
+    REQUIRE(repairMaintainsValue(Structure_NuclearPlant, true, 750, 1500));
+
+    // The engine charges per tick, so it needs something to charge.
+    REQUIRE_FALSE(canAffordRepairTick(4));
+    REQUIRE(canAffordRepairTick(5));
+    // Discretionary repairs use the available planning money.
+    REQUIRE_FALSE(repairWhenWealthy(5000));
+    REQUIRE(repairWhenWealthy(5001));
+}
+
+TEST_CASE("The yard unlocks bulk concrete as soon as the technology allows", "[quantbot][concrete][production]") {
+    const int cost = 200;     // Construction Yard price 400, upgrade costs half
+    const int slab4Level = 1;
+
+    // Purely a concrete unlock: no concrete, or no reachable Slab4, no upgrade.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(false, true, 0, slab4Level, 2, 5000, cost, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, false, 0, slab4Level, 2, 5000, cost, false));
+    // A mod that does not gate Slab4 behind an upgrade needs no upgrade either.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, 0, 2, 5000, cost, false));
+
+    // Only the price of the upgrade itself: no income, reserve, power or
+    // defence precondition survives.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, cost - 1, cost, false));
+    REQUIRE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, cost, cost, false));
+
+    // Already unlocked, or a yard that cannot reach the level at all.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 1, slab4Level, 2, 5000, cost, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 0, 5000, cost, false));
+    // One yard upgrades at a time so the others keep building.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, 5000, cost, true));
+
+    // The pending test is independent of cash and of the other yards: it is
+    // what makes a yard hold its pass instead of buying something cheaper.
+    REQUIRE(bulkSlabUpgradePending(true, true, 0, slab4Level, 2));
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, true, 1, slab4Level, 2));
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, false, 0, slab4Level, 2));
+    REQUIRE_FALSE(bulkSlabUpgradePending(false, true, 0, slab4Level, 2));
+    // A tree that locks bulk concrete falls back to single slabs and never
+    // holds the yard: nothing is pending because nothing is reachable.
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, true, 0, slab4Level, 0));
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, true, 0, 0, 2));
+}
+
+// ---------------------------------------------------------------------------
+// Foundation planning
+// ---------------------------------------------------------------------------
+
+namespace {
+using namespace QuantBotFoundationPolicy;
+
+struct Ground {
+    int width = 16, height = 16;
+    std::set<std::pair<int,int>> prepared, roads, blocked;
+    bool reachEverywhere = true;
+    std::set<std::pair<int,int>> reach;
+    TileState operator()(int x, int y) const {
+        TileState state;
+        if (x < 0 || y < 0 || x >= width || y >= height) return state;
+        state.exists = true;
+        state.road = roads.count({x,y}) > 0;
+        state.prepared = state.road || prepared.count({x,y}) > 0;
+        state.paveable = blocked.count({x,y}) == 0;
+        state.inBuildRange = reachEverywhere || reach.count({x,y}) > 0;
+        return state;
+    }
+};
+
+int slabTiles(const Plan& plan) {
+    int tiles = 0;
+    for (const auto& order : plan.orders) tiles += order.item == Structure_Slab4 ? 4 : 1;
+    return tiles;
+}
+bool paves(const Plan& plan, int x, int y) {
+    for (const auto& order : plan.orders) {
+        const int span = order.item == Structure_Slab4 ? 2 : 1;
+        if (x >= order.x && x < order.x + span && y >= order.y && y < order.y + span) return true;
+    }
+    return false;
+}
+} // namespace
+
+TEST_CASE("A bulk footprint is prepared by whole 2x2 slabs", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 2, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 1);
+    REQUIRE(plan.orders[0].item == Structure_Slab4);
+    REQUIRE(plan.orders[0].x == 4);
+    REQUIRE(plan.orders[0].y == 4);
+}
+
+TEST_CASE("A 3x2 residual strip uses a second bulk slab outside the footprint", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    // Two bulk slabs, not one bulk slab and two singles.
+    REQUIRE(plan.orders.size() == 2);
+    for (const auto& order : plan.orders) REQUIRE(order.item == Structure_Slab4);
+    // The whole footprint is covered ...
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 6; ++y) REQUIRE(paves(plan, x, y));
+    // ... and the strip is covered by new ground beside the building rather
+    // than by a slab that re-paves the one before it.
+    REQUIRE(paves(plan, 7, 4));
+    REQUIRE(paves(plan, 7, 5));
+    REQUIRE(slabTiles(plan) == 8);
+}
+
+TEST_CASE("A 2x3 residual strip overhangs the other way round", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 2, 3, true, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 2);
+    for (const auto& order : plan.orders) REQUIRE(order.item == Structure_Slab4);
+    for (int x = 4; x < 6; ++x) for (int y = 4; y < 7; ++y) REQUIRE(paves(plan, x, y));
+    REQUIRE(paves(plan, 4, 7));
+    REQUIRE(paves(plan, 5, 7));
+}
+
+TEST_CASE("A 3x3 footprint finishes residual strips with bulk concrete", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 3, 3, true, true, ground);
+    REQUIRE(plan.complete);
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 7; ++y) REQUIRE(paves(plan, x, y));
+    int bulk = 0, singles = 0;
+    for (const auto& order : plan.orders) (order.item == Structure_Slab4 ? bulk : singles)++;
+    REQUIRE(bulk == 3);
+    REQUIRE(singles == 1);
+    // Both residual strips use bulk concrete; only the isolated corner uses
+    // a single slab. Four extra tiles remain beside the building.
+    REQUIRE(slabTiles(plan) == 13);
+}
+
+TEST_CASE("Existing roads and concrete are counted and never paved over", "[quantbot][concrete][planner]") {
+    Ground ground;
+    // Along the top edge, so the only row a 2x2 could use for the bare row is
+    // the road row itself. Roads are prepared ground and must survive.
+    for (int x = 4; x < 7; ++x) ground.roads.insert({x, 1});
+    const auto plan = planFoundation(4, 0, 3, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 3);
+    for (const auto& order : plan.orders) {
+        REQUIRE(order.item == Structure_Slab1);
+        REQUIRE(order.y == 0);
+    }
+    for (int x = 4; x < 7; ++x) REQUIRE_FALSE(paves(plan, x, 1));
+
+    // A footprint that roads and concrete already prepare needs no order at
+    // all, even for a builder that has no slab in its list.
+    Ground ready;
+    ready.roads.insert({4,4}); ready.roads.insert({5,4});
+    ready.prepared.insert({4,5}); ready.prepared.insert({5,5});
+    const auto none = planFoundation(4, 4, 2, 2, false, false, ready);
+    REQUIRE(none.complete);
+    REQUIRE(none.orders.empty());
+}
+
+TEST_CASE("A map edge and a blocked overhang fall back to single slabs", "[quantbot][concrete][planner]") {
+    Ground edge;
+    // Bottom-right corner: a 2x2 for the last column would leave the map.
+    const auto corner = planFoundation(edge.width - 3, edge.height - 2, 3, 2, true, true, edge);
+    REQUIRE(corner.complete);
+    for (int x = edge.width - 3; x < edge.width; ++x)
+        for (int y = edge.height - 2; y < edge.height; ++y) REQUIRE(paves(corner, x, y));
+    for (const auto& order : corner.orders) {
+        const int span = order.item == Structure_Slab4 ? 2 : 1;
+        REQUIRE(order.x + span <= edge.width);
+        REQUIRE(order.y + span <= edge.height);
+    }
+
+    Ground blocked;
+    // Every tile around the footprint already carries a building, so no slab
+    // may hang outside it. The footprint is still prepared in full.
+    for (int y = 3; y < 7; ++y) { blocked.blocked.insert({7,y}); blocked.blocked.insert({3,y}); }
+    for (int x = 3; x < 8; ++x) { blocked.blocked.insert({x,3}); blocked.blocked.insert({x,6}); }
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, blocked);
+    REQUIRE(plan.complete);
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 6; ++y) REQUIRE(paves(plan, x, y));
+    for (const auto& blockedTile : blocked.blocked)
+        REQUIRE_FALSE(paves(plan, blockedTile.first, blockedTile.second));
+
+    // With the last overhang gone and a single tile left over, the plan falls
+    // back to one 1x1 rather than paying for a 2x2 it cannot place.
+    Ground strip = blocked;
+    strip.prepared.insert({6,5});
+    const auto fallback = planFoundation(4, 4, 3, 2, true, true, strip);
+    REQUIRE(fallback.complete);
+    int singles = 0;
+    for (const auto& order : fallback.orders) singles += order.item == Structure_Slab1;
+    REQUIRE(singles == 1);
+    REQUIRE(paves(fallback, 6, 4));
+}
+
+TEST_CASE("Without the bulk slab the plan still prepares every tile", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 3, 2, false, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 6);
+    for (const auto& order : plan.orders) REQUIRE(order.item == Structure_Slab1);
+
+    // An isolated one-tile emplacement takes one single slab, never a 2x2.
+    const auto turret = planFoundation(4, 4, 1, 1, true, true, ground);
+    REQUIRE(turret.complete);
+    REQUIRE(turret.orders.size() == 1);
+    REQUIRE(turret.orders[0].item == Structure_Slab1);
+}
+
+TEST_CASE("A footprint that cannot be prepared defers instead of building bare", "[quantbot][concrete][planner]") {
+    Ground blocked;
+    blocked.blocked.insert({5,4}); // a unit or building on the footprint itself
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, blocked);
+    REQUIRE_FALSE(plan.complete);
+    REQUIRE(plan.orders.empty());
+
+    Ground noSlabs;
+    const auto unavailable = planFoundation(4, 4, 2, 2, false, false, noSlabs);
+    REQUIRE_FALSE(unavailable.complete);
+    REQUIRE(unavailable.orders.empty());
+
+    // A road on the footprint is prepared ground, so it is not a blocker.
+    Ground mixed;
+    mixed.roads.insert({5,4});
+    const auto withRoad = planFoundation(4, 4, 3, 2, true, true, mixed);
+    REQUIRE(withRoad.complete);
+    REQUIRE_FALSE(paves(withRoad, 5, 4));
+}
+
+TEST_CASE("Planned slabs extend the reach the next slab needs", "[quantbot][concrete][planner]") {
+    Ground ground;
+    ground.reachEverywhere = false;
+    // Only the left column of the footprint is inside the existing base.
+    for (int y = 0; y < ground.height; ++y) ground.reach.insert({4,y});
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 6; ++y) REQUIRE(paves(plan, x, y));
+
+    // Nothing in reach at all: defer rather than order concrete that the
+    // engine would reject.
+    Ground unreachable;
+    unreachable.reachEverywhere = false;
+    const auto none = planFoundation(4, 4, 2, 2, true, true, unreachable);
+    REQUIRE_FALSE(none.complete);
+    REQUIRE(none.orders.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Generation outside the city simulation
+// ---------------------------------------------------------------------------
+
+namespace {
+QuantBotPowerInvestmentPolicy::Investment matureBase() {
+    QuantBotPowerInvestmentPolicy::Investment state;
+    state.deficit = 100;          // one windtrap short
+    state.generatorOutput = 100;  // Vanilla windtrap
+    state.unitCapital = 320;      // 300 credits plus a 2x2 of five-credit slab
+    state.spendable = 4000;
+    state.netIncome = 8000;       // measured over four game minutes
+    state.incomeMinutes = QuantBotSpendingPolicy::horizonMinutes;
+    state.repairMilliPerHitpoint = 9000; // ~36 credits of repair a game minute
+    return state;
+}
+
+// The mature Vanilla base measured on Air: 1800 produced against 1840 demanded,
+// short again every time it finishes a building.
+QuantBotPowerInvestmentPolicy::PowerTarget airBase() {
+    QuantBotPowerInvestmentPolicy::PowerTarget target;
+    target.demand = 1840;
+    target.produced = 1800;
+    target.standardOutput = 100; // the Vanilla windtrap it can order
+    return target;
+}
+} // namespace
+
+TEST_CASE("Generation sizes the whole package before buying one generator", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    REQUIRE(generatorsNeeded(0, 100) == 0);
+    REQUIRE(generatorsNeeded(-50, 100) == 0);
+    REQUIRE(generatorsNeeded(100, 100) == 1);
+    REQUIRE(generatorsNeeded(101, 100) == 2);
+    REQUIRE(generatorsNeeded(250, 100) == 3);
+    // A mod that publishes no usable output falls back to the Vanilla windtrap.
+    REQUIRE(generatorsNeeded(250, 0) == generatorsNeeded(250, defaultGeneratorOutput));
+
+    auto state = matureBase();
+    REQUIRE(packageCapital(state) == 320);
+    state.deficit = 250;
+    REQUIRE(packageCapital(state) == 960); // half a package closes nothing
+}
+
+TEST_CASE("Generation needs income, cash and a benefit it can name", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto state = matureBase();
+    REQUIRE(evaluate(state) == Verdict::BuyForRepairs);
+
+    // No deficit at all once repairs and queued generators are counted.
+    auto covered = state; covered.deficit = 0;
+    REQUIRE(evaluate(covered) == Verdict::NoDeficit);
+
+    // The cash has to be there after the core queues and the reserve.
+    auto poor = state; poor.spendable = 319;
+    REQUIRE(evaluate(poor) == Verdict::Unaffordable);
+    poor.spendable = 320;
+    REQUIRE(buys(evaluate(poor)));
+
+    // Thirty game seconds of measured net income must replace the capital.
+    // Four minutes of income at 8x the capital is exactly the boundary.
+    auto boundary = state; boundary.netIncome = 320 * 8;
+    REQUIRE(buys(evaluate(boundary)));
+    boundary.netIncome = 320 * 8 - 1;
+    REQUIRE(evaluate(boundary) == Verdict::IncomeTooLow);
+    // A starting balance is not income: the forecast, not the bank, decides.
+    auto banked = state; banked.netIncome = 0; banked.spendable = 100000;
+    REQUIRE(evaluate(banked) == Verdict::IncomeTooLow);
+}
+
+TEST_CASE("Avoided repairs or plain prosperity justify the generator", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto state = matureBase();
+    // 9000 milli per hitpoint, four hitpoints a minute, is 36 credits a minute
+    // and 360 over ten game minutes: short of the 320-credit package? No.
+    REQUIRE(avoidedRepairPerMinute(state) == 36);
+    REQUIRE(repaysThroughAvoidedRepairs(state, 320));
+    REQUIRE(evaluate(state) == Verdict::BuyForRepairs);
+
+    // A base made of large buildings repairs for free, so the repair case
+    // alone can never justify generation. Modest cash keeps it unbought.
+    auto free = state; free.repairMilliPerHitpoint = 0;
+    REQUIRE(avoidedRepairPerMinute(free) == 0);
+    REQUIRE(evaluate(free) == Verdict::RepairsTooCheap);
+
+    // Once the spare cash after the reserve is comfortable, a prosperous base
+    // stops arguing about repair credits and closes the deficit.
+    auto rich = free; rich.spendable = 5000;
+    REQUIRE(evaluate(rich) == Verdict::RepairsTooCheap);
+    rich.spendable = 5001;
+    REQUIRE(evaluate(rich) == Verdict::BuyWhileProsperous);
+    REQUIRE(buys(evaluate(rich)));
+
+    // Prosperity never excuses the income or affordability gates.
+    auto idle = rich; idle.netIncome = 0;
+    REQUIRE(evaluate(idle) == Verdict::IncomeTooLow);
+    auto huge = rich; huge.deficit = 10000; // 100 windtraps, 32000 credits
+    REQUIRE(evaluate(huge) == Verdict::Unaffordable);
+}
+
+TEST_CASE("The cheapest complete generation package wins deterministically", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    GeneratorChoice best;
+    GeneratorChoice wind{Structure_WindTrap, 100, 320, 320 * 3};        // 250 deficit
+    GeneratorChoice reactor{Structure_NuclearPlant, 1000, 1545, 1545};
+    REQUIRE(preferGenerator(wind, best));
+    best = wind;
+    REQUIRE(preferGenerator(reactor, best) == false); // 1545 > 960
+    best = GeneratorChoice{};
+    REQUIRE(preferGenerator(reactor, best));
+    // Equal packages keep the lowest item id, so every peer agrees. The
+    // windtrap is id 18 and the advanced windtrap id 56.
+    GeneratorChoice cheapWind{Structure_WindTrap, 100, 500, 500};
+    GeneratorChoice cheapAdvanced{Structure_AdvancedWindTrap, 300, 500, 500};
+    best = cheapAdvanced;
+    REQUIRE(preferGenerator(cheapWind, best));
+    best = cheapWind;
+    REQUIRE_FALSE(preferGenerator(cheapAdvanced, best));
+}
+
+TEST_CASE("Generation aims at a buffer rather than the shortage of the moment", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto air = airBase();
+    // 1840 demanded, a fifth of it reserved on top, against 1800 standing.
+    REQUIRE(anticipatedDemand(air) == 1840);
+    REQUIRE(bufferReserve(air) == 368);
+    REQUIRE(bufferedTarget(air) == 2208);
+    REQUIRE(effectiveCapacity(air) == 1800);
+    REQUIRE(bufferedShortfall(air) == 408);
+    REQUIRE(operatingShortfall(air) == 40);
+    REQUIRE(generatorsNeeded(bufferedShortfall(air), 100) == 5);
+
+    // Being exactly powered is the state the user reported: every new building
+    // starts a shortage. A powered base below the buffer still invests.
+    auto powered = air; powered.produced = 1840;
+    REQUIRE(operatingShortfall(powered) == 0);
+    REQUIRE(bufferedShortfall(powered) == 368);
+    REQUIRE(generatorsNeeded(bufferedShortfall(powered), 100) == 4);
+
+    // With the reserve standing there is nothing to buy.
+    auto reserved = air; reserved.produced = 2208;
+    REQUIRE(bufferedShortfall(reserved) == 0);
+    REQUIRE(operatingShortfall(reserved) == 0);
+    auto spare = air; spare.produced = 5000;
+    REQUIRE(bufferedShortfall(spare) == 0);
+
+    // A small base reserves one whole standard generator instead of a token
+    // fifth of a tiny demand; a large one reserves the proportionate share.
+    QuantBotPowerInvestmentPolicy::PowerTarget small;
+    small.demand = 200; small.produced = 200; small.standardOutput = 100;
+    REQUIRE(bufferReserve(small) == 100);
+    REQUIRE(bufferedTarget(small) == 300);
+    QuantBotPowerInvestmentPolicy::PowerTarget large;
+    large.demand = 1000; large.produced = 1000; large.standardOutput = 100;
+    REQUIRE(bufferReserve(large) == 200);
+    // The share rounds up, so it never quietly becomes no reserve at all.
+    QuantBotPowerInvestmentPolicy::PowerTarget odd;
+    odd.demand = 101; odd.standardOutput = 0;
+    REQUIRE(bufferReserve(odd) == 21);
+}
+
+TEST_CASE("Ordered demand and every pending generator are counted exactly once", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto air = airBase();
+    // The buildings already on order are the demand that caused the shortage
+    // the user saw, so they belong in the target before it is sized.
+    auto ordering = air; ordering.queuedDemand = 160;
+    REQUIRE(anticipatedDemand(ordering) == 2000);
+    REQUIRE(bufferReserve(ordering) == 400);
+    REQUIRE(bufferedTarget(ordering) == 2400);
+    REQUIRE(bufferedShortfall(ordering) == 600);
+
+    // Generation already on order anywhere in the base counts as capacity, so
+    // a second yard on the same pass cannot buy the package twice.
+    auto pending = air; pending.pendingOutput = 408;
+    REQUIRE(effectiveCapacity(pending) == 2208);
+    REQUIRE(bufferedShortfall(pending) == 0);
+
+    // One pending generator does not close a five-generator package, and does
+    // not block it either: the rest is still missing and still gets ordered.
+    auto partial = air; partial.pendingOutput = 100;
+    REQUIRE(bufferedShortfall(partial) == 308);
+    REQUIRE(generatorsNeeded(bufferedShortfall(partial), 100) == 4);
+    // Serial delivery: each pass sees one more pending generator and asks for
+    // one fewer, and the sequence ends rather than running away.
+    int ordered = 0;
+    auto serial = air;
+    while (bufferedShortfall(serial) > 0 && ordered < 20) {
+        serial.pendingOutput += 100;
+        ++ordered;
+    }
+    REQUIRE(ordered == 5);
+    REQUIRE(bufferedShortfall(serial) == 0);
+}
+
+TEST_CASE("Generation a repair will restore is not bought twice", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto air = airBase();
+    // A damaged generator recovering 408 of output reaches the buffered target
+    // on its own, so repairing it is the whole answer.
+    auto recovering = air; recovering.restorable = 408;
+    REQUIRE(effectiveCapacity(recovering) == 2208);
+    REQUIRE(bufferedShortfall(recovering) == 0);
+    // Restored health that covers the shortage but not the buffer leaves the
+    // buffer to be bought, and nothing more.
+    auto partial = air; partial.restorable = 40;
+    REQUIRE(operatingShortfall(partial) == 0);
+    REQUIRE(bufferedShortfall(partial) == 368);
+    // Repairs and pending generation are both capacity, and are added once.
+    auto both = air; both.restorable = 40; both.pendingOutput = 300;
+    REQUIRE(effectiveCapacity(both) == 2140);
+    REQUIRE(bufferedShortfall(both) == 68);
+}
+
+TEST_CASE("A buffered package faces the same cash, income and benefit gates", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto buffered = matureBase();
+    buffered.deficit = bufferedShortfall(airBase()); // 408: five windtraps
+    buffered.netIncome = 1600 * 8;                   // exactly replaces the capital
+    buffered.spendable = 5001;
+    REQUIRE(packageCapital(buffered) == 1600);
+    REQUIRE(evaluate(buffered) == Verdict::BuyWhileProsperous);
+
+    // Affordability is judged on the whole buffered package, once.
+    auto poor = buffered; poor.spendable = 1599;
+    REQUIRE(evaluate(poor) == Verdict::Unaffordable);
+    // Affordable is not the same as justified: 360 credits of avoided repair
+    // over ten minutes does not repay 1600, and this base is not prosperous.
+    poor.spendable = 1600;
+    REQUIRE(evaluate(poor) == Verdict::RepairsTooCheap);
+
+    // A funded base with no measured income still does not spend.
+    auto funded = buffered; funded.spendable = 100000; funded.netIncome = 0;
+    REQUIRE(evaluate(funded) == Verdict::IncomeTooLow);
+    auto earning = funded; earning.netIncome = 1600 * 8;
+    REQUIRE(buys(evaluate(earning)));
+    earning.netIncome = 1600 * 8 - 1;
+    REQUIRE(evaluate(earning) == Verdict::IncomeTooLow);
+}
+
+TEST_CASE("A refused buffer falls back to the shortage, never to no gate at all", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto buffered = matureBase();
+    buffered.deficit = 408;            // five windtraps, 1600 credits
+    buffered.spendable = 700;
+    buffered.netIncome = 3000;
+    auto shortage = buffered;
+    shortage.deficit = 40;             // one windtrap, 320 credits
+
+    // The buffer is what a base that cannot afford it gives up -- not the
+    // power it needs to stop degrading, and not one of the gates.
+    REQUIRE(evaluate(buffered) == Verdict::Unaffordable);
+    const auto relief = decide(buffered, shortage);
+    REQUIRE(relief.trimmedToShortage);
+    REQUIRE(relief.deficit == 40);
+    REQUIRE(relief.capital == 320);
+    REQUIRE(buys(relief.verdict));
+
+    // An affordable buffer is bought whole, and the buffer is never added to
+    // the shortage: the two are alternatives, so the capital is one or other.
+    auto rich = buffered; rich.spendable = 100000; rich.netIncome = 100000;
+    auto richShortage = shortage; richShortage.spendable = 100000; richShortage.netIncome = 100000;
+    const auto whole = decide(rich, richShortage);
+    REQUIRE_FALSE(whole.trimmedToShortage);
+    REQUIRE(whole.deficit == 408);
+    REQUIRE(whole.capital == 1600);
+    REQUIRE(buys(whole.verdict));
+
+    // A base that is powered has no shortage to fall back to, so a refused
+    // buffer simply goes unbought.
+    auto noShortage = shortage; noShortage.deficit = 0;
+    const auto powered = decide(buffered, noShortage);
+    REQUIRE_FALSE(powered.trimmedToShortage);
+    REQUIRE(powered.verdict == Verdict::Unaffordable);
+
+    // Nothing is waived: if the shortage package fails the same gates, it is
+    // refused too, and the refusal reported is still the buffered one.
+    auto broke = buffered; broke.spendable = 100;
+    auto brokeShortage = shortage; brokeShortage.spendable = 100;
+    const auto refused = decide(broke, brokeShortage);
+    REQUIRE_FALSE(refused.trimmedToShortage);
+    REQUIRE(refused.verdict == Verdict::Unaffordable);
+    auto idle = buffered; idle.netIncome = 0; idle.spendable = 100000;
+    auto idleShortage = shortage; idleShortage.netIncome = 0; idleShortage.spendable = 100000;
+    REQUIRE(decide(idle, idleShortage).verdict == Verdict::IncomeTooLow);
+    REQUIRE_FALSE(decide(idle, idleShortage).trimmedToShortage);
+}
+
+TEST_CASE("Bulk foundations choose the open side before closing a residual strip", "[quantbot][concrete][planner]") {
+    Ground ground;
+    // The right side is occupied, but a bulk slab can overhang on the left.
+    ground.blocked.insert({7,4}); ground.blocked.insert({7,5});
+    const auto plan = planFoundation(4,4,3,2,true,true,ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size()==2);
+    REQUIRE(plan.orders[0].item==Structure_Slab4);
+    REQUIRE(plan.orders[1].item==Structure_Slab4);
+    REQUIRE(paves(plan,3,4));
+    REQUIRE(paves(plan,3,5));
+    REQUIRE_FALSE(paves(plan,7,4));
+}
+
+#include <players/McvDeployPolicy.h>
+namespace {
+struct LocalDeployFixture {
+    static constexpr int w = 60, h = 40;
+    std::vector<McvDeployPolicy::Tile> tiles = std::vector<McvDeployPolicy::Tile>(w * h);
+    McvDeployPolicy::Tile& at(int x, int y) { return tiles[y * w + x]; }
+    int index(int x, int y) const { return y * w + x; }
+    void rock(int x0, int y0, int x1, int y1) {
+        for(int y = y0; y < y1; ++y) for(int x = x0; x < x1; ++x) { at(x,y).rock = true; at(x,y).free = true; }
+    }
+    void structure(int x, int y) { at(x,y).owned = true; at(x,y).free = false; at(x,y).passable = false; }
+    LocalDeployFixture() {
+        for(auto& tile : tiles) tile.passable = true;
+        rock(10,10,30,25);   // The formation the base already stands on.
+        rock(40,10,55,25);   // Untouched rock across the sand: a colony site.
+        structure(11,11);
+    }
+    McvDeployPolicy::Site choose(int x, int y) {
+        return McvDeployPolicy::choose(w, h, tiles, index(x,y), 12);
+    }
+};
+}
+
+TEST_CASE("An MCV on usable base rock deploys where it stands", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    const auto site = map.choose(20,20);
+    REQUIRE(site.valid());
+    // Distance is the first key, so the MCV's own footprint wins and the
+    // chosen site does not change while it keeps standing there.
+    CHECK(site.x == 20);
+    CHECK(site.y == 20);
+    CHECK(site.distance == 0);
+    CHECK(McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h, map.tiles,
+        map.index(20,20), 12).x == site.x);
+}
+
+TEST_CASE("Local deployment never colonises rock the base does not hold", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    for(int y = 10; y < 25; ++y) for(int x = 10; x < 30; ++x) map.at(x,y).blocked = true;
+    // Only the far formation is left. Local growth declines instead of
+    // starting a colony; that decision belongs to the expansion policy.
+    CHECK_FALSE(map.choose(20,20).valid());
+    // The foreign formation is genuinely usable, it is simply not ours.
+    map.structure(41,11);
+    const auto colony = map.choose(20,20);
+    REQUIRE(colony.valid());
+    CHECK(colony.x >= 40);
+}
+
+TEST_CASE("A site remembered by another MCV is not handed out twice", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    // The caller blocks the footprint another MCV is already driving at.
+    for(int dy = 0; dy < 2; ++dy) for(int dx = 0; dx < 2; ++dx) map.at(20+dx,20+dy).blocked = true;
+    const auto site = map.choose(20,20);
+    REQUIRE(site.valid());
+    CHECK(site.x < 30);
+    CHECK((site.x + 1 < 20 || site.x > 21 || site.y + 1 < 20 || site.y > 21));
+    CHECK(site.distance > 0);
+}
+
+TEST_CASE("A unit parked on the rock moves the footprint, not the formation", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    map.at(20,20).free = false;   // Another vehicle crossing the site.
+    const auto site = map.choose(20,20);
+    REQUIRE(site.valid());
+    CHECK(site.x < 30);
+    CHECK_FALSE((site.x <= 20 && 20 <= site.x + 1 && site.y <= 20 && 20 <= site.y + 1));
+}
+
+TEST_CASE("An MCV walled in gets no destination rather than an unreachable one", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    for(int dy = -1; dy <= 1; ++dy) for(int dx = -1; dx <= 1; ++dx)
+        if(dx || dy) map.structure(20+dx,20+dy);
+    CHECK_FALSE(map.choose(20,20).valid());
+}
+
+TEST_CASE("A cramped home formation still gives the MCV a site", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    for(auto& tile : map.tiles) { tile = McvDeployPolicy::Tile(); tile.passable = true; }
+    map.rock(10,10,13,14);        // Twelve tiles, one of them built on.
+    map.structure(10,10);
+    const auto site = map.choose(11,12);
+    REQUIRE(site.valid());
+    CHECK(site.room < 12);        // Below the wanted room, but not stranded.
+    CHECK(site.x >= 10);
+    CHECK(site.x <= 11);
+}
+
+TEST_CASE("An opening MCV keeps the formation it stands on", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    map.at(11,11) = McvDeployPolicy::Tile();
+    map.at(11,11).rock = true; map.at(11,11).free = true; map.at(11,11).passable = true;
+    const auto site = map.choose(45,20);
+    REQUIRE(site.valid());
+    CHECK(site.x == 45);
+    CHECK(site.y == 20);
+}
+
+TEST_CASE("Local deployment ranks travel first and room second", "[quantbot][mcv]") {
+    using McvDeployPolicy::Site;
+    CHECK(McvDeployPolicy::betterSite(Site{5,5,16,0}, Site{9,9,64,3}));
+    CHECK(McvDeployPolicy::betterSite(Site{9,9,64,3}, Site{5,5,16,3}));
+    CHECK_FALSE(McvDeployPolicy::betterSite(Site{9,9,64,4}, Site{5,5,16,3}));
+}
+
+TEST_CASE("A destination crossed by traffic is kept, not rerolled", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    const int trip = map.index(24,14);
+    map.at(24,14).free = false;   // A vehicle standing on the destination.
+    auto kept = McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h, map.tiles,
+        map.index(20,20), 12, trip);
+    CHECK(kept.x == 24);
+    CHECK(kept.y == 14);
+    // A building or a threat on the site does retire it, and the MCV falls
+    // back to the rock it is already standing on.
+    map.at(24,14).free = true;
+    map.at(24,14).blocked = true;
+    kept = McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h, map.tiles,
+        map.index(20,20), 12, trip);
+    CHECK(kept.x == 20);
+    CHECK(kept.y == 20);
+    // A destination on rock the base does not hold is never confirmed.
+    LocalDeployFixture foreign;
+    const auto refused = McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h,
+        foreign.tiles, foreign.index(20,20), 12, foreign.index(45,14));
+    CHECK(refused.x == 20);
+    CHECK(refused.y == 20);
+}
+
+TEST_CASE("Local deployment searches beyond rejected ground-access candidates", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    int rejected=0;
+    const auto site=McvDeployPolicy::choose(LocalDeployFixture::w,LocalDeployFixture::h,
+        map.tiles,map.index(20,20),12,-1,[&](int x,int y) {
+            if(x==27&&y==22) return true;
+            ++rejected;
+            return false;
+        });
+    REQUIRE(site.valid());
+    CHECK(site.x==27);
+    CHECK(site.y==22);
+    CHECK(rejected>4);
+}
+
+// --- Space-driven colonisation -------------------------------------------
+// Ordering an MCV because the city has nowhere left to build is a separate
+// decision from growing production capacity: it answers "is there still room
+// here", not "are there enough yards".
+
+namespace {
+
+struct ColonyRoom {
+    static constexpr int w = 12, h = 12;
+    std::vector<char> tiles = std::vector<char>(w*h, 0);
+    void rock(int x0,int y0,int x1,int y1) {
+        for(int y=y0;y<y1;++y) for(int x=x0;x<x1;++x) tiles[y*w+x]=1;
+    }
+    int footprints(int limit = 64) const {
+        return QuantBotColonisationPolicy::freeFootprints(w,h,tiles,2,2,limit);
+    }
+};
+
+QuantBotColonisationPolicy::Demand builtOutCity() {
+    QuantBotColonisationPolicy::Demand demand;
+    demand.citySim = true;
+    demand.customGame = true;
+    demand.siteAvailable = true;
+    demand.freeFootprints = 0;
+    demand.yards = 6;
+    return demand;
+}
+
+}
+
+TEST_CASE("Building room counts whole footprints, not free tiles", "[quantbot][colonisation]") {
+    ColonyRoom room;
+    // A 3x3 patch is nine free tiles and exactly one more building.
+    room.rock(1,1,4,4);
+    CHECK(room.footprints() == 1);
+
+    // A single wide strip holds no building at all: counting tiles would call
+    // twelve of them room to grow.
+    ColonyRoom strip;
+    strip.rock(0,5,12,6);
+    CHECK(strip.footprints() == 0);
+
+    // Four separate corners are four buildings.
+    ColonyRoom corners;
+    corners.rock(0,0,2,2); corners.rock(10,0,12,2);
+    corners.rock(0,10,2,12); corners.rock(10,10,12,12);
+    CHECK(corners.footprints() == 4);
+
+    // The count stops at the limit; the decision only needs "cramped or not".
+    ColonyRoom plenty;
+    plenty.rock(0,0,12,12);
+    CHECK(plenty.footprints(4) == 4);
+    CHECK(plenty.footprints(64) == 36);
+
+    // A degenerate survey never reads as room.
+    CHECK(QuantBotColonisationPolicy::freeFootprints(0,0,{},2,2,4) == 0);
+    CHECK(QuantBotColonisationPolicy::freeFootprints(4,4,std::vector<char>(9,1),2,2,4) == 0);
+}
+
+TEST_CASE("A city out of building rock orders a colonist whatever its yard count",
+          "[quantbot][colonisation]") {
+    auto demand = builtOutCity();
+    CHECK(QuantBotColonisationPolicy::due(demand));
+    // Production capacity is irrelevant: a dozen yards on full rock still
+    // cannot build anything more.
+    demand.yards = 12;
+    CHECK(QuantBotColonisationPolicy::due(demand));
+
+    // The placement search refusing another factory is the same verdict, even
+    // while a few odd corners of rock remain.
+    auto blocked = builtOutCity();
+    blocked.freeFootprints = QuantBotColonisationPolicy::kCrampedFootprints + 2;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(blocked));
+    blocked.productionRoomBlocked = true;
+    CHECK(QuantBotColonisationPolicy::due(blocked));
+}
+
+TEST_CASE("Colonisation stays shut where it would be wrong", "[quantbot][colonisation]") {
+    const auto base = builtOutCity();
+
+    // Room to build at home: grow there instead of driving across the map.
+    auto roomy = base;
+    roomy.freeFootprints = QuantBotColonisationPolicy::kCrampedFootprints;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(roomy));
+
+    // No destination the survey accepts: unsafe, unreachable or too small rock
+    // never produces a site, so nothing is ordered.
+    auto nowhere = base;
+    nowhere.siteAvailable = false;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(nowhere));
+
+    // One colonist at a time: an MCV alive, paid for or queued is the answer.
+    auto alreadyBought = base;
+    alreadyBought.mcvsIncludingQueued = 1;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(alreadyBought));
+
+    // No yard means the base is gone: that is recovery, not colonisation.
+    auto homeless = base;
+    homeless.yards = 0;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(homeless));
+
+    // Campaign missions keep the base the script gave them, and a helper on
+    // someone else's house does not found cities of its own.
+    auto campaign = base;
+    campaign.campaignGame = true;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(campaign));
+    auto scripted = base;
+    scripted.customGame = false;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(scripted));
+    auto helper = base;
+    helper.supportMode = true;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(helper));
+
+    // Vanilla games keep their own MCV rule.
+    auto vanilla = base;
+    vanilla.citySim = false;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(vanilla));
+
+    // The game option ceiling is a hard limit on yards, colony or not.
+    auto capped = base;
+    capped.yardLimit = capped.yards;
+    CHECK_FALSE(QuantBotColonisationPolicy::due(capped));
+    capped.yardLimit = capped.yards + 1;
+    CHECK(QuantBotColonisationPolicy::due(capped));
 }

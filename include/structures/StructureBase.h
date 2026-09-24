@@ -182,7 +182,13 @@ protected:
 
     // structure state
     bool    repairing;          ///< currently repairing?
-    int     degradeTimer;       ///< after which time of insufficient power should we degrade this building again
+
+    // Dynasty-aligned degradation (see include/dunecity/StructureDegradation.h).
+    // The two mechanisms are independent: power damage always runs, foundation
+    // decay only for structures placed on an incomplete foundation.
+    int     powerDamageTimer;       ///< cycles until the next power-shortage hitpoint is applied
+    int     foundationDecayTimer;   ///< cycles until the next foundation-decay tick
+    bool    foundationDegrades;     ///< placed on an incomplete foundation (Dynasty o.flags.s.degrades)
 
     // TODO: fogging is currently broken (fogged and lastVisibleFrame differ in multiplayer between players; hidden building disappear when being destroyed)
     bool        fogged;             ///< Currently fogged?
@@ -207,6 +213,9 @@ protected:
 
 private:
     void init();
+
+    /// Applies power-shortage damage and foundation decay, independently of each other.
+    void updateDegradation();
 };
 
 #endif //STRUCTUREBASE_H
