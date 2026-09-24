@@ -2089,6 +2089,16 @@ QuantBotPowerInvestmentPolicy::Investment matureBase() {
     state.repairMilliPerHitpoint = 9000; // ~36 credits of repair a game minute
     return state;
 }
+
+// The mature Vanilla base measured on Air: 1800 produced against 1840 demanded,
+// short again every time it finishes a building.
+QuantBotPowerInvestmentPolicy::PowerTarget airBase() {
+    QuantBotPowerInvestmentPolicy::PowerTarget target;
+    target.demand = 1840;
+    target.produced = 1800;
+    target.standardOutput = 100; // the Vanilla windtrap it can order
+    return target;
+}
 } // namespace
 
 TEST_CASE("Generation sizes the whole package before buying one generator", "[quantbot][power][economy]") {
@@ -2181,6 +2191,174 @@ TEST_CASE("The cheapest complete generation package wins deterministically", "[q
     REQUIRE(preferGenerator(cheapWind, best));
     best = cheapWind;
     REQUIRE_FALSE(preferGenerator(cheapAdvanced, best));
+}
+
+TEST_CASE("Generation aims at a buffer rather than the shortage of the moment", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto air = airBase();
+    // 1840 demanded, a fifth of it reserved on top, against 1800 standing.
+    REQUIRE(anticipatedDemand(air) == 1840);
+    REQUIRE(bufferReserve(air) == 368);
+    REQUIRE(bufferedTarget(air) == 2208);
+    REQUIRE(effectiveCapacity(air) == 1800);
+    REQUIRE(bufferedShortfall(air) == 408);
+    REQUIRE(operatingShortfall(air) == 40);
+    REQUIRE(generatorsNeeded(bufferedShortfall(air), 100) == 5);
+
+    // Being exactly powered is the state the user reported: every new building
+    // starts a shortage. A powered base below the buffer still invests.
+    auto powered = air; powered.produced = 1840;
+    REQUIRE(operatingShortfall(powered) == 0);
+    REQUIRE(bufferedShortfall(powered) == 368);
+    REQUIRE(generatorsNeeded(bufferedShortfall(powered), 100) == 4);
+
+    // With the reserve standing there is nothing to buy.
+    auto reserved = air; reserved.produced = 2208;
+    REQUIRE(bufferedShortfall(reserved) == 0);
+    REQUIRE(operatingShortfall(reserved) == 0);
+    auto spare = air; spare.produced = 5000;
+    REQUIRE(bufferedShortfall(spare) == 0);
+
+    // A small base reserves one whole standard generator instead of a token
+    // fifth of a tiny demand; a large one reserves the proportionate share.
+    QuantBotPowerInvestmentPolicy::PowerTarget small;
+    small.demand = 200; small.produced = 200; small.standardOutput = 100;
+    REQUIRE(bufferReserve(small) == 100);
+    REQUIRE(bufferedTarget(small) == 300);
+    QuantBotPowerInvestmentPolicy::PowerTarget large;
+    large.demand = 1000; large.produced = 1000; large.standardOutput = 100;
+    REQUIRE(bufferReserve(large) == 200);
+    // The share rounds up, so it never quietly becomes no reserve at all.
+    QuantBotPowerInvestmentPolicy::PowerTarget odd;
+    odd.demand = 101; odd.standardOutput = 0;
+    REQUIRE(bufferReserve(odd) == 21);
+}
+
+TEST_CASE("Ordered demand and every pending generator are counted exactly once", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto air = airBase();
+    // The buildings already on order are the demand that caused the shortage
+    // the user saw, so they belong in the target before it is sized.
+    auto ordering = air; ordering.queuedDemand = 160;
+    REQUIRE(anticipatedDemand(ordering) == 2000);
+    REQUIRE(bufferReserve(ordering) == 400);
+    REQUIRE(bufferedTarget(ordering) == 2400);
+    REQUIRE(bufferedShortfall(ordering) == 600);
+
+    // Generation already on order anywhere in the base counts as capacity, so
+    // a second yard on the same pass cannot buy the package twice.
+    auto pending = air; pending.pendingOutput = 408;
+    REQUIRE(effectiveCapacity(pending) == 2208);
+    REQUIRE(bufferedShortfall(pending) == 0);
+
+    // One pending generator does not close a five-generator package, and does
+    // not block it either: the rest is still missing and still gets ordered.
+    auto partial = air; partial.pendingOutput = 100;
+    REQUIRE(bufferedShortfall(partial) == 308);
+    REQUIRE(generatorsNeeded(bufferedShortfall(partial), 100) == 4);
+    // Serial delivery: each pass sees one more pending generator and asks for
+    // one fewer, and the sequence ends rather than running away.
+    int ordered = 0;
+    auto serial = air;
+    while (bufferedShortfall(serial) > 0 && ordered < 20) {
+        serial.pendingOutput += 100;
+        ++ordered;
+    }
+    REQUIRE(ordered == 5);
+    REQUIRE(bufferedShortfall(serial) == 0);
+}
+
+TEST_CASE("Generation a repair will restore is not bought twice", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto air = airBase();
+    // A damaged generator recovering 408 of output reaches the buffered target
+    // on its own, so repairing it is the whole answer.
+    auto recovering = air; recovering.restorable = 408;
+    REQUIRE(effectiveCapacity(recovering) == 2208);
+    REQUIRE(bufferedShortfall(recovering) == 0);
+    // Restored health that covers the shortage but not the buffer leaves the
+    // buffer to be bought, and nothing more.
+    auto partial = air; partial.restorable = 40;
+    REQUIRE(operatingShortfall(partial) == 0);
+    REQUIRE(bufferedShortfall(partial) == 368);
+    // Repairs and pending generation are both capacity, and are added once.
+    auto both = air; both.restorable = 40; both.pendingOutput = 300;
+    REQUIRE(effectiveCapacity(both) == 2140);
+    REQUIRE(bufferedShortfall(both) == 68);
+}
+
+TEST_CASE("A buffered package faces the same cash, income and benefit gates", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto buffered = matureBase();
+    buffered.deficit = bufferedShortfall(airBase()); // 408: five windtraps
+    buffered.netIncome = 1600 * 8;                   // exactly replaces the capital
+    buffered.spendable = 5001;
+    REQUIRE(packageCapital(buffered) == 1600);
+    REQUIRE(evaluate(buffered) == Verdict::BuyWhileProsperous);
+
+    // Affordability is judged on the whole buffered package, once.
+    auto poor = buffered; poor.spendable = 1599;
+    REQUIRE(evaluate(poor) == Verdict::Unaffordable);
+    // Affordable is not the same as justified: 360 credits of avoided repair
+    // over ten minutes does not repay 1600, and this base is not prosperous.
+    poor.spendable = 1600;
+    REQUIRE(evaluate(poor) == Verdict::RepairsTooCheap);
+
+    // A funded base with no measured income still does not spend.
+    auto funded = buffered; funded.spendable = 100000; funded.netIncome = 0;
+    REQUIRE(evaluate(funded) == Verdict::IncomeTooLow);
+    auto earning = funded; earning.netIncome = 1600 * 8;
+    REQUIRE(buys(evaluate(earning)));
+    earning.netIncome = 1600 * 8 - 1;
+    REQUIRE(evaluate(earning) == Verdict::IncomeTooLow);
+}
+
+TEST_CASE("A refused buffer falls back to the shortage, never to no gate at all", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto buffered = matureBase();
+    buffered.deficit = 408;            // five windtraps, 1600 credits
+    buffered.spendable = 700;
+    buffered.netIncome = 3000;
+    auto shortage = buffered;
+    shortage.deficit = 40;             // one windtrap, 320 credits
+
+    // The buffer is what a base that cannot afford it gives up -- not the
+    // power it needs to stop degrading, and not one of the gates.
+    REQUIRE(evaluate(buffered) == Verdict::Unaffordable);
+    const auto relief = decide(buffered, shortage);
+    REQUIRE(relief.trimmedToShortage);
+    REQUIRE(relief.deficit == 40);
+    REQUIRE(relief.capital == 320);
+    REQUIRE(buys(relief.verdict));
+
+    // An affordable buffer is bought whole, and the buffer is never added to
+    // the shortage: the two are alternatives, so the capital is one or other.
+    auto rich = buffered; rich.spendable = 100000; rich.netIncome = 100000;
+    auto richShortage = shortage; richShortage.spendable = 100000; richShortage.netIncome = 100000;
+    const auto whole = decide(rich, richShortage);
+    REQUIRE_FALSE(whole.trimmedToShortage);
+    REQUIRE(whole.deficit == 408);
+    REQUIRE(whole.capital == 1600);
+    REQUIRE(buys(whole.verdict));
+
+    // A base that is powered has no shortage to fall back to, so a refused
+    // buffer simply goes unbought.
+    auto noShortage = shortage; noShortage.deficit = 0;
+    const auto powered = decide(buffered, noShortage);
+    REQUIRE_FALSE(powered.trimmedToShortage);
+    REQUIRE(powered.verdict == Verdict::Unaffordable);
+
+    // Nothing is waived: if the shortage package fails the same gates, it is
+    // refused too, and the refusal reported is still the buffered one.
+    auto broke = buffered; broke.spendable = 100;
+    auto brokeShortage = shortage; brokeShortage.spendable = 100;
+    const auto refused = decide(broke, brokeShortage);
+    REQUIRE_FALSE(refused.trimmedToShortage);
+    REQUIRE(refused.verdict == Verdict::Unaffordable);
+    auto idle = buffered; idle.netIncome = 0; idle.spendable = 100000;
+    auto idleShortage = shortage; idleShortage.netIncome = 0; idleShortage.spendable = 100000;
+    REQUIRE(decide(idle, idleShortage).verdict == Verdict::IncomeTooLow);
+    REQUIRE_FALSE(decide(idle, idleShortage).trimmedToShortage);
 }
 
 TEST_CASE("Bulk foundations choose the open side before closing a residual strip", "[quantbot][concrete][planner]") {

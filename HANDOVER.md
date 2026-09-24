@@ -9517,3 +9517,30 @@ with unrelated purchases, so their required slab offers are now enabled and
 both reruns pass. The native unit target passes (854 cases, 3 intentional skips).
 Final logs: build4.log, full-ctest.log and starport-rerun.log. No push, release or
 installation.
+
+
+## 2026-09-24 — Vanilla QuantBot power buffer (local 1.0.778)
+
+Air1.0.777 session1790237738860854-0 confirms generation chased live demand:
+at cycle43099 supply1798 plus2 repairable power faced1840 demand, and the AI
+ordered just one100-power windtrap. Subsequent small shortages repeatedly
+triggered another single purchase as queued buildings landed.
+
+Economic generation now targets actual plus queued building demand, plus the
+larger of20% anticipated demand (rounded up) and one available standard
+windtrap. Existing output, restorable condition and all pending generation
+count toward the target; pending output no longer blocks an incomplete package.
+The same core, income, cash reserve and benefit gates remain. If the buffered
+package is refused, an operating shortage can pass the same gates on its own,
+using its own cheapest generator. No city/other-mod operational power changes.
+Telemetry records target, queued demand, effective capacity, reserve and fallback.
+Version778/protocol32/policy vanilla-power-buffer-v80; no saved fields changed.
+
+Claude's bounded run produced the implementation and tests but hit its turn
+limit before a final report; Codex reviewed it and completed build/verification.
+Native build and dependency audits pass. Unit and all three opening-economy
+CTest targets pass, including a Vanilla fixture rerun after resetting its second
+yard's leftover upgrade state. Added real queued-factory demand coverage.
+Evidence: ../outputs/quantbot-power-buffer/ (Air capture, log-findings.json,
+build.log, focused.log, vanilla-rerun.log). Full regression follows the queued
+MCV deployment fix. Committed locally; not pushed or installed over the Air game.

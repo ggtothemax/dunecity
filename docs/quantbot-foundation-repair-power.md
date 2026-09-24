@@ -1,6 +1,6 @@
 # QuantBot foundations, repairs and power
 
-Local candidate 1.0.777. This policy is shared across QuantBot difficulties and
+Local candidate 1.0.778. This policy is shared across QuantBot difficulties and
 its custom-game and campaign planning paths. No gameplay damage rates change.
 
 ## Foundations
@@ -41,16 +41,22 @@ Vanilla keeps the initial windtrap needed for prerequisites. Subsequent
 investment in generation is an economic decision after its income and
 technology-appropriate core factories exist. It considers raw supply/demand,
 restorable generator output, pending generation, operating reserves and
-ongoing income. It must not mistake a large starting balance for sustained
+ongoing income. Its capacity target includes the power demand of queued buildings
+and a reserve of 20% of anticipated demand, with a minimum of one windtrap's
+output. It tops up this reserve while currently powered, instead of waiting for
+the next completed building to cause a shortage. It must not mistake a large starting balance for sustained
 income or buy duplicate generation while repairs can close the shortage.
 
-The investment comparison covers the capacity required to close the shortage,
+The investment comparison covers the capacity required to reach that target,
 including foundations when required. Forecast income must replace that capital
 within 30 game seconds. Earlier investment requires a 10-minute avoided-repair
 payback; a prosperous base with more than 5,000 spare credits after the operating
 reserve may invest despite a longer repair-only payback. This avoids permanently
 underpowering an otherwise well-funded, established base.
-It places one generator order at a time and reevaluates before another.
+Pending output counts toward the target so multiple yards cannot overbuy it.
+If the buffered package fails those checks while an operating shortage remains,
+the same checks can approve the smaller shortage-only package. This preserves
+affordable recovery while the base saves for its full reserve.
 DuneCity retains its operational power priorities because power also controls
 city growth, policing and aircraft deployment.
 

@@ -1,6 +1,7 @@
 #include <structures/Refinery.h>
 #include <units/Harvester.h>
 #include <players/QuantBotBuildPolicy.h>
+#include <players/QuantBotPowerInvestmentPolicy.h>
 
 // Drive real build decisions on All against Atreides, with its empty market.
 void runOpeningEconomyProbe(Game& game) {
@@ -450,7 +451,10 @@ void runOpeningEconomyProbe(Game& game) {
 
     // Generation outside the city simulation. Vanilla's hasPower() answers true
     // whatever the meters say, so only the economic gate can close a raw
-    // deficit. Other mods keep their functional power rules and are skipped.
+    // deficit -- and merely being powered is not the target. A base at 1800
+    // against 1840 is one building away from the next shortage, so an
+    // established base invests in a reserve. Other mods keep their functional
+    // power rules and are skipped.
     if(!game.isCitySimEnabled() && !house->isPowerRequired()) {
         const int windOutput=-game.objectData.data[Structure_WindTrap][HOUSE_ATREIDES].power;
         require(windOutput>0,"Fixture needs a windtrap that produces power");
@@ -467,12 +471,19 @@ void runOpeningEconomyProbe(Game& game) {
             }
             return count;
         };
-        auto powerBuild=[&](int credits,int deficit,int spice) {
+        // Exactly the target the policy computes, read from the live house.
+        auto bufferedTargetNow=[&] {
+            QuantBotPowerInvestmentPolicy::PowerTarget shape;
+            shape.demand=house->getPowerRequirement();
+            shape.standardOutput=windOutput;
+            return QuantBotPowerInvestmentPolicy::bufferedTarget(shape);
+        };
+        auto powerBuild=[&](int credits,int produced,int spice) {
             clearOrders();
             generator->setHealth(generator->getMaxHealth());generator->repairing=false;
             house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
             bot->lastCalculatedSpice=spice;
-            house->producedPower=std::max(0,house->getPowerRequirement()-deficit);
+            house->producedPower=std::max(0,produced);
             bot->build(5100);
             return generatorsQueued();
         };
@@ -485,33 +496,54 @@ void runOpeningEconomyProbe(Game& game) {
         for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
                 QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
             bot->difficulty=difficulty;
+            const int demand=house->getPowerRequirement();
+            const int buffered=bufferedTargetNow();
+            require(buffered>demand,"Fixture needs a positive power buffer");
             // Funded, earning and short of power: close the deficit.
-            require(powerBuild(100000,windOutput,1300000)>0,
+            require(powerBuild(100000,demand-windOutput,1300000)>0,
                 "A funded raw power deficit did not buy generation");
+            // Exactly powered, no headroom: the mature base the user reported.
+            // It invests now rather than after the next building breaks it.
+            require(powerBuild(100000,demand,1300000)>0,
+                "A powered base with no reserve did not invest in a buffer");
+            // The reserve is standing: there is nothing left to buy.
+            require(powerBuild(100000,buffered,1300000)==0,
+                "Generation was bought on top of an adequate reserve");
+            require(powerBuild(100000,buffered+windOutput*4,1300000)==0,
+                "Generation was bought by a base already well above its buffer");
             // No measured income, however large the bank.
-            require(powerBuild(100000,windOutput,0)==0,
+            require(powerBuild(100000,demand-windOutput,0)==0,
                 "Generation was bought out of a starting balance rather than income");
             // No spare cash after the reserve, and nothing to repay it with.
-            require(powerBuild(600,windOutput,1300000)==0,
+            // Neither the buffered package nor the bare shortage is affordable.
+            require(powerBuild(600,demand-windOutput,1300000)==0,
                 "Generation was bought without the cash to fund the package");
-            // No raw deficit at all.
-            require(powerBuild(100000,0,1300000)==0,
-                "Generation was bought with no raw power deficit");
-            // Repairs already under way restore the missing output.
-            clearOrders();
-            generator->setHealth(FixPoint(generator->getMaxHealth())/2);generator->repairing=false;
-            house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
-            bot->lastCalculatedSpice=1300000;
-            house->producedPower=std::max(0,house->getPowerRequirement()-windOutput/2);
-            bot->build(5100);
-            require(generatorsQueued()==0,
+            // Repairs already under way restore the missing output. The
+            // restored capacity has to reach the buffered target, not merely
+            // put the meters level.
+            auto damagedBuild=[&](int produced) {
+                clearOrders();
+                generator->setHealth(FixPoint(generator->getMaxHealth())/2);generator->repairing=false;
+                house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+                bot->lastCalculatedSpice=1300000;
+                house->producedPower=std::max(0,produced);
+                bot->build(5100);
+                const int queued=generatorsQueued();
+                generator->setHealth(generator->getMaxHealth());generator->repairing=false;
+                return queued;
+            };
+            const int restored=windOutput-windOutput/2; // the half it repairs back
+            require(damagedBuild(buffered-restored)==0,
                 "Generation was bought for output a repair in progress already restores");
-            generator->setHealth(generator->getMaxHealth());generator->repairing=false;
-            // A generator already on order is not duplicated.
+            require(damagedBuild(demand-windOutput)>0,
+                "A repair that cannot reach the buffer left the base unfunded");
+            // The yard holding a generator order does not stack another on the
+            // same pass; parallel yards counting that pending output are
+            // exercised in the vanilla progression fixture below.
             clearOrders();
             house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
             bot->lastCalculatedSpice=1300000;
-            house->producedPower=std::max(0,house->getPowerRequirement()-windOutput);
+            house->producedPower=std::max(0,demand-windOutput);
             yard->doProduceItem(Structure_WindTrap);
             require(yard->getProductionQueueSize()>0,"Fixture could not queue the pending generator");
             bot->build(5100);
@@ -519,20 +551,23 @@ void runOpeningEconomyProbe(Game& game) {
             // The core comes first: no worker fleet, no generation investment.
             const int fieldWorkers=house->numItem[Unit_Harvester];
             house->numItem[Unit_Harvester]=0;
-            require(powerBuild(100000,windOutput,1300000)==0,
+            require(powerBuild(100000,demand-windOutput,1300000)==0,
                 "Generation was bought before the income core existed");
             house->numItem[Unit_Harvester]=fieldWorkers;
             // Legacy campaign reconstruction shares the same gate.
             bot->gameMode=QuantBot::GameMode::Campaign;game.gameType=GameType::Campaign;
-            require(powerBuild(100000,windOutput,1300000)>0,
+            require(powerBuild(100000,demand-windOutput,1300000)>0,
                 "Legacy campaign reconstruction never closes a raw power deficit");
+            require(powerBuild(100000,demand,1300000)>0,
+                "Legacy campaign reconstruction never builds a power buffer");
             bot->gameMode=savedMode;game.gameType=savedType;
         }
         house->numItem[Unit_Harvester]=savedPowerWorkers;
         bot->difficulty=probeDifficulty;
         clearOrders();
-        SDL_Log("POWER_INVESTMENT_PASS: funded deficit closed; no income, no cash, no core, "
-            "pending repair and pending generator all decline; custom and campaign, all difficulties");
+        SDL_Log("POWER_INVESTMENT_PASS: funded deficit and buffer bought, adequate reserve left alone; "
+            "no income, no cash, no core, restoring repair and pending generator all decline; "
+            "custom and campaign, all difficulties");
     }
 
     // Default must ignore the old cap in saved houses; explicit options win.
@@ -729,10 +764,71 @@ void runOpeningEconomyProbe(Game& game) {
         require(storageWithPendingBay(20000,(20000+bayCapacity)*79/100)==0,
             "Pending refinery capacity was not counted before ordering another silo");
 
-        // Defence never invents a power buffer. With the option off no
-        // generator is bought at all; with it on, the emplacement's own draw is
-        // the requirement, and a real deficit still builds its generator.
+        // Parallel yards share one power package. Every generator already on
+        // order counts as capacity, so the idle yard fills what is still
+        // missing and never buys the same buffer twice. A single pending
+        // generator that cannot reach the target does not stop the rest.
+        if(!house->isPowerRequired()) {
+            const int windOutput=-game.objectData.data[Structure_WindTrap][HOUSE_ATREIDES].power;
+            require(windOutput>0,"Fixture needs a windtrap that produces power");
+            const int savedRequirement=house->powerRequirement;
+            const int savedWorkers=house->numItem[Unit_Harvester];
+            house->numItem[Unit_Harvester]=16;       // an established income fleet
+            house->powerRequirement=windOutput*10;   // a mature base, 20% is two generators
+            QuantBotPowerInvestmentPolicy::PowerTarget shape;
+            shape.demand=house->getPowerRequirement();shape.standardOutput=windOutput;
+            const int missing=(QuantBotPowerInvestmentPolicy::bufferedTarget(shape)
+                -house->getPowerRequirement()+windOutput-1)/windOutput;
+            require(missing>1,"Fixture needs a buffer of more than one generator");
+            auto parallelPower=[&](int pending) {
+                clearOrders();
+                secondYard->upgrading=false;secondYard->setHealth(secondYard->getMaxHealth());
+                house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+                house->producedPower=house->getPowerRequirement();bot->lastCalculatedSpice=1300000;
+                for(int queued=0;queued<pending;++queued)yard->doProduceItem(Structure_WindTrap);
+                require(yard->getProductionQueueSize()>=pending,"Fixture could not queue pending generation");
+                bot->build(5100);
+                int generators=0;
+                for(auto* builder:{yard,secondYard})for(const auto& order:builder->currentProductionQueue)
+                    generators+=order.itemID==Structure_WindTrap || order.itemID==Structure_NuclearPlant;
+                return generators;
+            };
+            require(parallelPower(missing)==missing,
+                "A second yard bought generation the pending package already covers");
+            require(parallelPower(1)>1,
+                "One pending generator blocked the rest of an insufficient package");
+            clearOrders();
+            secondYard->upgrading=false;secondYard->setHealth(secondYard->getMaxHealth());
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+            house->producedPower=QuantBotPowerInvestmentPolicy::bufferedTarget(shape);
+            bot->lastCalculatedSpice=1300000;
+            yard->doProduceItem(Structure_HeavyFactory);
+            require(yard->getProductionQueueSize()>0,"Fixture could not queue future power demand");
+            bot->build(5100);
+            bool anticipatingDemand=false;
+            for(const auto& order:secondYard->currentProductionQueue)
+                anticipatingDemand|=order.itemID==Structure_WindTrap || order.itemID==Structure_NuclearPlant;
+            require(anticipatingDemand,"Standing reserve ignored a queued factory's future power demand");
+            house->powerRequirement=savedRequirement;
+            house->numItem[Unit_Harvester]=savedWorkers;
+            clearOrders();
+            SDL_Log("POWER_BUFFER_PARALLEL_PASS: pending generation counted once across yards, "
+                "insufficient pending still completed");
+        }
+
+        // Defence never invents power headroom of its own. Outside the city the
+        // economic reserve is now the larger of the two, so these cases fund it
+        // first and then ask whether defence added anything on top: with the
+        // option off nothing is bought, with it on the emplacement's own draw
+        // is the requirement, and a genuine shortage still builds its generator.
         const int turretPower=game.objectData.data[Structure_RocketTurret][HOUSE_ATREIDES].power;
+        const int economicCover=[&] {
+            if(house->isPowerRequired())return house->getPowerRequirement();
+            QuantBotPowerInvestmentPolicy::PowerTarget shape;
+            shape.demand=house->getPowerRequirement();
+            shape.standardOutput=-game.objectData.data[Structure_WindTrap][HOUSE_ATREIDES].power;
+            return QuantBotPowerInvestmentPolicy::bufferedTarget(shape);
+        }();
         auto pressuredBuild=[&](int credits,int power) {
             clearOrders();house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
             house->producedPower=power;bot->lastCalculatedSpice=1300000;
@@ -745,12 +841,14 @@ void runOpeningEconomyProbe(Game& game) {
         airEnemy->numItem[Unit_Ornithopter]=6;
         const bool savedTurretPower=game.gameInitSettings.gameOptions.rocketTurretsNeedPower;
         game.gameInitSettings.gameOptions.rocketTurretsNeedPower=false;
-        require(pressuredBuild(100000,house->getPowerRequirement())!=Structure_WindTrap,
+        require(pressuredBuild(100000,economicCover)!=Structure_WindTrap,
             "Defence bought a power buffer with the turret power option off");
         game.gameInitSettings.gameOptions.rocketTurretsNeedPower=true;
-        require(pressuredBuild(100000,house->getPowerRequirement()+turretPower)!=Structure_WindTrap,
+        require(pressuredBuild(100000,std::max(economicCover,
+                house->getPowerRequirement()+turretPower))!=Structure_WindTrap,
             "A covered turret draw still reserved spare generation");
         if(turretPower>0) {
+            // A base level with its requirement is short of both reserves.
             const Uint32 deficitBuild=pressuredBuild(100000,house->getPowerRequirement());
             require(deficitBuild==Structure_WindTrap || deficitBuild==Structure_NuclearPlant,
                 "A real turret power deficit no longer builds its generator");

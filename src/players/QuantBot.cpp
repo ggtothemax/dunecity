@@ -5783,11 +5783,14 @@ void QuantBot::build(int militaryValue) {
                 // Generation outside the city simulation is an investment, not
                 // a function. Vanilla's House::hasPower() answers true whatever
                 // the meters say, so this never asks it: it compares the raw
-                // requirement with raw production, counts the output that
-                // repairs in progress and queued generators will deliver, and
-                // puts the remaining package through the documented economics
-                // in QuantBotPowerInvestmentPolicy. City power rules, the first
-                // prerequisite windtrap and the turret-power option are all
+                // requirement, plus the demand of everything already on order,
+                // with raw production plus the output that repairs in progress
+                // and queued generators will deliver, keeps a reserve on top of
+                // that, and puts the remaining package through the documented
+                // economics in QuantBotPowerInvestmentPolicy. A base running at
+                // 1800 against 1840 is one order away from another shortage, so
+                // being exactly powered is not the target. City power rules, the
+                // first prerequisite windtrap and the turret-power option are all
                 // untouched and still run ahead of this. Custom and legacy
                 // campaign games at every difficulty share the one gate.
                 auto economicGenerator = [&]() -> Uint32 {
@@ -5805,25 +5808,53 @@ void QuantBot::build(int militaryValue) {
                         || !coreEstablished(Structure_LightFactory)
                         || !coreEstablished(Structure_HeavyFactory)) return NONE_ID;
                     // Capacity already paid for: the health a damaged generator
-                    // regains under the repair policy, and any queued generator.
-                    int restored=0, pendingOutput=0;
+                    // regains under the repair policy, and every queued
+                    // generator anywhere in the base. Demand already ordered
+                    // counts on the other side of the ledger.
+                    QuantBotPowerInvestmentPolicy::PowerTarget target;
+                    target.demand=getHouse()->getPowerRequirement();
+                    target.produced=getHouse()->getProducedPower();
                     for (const auto* structure:getStructureList()) {
                         if (structure->getOwner()!=getHouse() || structure->getHealth()<=0) continue;
                         const int nominal=-data[structure->getItemID()][structure->getOriginalHouseID()].power;
                         if (nominal<=0 || structure->getMaxHealth()<=0) continue;
                         const int current=(structure->getHealth()*nominal/structure->getMaxHealth()).floor();
-                        restored+=std::max(0,nominal-std::min(nominal,current));
+                        target.restorable+=std::max(0,nominal-std::min(nominal,current));
                     }
                     for (int item=Structure_FirstID;item<=Structure_LastID;++item) {
+                        const int ordered=std::max(0,itemCount[item]-getHouse()->getNumItems(item));
+                        if (ordered<=0) continue;
                         const int nominal=-data[item][houseID].power;
-                        if (nominal<=0) continue;
-                        pendingOutput+=std::max(0,itemCount[item]-getHouse()->getNumItems(item))*nominal;
+                        if (nominal>0) target.pendingOutput+=ordered*nominal;
+                        else target.queuedDemand+=ordered*std::max(0,data[item][houseID].power);
                     }
-                    // One generator at a time: a queued one is re-evaluated when
-                    // it lands, so parallel yards cannot over-buy capacity.
-                    if (pendingOutput>0) return NONE_ID;
-                    const int deficit=getHouse()->getPowerRequirement()
-                        - getHouse()->getProducedPower() - restored;
+                    // Every generator this yard could actually place, so the
+                    // reserve is sized on a real building rather than a guess.
+                    // The plain windtrap is the standard unit where the tree has
+                    // one; otherwise the smallest available generator is, which
+                    // keeps the figure the same for every peer.
+                    struct Candidate { Uint32 item; int output; int unitCapital; };
+                    std::vector<Candidate> available;
+                    for (Uint32 generator:{Uint32(Structure_WindTrap),Uint32(Structure_AdvancedWindTrap),
+                            Uint32(Structure_AdvancedWindTrapMK2),Uint32(Structure_AdvancedWindTrapMK3),
+                            Uint32(Structure_NuclearPlant)}) {
+                        const int output=-data[generator][houseID].power;
+                        if (output<=0 || !campaignAvailableToBuild(pBuilder,generator)
+                            || !findPlaceLocation(generator).isValid()) continue;
+                        available.push_back({generator,output,buildingCapitalCost(generator)});
+                    }
+                    if (available.empty()) return NONE_ID;
+                    for (const auto& candidate:available) {
+                        if (candidate.item==Structure_WindTrap) { target.standardOutput=candidate.output; break; }
+                        target.standardOutput=target.standardOutput==0
+                            ? candidate.output : std::min(target.standardOutput,candidate.output);
+                    }
+                    // One package at a time, but a pending generator that cannot
+                    // reach the target no longer blocks the rest of it: its
+                    // output is already counted, so the next pass simply orders
+                    // what is still missing.
+                    const int deficit=QuantBotPowerInvestmentPolicy::bufferedShortfall(target);
+                    const int shortage=QuantBotPowerInvestmentPolicy::operatingShortfall(target);
                     if (deficit<=0) return NONE_ID;
                     // Exactly the repairs a closed deficit stops paying for,
                     // at the engine's own integer per-hitpoint charge.
@@ -5835,43 +5866,66 @@ void QuantBot::build(int militaryValue) {
                                 || QuantBotBuildPolicy::repairWhenWealthy(money)))
                             repairMilli+=QuantBotBuildPolicy::repairCreditsPerHitpointMilli(
                                 structure->getMaxHealth(),repairPrice(structure));
-                    QuantBotPowerInvestmentPolicy::GeneratorChoice best;
-                    for (Uint32 generator:{Uint32(Structure_WindTrap),Uint32(Structure_AdvancedWindTrap),
-                            Uint32(Structure_AdvancedWindTrapMK2),Uint32(Structure_AdvancedWindTrapMK3),
-                            Uint32(Structure_NuclearPlant)}) {
-                        const int output=-data[generator][houseID].power;
-                        if (output<=0 || !campaignAvailableToBuild(pBuilder,generator)
-                            || !findPlaceLocation(generator).isValid()) continue;
-                        QuantBotPowerInvestmentPolicy::GeneratorChoice candidate;
-                        candidate.item=generator;
-                        candidate.output=output;
-                        candidate.unitCapital=buildingCapitalCost(generator);
-                        candidate.packageCapital=QuantBotPowerInvestmentPolicy::generatorsNeeded(
-                            deficit,output)*candidate.unitCapital;
-                        if (QuantBotPowerInvestmentPolicy::preferGenerator(candidate,best)) best=candidate;
-                    }
-                    if (best.item==NONE_ID) return NONE_ID;
-                    QuantBotPowerInvestmentPolicy::Investment investment;
-                    investment.deficit=deficit;
-                    investment.generatorOutput=best.output;
-                    investment.unitCapital=best.unitCapital;
+                    // Cheapest complete package for a given size, ties broken by
+                    // the lowest item id so every peer picks the same building.
+                    auto cheapestFor=[&](int size) {
+                        QuantBotPowerInvestmentPolicy::GeneratorChoice best;
+                        for (const auto& generator:available) {
+                            QuantBotPowerInvestmentPolicy::GeneratorChoice candidate;
+                            candidate.item=generator.item;
+                            candidate.output=generator.output;
+                            candidate.unitCapital=generator.unitCapital;
+                            candidate.packageCapital=QuantBotPowerInvestmentPolicy::generatorsNeeded(
+                                size,generator.output)*candidate.unitCapital;
+                            if (QuantBotPowerInvestmentPolicy::preferGenerator(candidate,best)) best=candidate;
+                        }
+                        return best;
+                    };
                     // Forecast recurring income from the current fleet and field;
                     // starting cash is not income, and core queues keep their reserve.
-                    investment.spendable=QuantBotBuildPolicy::spendableCredits(money,economyReserve);
-                    investment.netIncome=forecastNetIncome;
-                    investment.incomeMinutes=QuantBotSpendingPolicy::horizonMinutes;
-                    investment.repairMilliPerHitpoint=repairMilli;
-                    const auto verdict=QuantBotPowerInvestmentPolicy::evaluate(investment);
+                    auto priced=[&](const QuantBotPowerInvestmentPolicy::GeneratorChoice& choice,int size) {
+                        QuantBotPowerInvestmentPolicy::Investment investment;
+                        investment.deficit=size;
+                        investment.generatorOutput=choice.output;
+                        investment.unitCapital=choice.unitCapital;
+                        investment.spendable=QuantBotBuildPolicy::spendableCredits(money,economyReserve);
+                        investment.netIncome=forecastNetIncome;
+                        investment.incomeMinutes=QuantBotSpendingPolicy::horizonMinutes;
+                        investment.repairMilliPerHitpoint=repairMilli;
+                        return investment;
+                    };
+                    const auto best=cheapestFor(deficit);
+                    if (best.item==NONE_ID) return NONE_ID;
+                    const auto investment=priced(best,deficit);
+                    // The buffered package is the offer; the bare shortage, with
+                    // its own cheapest generator, is the fallback the same gates
+                    // judge if the buffered one is refused.
+                    const auto relief=cheapestFor(shortage);
+                    const auto decision=QuantBotPowerInvestmentPolicy::decide(
+                        investment,priced(relief,shortage));
+                    const auto verdict=decision.verdict;
                     const bool buy=QuantBotPowerInvestmentPolicy::buys(verdict);
+                    const auto& chosen=decision.trimmedToShortage ? relief : best;
                     traceDecision("power_investment",AITelemetry::Record()
-                        .set("builder",pBuilder->getObjectID()).set("item",best.item)
+                        .set("builder",pBuilder->getObjectID()).set("item",chosen.item)
                         .set("raw_required",getHouse()->getPowerRequirement())
                         .set("raw_produced",getHouse()->getProducedPower())
-                        .set("repair_restored_output",restored).set("pending_output",pendingOutput)
-                        .set("deficit",deficit).set("generator_output",best.output)
-                        .set("unit_capital",best.unitCapital)
-                        .set("generators_needed",QuantBotPowerInvestmentPolicy::generatorsNeeded(deficit,best.output))
-                        .set("package_capital",QuantBotPowerInvestmentPolicy::packageCapital(investment))
+                        .set("queued_demand",target.queuedDemand)
+                        .set("anticipated_demand",QuantBotPowerInvestmentPolicy::anticipatedDemand(target))
+                        .set("repair_restored_output",target.restorable)
+                        .set("pending_output",target.pendingOutput)
+                        .set("effective_capacity",QuantBotPowerInvestmentPolicy::effectiveCapacity(target))
+                        .set("standard_generator_output",target.standardOutput)
+                        .set("buffer_reserve",QuantBotPowerInvestmentPolicy::bufferReserve(target))
+                        .set("buffered_target",QuantBotPowerInvestmentPolicy::bufferedTarget(target))
+                        .set("operating_shortage",shortage)
+                        .set("buffered_shortfall",deficit)
+                        .set("deficit",decision.deficit).set("generator_output",chosen.output)
+                        .set("unit_capital",chosen.unitCapital)
+                        .set("generators_needed",QuantBotPowerInvestmentPolicy::generatorsNeeded(decision.deficit,chosen.output))
+                        .set("package_capital",decision.capital)
+                        .set("buffered_package_capital",QuantBotPowerInvestmentPolicy::packageCapital(investment))
+                        .set("trimmed_to_shortage",decision.trimmedToShortage)
                         .set("spendable_after_reserve",investment.spendable)
                         .set("economy_reserve",economyReserve)
                         .set("forecast_net_income",forecastNetIncome)
@@ -5880,7 +5934,7 @@ void QuantBot::build(int militaryValue) {
                         .set("avoided_repairs_per_minute",QuantBotPowerInvestmentPolicy::avoidedRepairPerMinute(investment))
                         .set("accepted",buy)
                         .set("reason",QuantBotPowerInvestmentPolicy::describe(verdict)));
-                    return buy ? best.item : Uint32(NONE_ID);
+                    return buy ? chosen.item : Uint32(NONE_ID);
                 };
 
                 // Hard/Brutal establish repair capacity; Medium only replaces an authored
