@@ -9476,3 +9476,44 @@ The earlier MBA install request remains pending: signed/notarized1.0.770 was cop
 and verified on the MBA, staged at /Applications/.dunecity-install-770.vLeoFr/dunecity.app,
 but the installed1.0.768 process was running. It was not interrupted or replaced.
 No app was launched by this task.
+
+
+## 2026-09-24 — QuantBot foundations, condition repairs and Vanilla power (local 1.0.777)
+
+QuantBot now prioritises the Construction Yard bulk-slab upgrade whenever
+Concrete is required and the actual technology permits it. It holds other yard
+construction while saving or repairing for that upgrade; unavailable technology
+uses single slabs. All ordinary construction receives a complete foundation.
+The deterministic planner prefers 2x2 slabs for residual strips, extending them
+beside the footprint when legal, preserves roads, and handles blocked boundaries.
+Walls/roads/slabs/power lines and MCV deployment remain outside yard foundation
+orders. Disabling concrete skips both foundations and the concrete-only upgrade.
+Campaign and custom queues share this policy across all four difficulties.
+Partial rejected queues refund their slabs, redevelopment plans for cleared
+zones, and a final actual-coverage check refunds a finished bare building.
+
+Repairs start below full health for health-scaled production/output and exactly
+free-to-repair buildings; DuneCity maintains every structure for land value.
+Other buildings qualify above 5,000 available credits, with existing survival
+and engaged-defence rules retained. Repairs require the engine's five-credit
+minimum. Original-owner prices and the integer repair formula are preserved.
+
+Vanilla buys additional generation after the refinery/worker and available
+Light/Heavy Factory core exists. The whole shortage must fit cash after reserves
+and forecast income must replace its capital in 30 game seconds. It also needs
+10-minute avoided-repair payback or more than 5,000 spare credits after reserve.
+Existing generator damage and pending orders prevent redundant purchases.
+City operational power rules stay unchanged. No damage rates or save fields
+changed. Protocol31, save9847, telemetry policy foundation-first-repair-power-v79.
+
+Claude implemented a bounded worker task and one focused continuation; Codex
+reviewed and corrected overhang tie-breaking, queue rollback, redevelopment,
+free-repair classification, upgrade priority and Vanilla campaign power gating.
+Reference: docs/quantbot-foundation-repair-power.md. Evidence and worker reports:
+../outputs/quantbot-foundation-repair/. Native build and dependency audits passed;
+all 41 CTest targets pass across the full run and two focused reruns. The full
+run passed 39/41; the two Starport tech fixtures had disabled concrete together
+with unrelated purchases, so their required slab offers are now enabled and
+both reruns pass. The native unit target passes (854 cases, 3 intentional skips).
+Final logs: build4.log, full-ctest.log and starport-rerun.log. No push, release or
+installation.

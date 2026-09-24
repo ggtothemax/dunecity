@@ -9,9 +9,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <players/AirStrikePolicy.h>
 #include <players/QuantBotBuildPolicy.h>
+#include <players/QuantBotFoundationPolicy.h>
+#include <players/QuantBotPowerInvestmentPolicy.h>
 #include <players/CityEconomyInvestmentPolicy.h>
 #include <players/QuantBotSpendingPolicy.h>
 #include <set>
+#include <utility>
 
 using namespace QuantBotBuildPolicy;
 
@@ -1761,96 +1764,435 @@ TEST_CASE("Foundation priority follows the engine's health-dependent functions",
     for (Uint32 exempt : {Uint32(Structure_Wall), Uint32(Structure_Slab1), Uint32(Structure_Slab4),
                           Uint32(Structure_Road), Uint32(Structure_PowerLine), Uint32(NONE_ID)}) {
         REQUIRE(foundationExemptItem(exempt));
-        REQUIRE_FALSE(foundationPriorityStructure(exempt, true));
-        REQUIRE_FALSE(foundationPriorityStructure(exempt, false));
+        REQUIRE_FALSE(foundationRequiredForItem(exempt));
     }
 }
 
-TEST_CASE("City mode founds the whole colony, vanilla only what health drives", "[quantbot][concrete][city]") {
-    // Outside the city simulation, only production, output and defence.
-    REQUIRE(foundationPriorityStructure(Structure_WindTrap, false));
-    REQUIRE(foundationPriorityStructure(Structure_Refinery, false));
-    REQUIRE(foundationPriorityStructure(Structure_HeavyFactory, false));
-    REQUIRE(foundationPriorityStructure(Structure_GunTurret, false));
-    REQUIRE(foundationPriorityStructure(Structure_RocketTurret, false));
-    REQUIRE_FALSE(foundationPriorityStructure(Structure_Palace, false));
-    REQUIRE_FALSE(foundationPriorityStructure(Structure_Radar, false));
-    REQUIRE_FALSE(foundationPriorityStructure(Structure_Silo, false));
-    REQUIRE_FALSE(foundationPriorityStructure(Structure_StarPort, false));
-
-    // In city mode every footprint scales its own land value by its health, so
-    // every city building is productive ground.
-    REQUIRE(foundationPriorityStructure(Structure_ZoneResidential, true));
-    REQUIRE(foundationPriorityStructure(Structure_ZoneCommercial, true));
-    REQUIRE(foundationPriorityStructure(Structure_ZoneIndustrial, true));
-    REQUIRE(foundationPriorityStructure(Structure_PoliceStation, true));
-    REQUIRE(foundationPriorityStructure(Structure_Stadium, true));
-    REQUIRE(foundationPriorityStructure(Structure_Airport, true));
-    REQUIRE(foundationPriorityStructure(Structure_NuclearPlant, true));
-    REQUIRE(foundationPriorityStructure(Structure_Palace, true));
+TEST_CASE("Every ordinary building is founded, in every mode", "[quantbot][concrete]") {
+    // No rich, urgent or otherwise selective exception survives: if it is not a
+    // tile state, it waits for its whole footprint.
+    for (Uint32 item : {Uint32(Structure_WindTrap), Uint32(Structure_Refinery),
+                        Uint32(Structure_HeavyFactory), Uint32(Structure_GunTurret),
+                        Uint32(Structure_RocketTurret), Uint32(Structure_Palace),
+                        Uint32(Structure_Radar), Uint32(Structure_Silo),
+                        Uint32(Structure_StarPort), Uint32(Structure_ZoneResidential),
+                        Uint32(Structure_ZoneCommercial), Uint32(Structure_ZoneIndustrial),
+                        Uint32(Structure_PoliceStation), Uint32(Structure_Stadium),
+                        Uint32(Structure_Airport), Uint32(Structure_NuclearPlant)})
+        REQUIRE(foundationRequiredForItem(item));
 }
 
-TEST_CASE("Discretionary foundations use the engine's own repair price", "[quantbot][concrete][economy]") {
+TEST_CASE("The engine's own repair price drives repair and generation economics", "[quantbot][concrete][economy]") {
     // Radar: 500 max health, 400 credits. The engine charges
     // ((2*256)/500)*400/1280 credits per hitpoint and placement on bare rock
     // costs 250 of them.
     REQUIRE(repairCreditsPerHitpointMilli(500, 400) == 312);
     REQUIRE(placementRepairCost(500, 400) == 78);
-    REQUIRE(foundationPaysForItself(500, 400, 20));   // 2x2 of five-credit slab
 
-    // Above 512 maximum health the engine's integer repair fraction is zero and
-    // repairs are currently free, so slabs cannot pay for themselves there.
+    // Above 512 maximum health the engine's integer fraction is zero and
+    // repairs really are free.
     REQUIRE(repairCreditsPerHitpointMilli(1000, 2000) == 0);
     REQUIRE(placementRepairCost(1000, 2000) == 0);
-    REQUIRE_FALSE(foundationPaysForItself(1000, 2000, 45));  // Palace, 3x3
-    REQUIRE_FALSE(foundationPaysForItself(750, 2000, 45));   // reactor, 3x3
+    REQUIRE(repairsForFree(1000, 2000));
+    REQUIRE(repairsForFree(513, 2000));
+    REQUIRE_FALSE(repairsForFree(512, 2000));
 
-    // A 100-credit zone does not recover 20 credits of slab through repairs.
-    // City mode founds it for its land value, never on these grounds.
-    REQUIRE(placementRepairCost(200, 100) == 15);
-    REQUIRE_FALSE(foundationPaysForItself(200, 100, 20));
-
-    // A silo and a repair yard do recover their slab bill.
-    REQUIRE(foundationPaysForItself(150, 300, 20));
-    REQUIRE(foundationPaysForItself(200, 700, 30));
-    REQUIRE_FALSE(foundationPaysForItself(500, 400, 0));     // nothing to buy
+    // Exact fraction, not the rounded thousandths: one credit at 512 maximum
+    // health still charges 1/1280 per hitpoint, which rounds to zero milli.
+    REQUIRE(repairCreditsPerHitpointMilli(512, 1) == 0);
+    REQUIRE_FALSE(repairsForFree(512, 1));
+    // A priceless or health-less entry has nothing to charge.
+    REQUIRE(repairsForFree(200, 0));
+    REQUIRE(repairsForFree(0, 300));
 }
 
-TEST_CASE("Foundation funding preserves reserves and permits urgent bare construction", "[quantbot][concrete][economy]") {
-    REQUIRE(foundationAffordable(1000, 400, 30, 500));
-    REQUIRE_FALSE(foundationAffordable(929, 400, 30, 500));
-    REQUIRE(foundationAffordable(930, 400, 30, 500));
+TEST_CASE("Repairs follow condition-driven output, wealth and emergencies", "[quantbot][repair]") {
+    const int windHealth = 200, windPrice = 300;   // output is a health fraction
+    const int factoryHealth = 200, factoryPrice = 600;
+    const int palaceHealth = 1000, palacePrice = 2000; // free in the engine formula
+    const int siloHealth = 150, siloPrice = 300;
 
-    // Enough for the building but not its foundation. Only an urgent order —
-    // a blackout, an attack in progress, a colony with no refinery — goes
-    // ahead on bare ground; otherwise the yard saves for the slabs.
-    REQUIRE(placeWithoutFoundation(true, 410, 400, 30));
-    REQUIRE_FALSE(placeWithoutFoundation(false, 410, 400, 30));
-    // Not even the building is affordable: urgency does not conjure credits.
-    REQUIRE_FALSE(placeWithoutFoundation(true, 390, 400, 30));
-    // Fully funded orders always take their foundation.
-    REQUIRE_FALSE(placeWithoutFoundation(true, 430, 400, 30));
+    // Productive condition is repaired outside the city simulation as well,
+    // with no wealth gate at all.
+    REQUIRE(repairMaintainsValue(Structure_WindTrap, false, windHealth, windPrice));
+    REQUIRE(repairMaintainsValue(Structure_HeavyFactory, false, factoryHealth, factoryPrice));
+    REQUIRE(repairMaintainsValue(Structure_ConstructionYard, false, 400, 400));
+    REQUIRE(repairMaintainsValue(Structure_Refinery, false, 450, 400));
+    // Free repairs cost nothing, so they are never withheld.
+    REQUIRE(repairMaintainsValue(Structure_Palace, false, palaceHealth, palacePrice));
+    // A passive building that does cost credits waits for a wealthy treasury.
+    REQUIRE_FALSE(repairMaintainsValue(Structure_Silo, false, siloHealth, siloPrice));
+    REQUIRE_FALSE(repairMaintainsValue(Structure_Wall, false, 50, 50));
+
+    // City mode repairs the entire colony, walls included: a damaged footprint
+    // scales down its own land value.
+    REQUIRE(repairMaintainsValue(Structure_Silo, true, siloHealth, siloPrice));
+    REQUIRE(repairMaintainsValue(Structure_Wall, true, 50, 50));
+    REQUIRE(repairMaintainsValue(Structure_ZoneResidential, true, 200, 100));
+    REQUIRE(repairMaintainsValue(Structure_NuclearPlant, true, 750, 1500));
+
+    // The engine charges per tick, so it needs something to charge.
+    REQUIRE_FALSE(canAffordRepairTick(4));
+    REQUIRE(canAffordRepairTick(5));
+    // Discretionary repairs use the available planning money.
+    REQUIRE_FALSE(repairWhenWealthy(5000));
+    REQUIRE(repairWhenWealthy(5001));
 }
 
-TEST_CASE("The yard upgrades for the bulk slab once income can pay for it", "[quantbot][concrete][production]") {
+TEST_CASE("The yard unlocks bulk concrete as soon as the technology allows", "[quantbot][concrete][production]") {
     const int cost = 200;     // Construction Yard price 400, upgrade costs half
-    const int reserve = 400;  // one refinery held back after the upgrade
     const int slab4Level = 1;
 
     // Purely a concrete unlock: no concrete, or no reachable Slab4, no upgrade.
-    REQUIRE_FALSE(upgradeYardForBulkSlab(false, true, 0, slab4Level, 2, true, 5000, cost, reserve, false));
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, false, 0, slab4Level, 2, true, 5000, cost, reserve, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(false, true, 0, slab4Level, 2, 5000, cost, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, false, 0, slab4Level, 2, 5000, cost, false));
     // A mod that does not gate Slab4 behind an upgrade needs no upgrade either.
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, 0, 2, true, 5000, cost, reserve, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, 0, 2, 5000, cost, false));
 
-    // Core income first, then a reserve that survives the upgrade.
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, false, 5000, cost, reserve, false));
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, true, cost + reserve - 1, cost, reserve, false));
-    REQUIRE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, true, cost + reserve, cost, reserve, false));
+    // Only the price of the upgrade itself: no income, reserve, power or
+    // defence precondition survives.
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, cost - 1, cost, false));
+    REQUIRE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, cost, cost, false));
 
     // Already unlocked, or a yard that cannot reach the level at all.
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 1, slab4Level, 2, true, 5000, cost, reserve, false));
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 0, true, 5000, cost, reserve, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 1, slab4Level, 2, 5000, cost, false));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 0, 5000, cost, false));
     // One yard upgrades at a time so the others keep building.
-    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, true, 5000, cost, reserve, true));
+    REQUIRE_FALSE(upgradeYardForBulkSlab(true, true, 0, slab4Level, 2, 5000, cost, true));
+
+    // The pending test is independent of cash and of the other yards: it is
+    // what makes a yard hold its pass instead of buying something cheaper.
+    REQUIRE(bulkSlabUpgradePending(true, true, 0, slab4Level, 2));
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, true, 1, slab4Level, 2));
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, false, 0, slab4Level, 2));
+    REQUIRE_FALSE(bulkSlabUpgradePending(false, true, 0, slab4Level, 2));
+    // A tree that locks bulk concrete falls back to single slabs and never
+    // holds the yard: nothing is pending because nothing is reachable.
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, true, 0, slab4Level, 0));
+    REQUIRE_FALSE(bulkSlabUpgradePending(true, true, 0, 0, 2));
+}
+
+// ---------------------------------------------------------------------------
+// Foundation planning
+// ---------------------------------------------------------------------------
+
+namespace {
+using namespace QuantBotFoundationPolicy;
+
+struct Ground {
+    int width = 16, height = 16;
+    std::set<std::pair<int,int>> prepared, roads, blocked;
+    bool reachEverywhere = true;
+    std::set<std::pair<int,int>> reach;
+    TileState operator()(int x, int y) const {
+        TileState state;
+        if (x < 0 || y < 0 || x >= width || y >= height) return state;
+        state.exists = true;
+        state.road = roads.count({x,y}) > 0;
+        state.prepared = state.road || prepared.count({x,y}) > 0;
+        state.paveable = blocked.count({x,y}) == 0;
+        state.inBuildRange = reachEverywhere || reach.count({x,y}) > 0;
+        return state;
+    }
+};
+
+int slabTiles(const Plan& plan) {
+    int tiles = 0;
+    for (const auto& order : plan.orders) tiles += order.item == Structure_Slab4 ? 4 : 1;
+    return tiles;
+}
+bool paves(const Plan& plan, int x, int y) {
+    for (const auto& order : plan.orders) {
+        const int span = order.item == Structure_Slab4 ? 2 : 1;
+        if (x >= order.x && x < order.x + span && y >= order.y && y < order.y + span) return true;
+    }
+    return false;
+}
+} // namespace
+
+TEST_CASE("A bulk footprint is prepared by whole 2x2 slabs", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 2, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 1);
+    REQUIRE(plan.orders[0].item == Structure_Slab4);
+    REQUIRE(plan.orders[0].x == 4);
+    REQUIRE(plan.orders[0].y == 4);
+}
+
+TEST_CASE("A 3x2 residual strip uses a second bulk slab outside the footprint", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    // Two bulk slabs, not one bulk slab and two singles.
+    REQUIRE(plan.orders.size() == 2);
+    for (const auto& order : plan.orders) REQUIRE(order.item == Structure_Slab4);
+    // The whole footprint is covered ...
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 6; ++y) REQUIRE(paves(plan, x, y));
+    // ... and the strip is covered by new ground beside the building rather
+    // than by a slab that re-paves the one before it.
+    REQUIRE(paves(plan, 7, 4));
+    REQUIRE(paves(plan, 7, 5));
+    REQUIRE(slabTiles(plan) == 8);
+}
+
+TEST_CASE("A 2x3 residual strip overhangs the other way round", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 2, 3, true, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 2);
+    for (const auto& order : plan.orders) REQUIRE(order.item == Structure_Slab4);
+    for (int x = 4; x < 6; ++x) for (int y = 4; y < 7; ++y) REQUIRE(paves(plan, x, y));
+    REQUIRE(paves(plan, 4, 7));
+    REQUIRE(paves(plan, 5, 7));
+}
+
+TEST_CASE("A 3x3 footprint finishes residual strips with bulk concrete", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 3, 3, true, true, ground);
+    REQUIRE(plan.complete);
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 7; ++y) REQUIRE(paves(plan, x, y));
+    int bulk = 0, singles = 0;
+    for (const auto& order : plan.orders) (order.item == Structure_Slab4 ? bulk : singles)++;
+    REQUIRE(bulk == 3);
+    REQUIRE(singles == 1);
+    // Both residual strips use bulk concrete; only the isolated corner uses
+    // a single slab. Four extra tiles remain beside the building.
+    REQUIRE(slabTiles(plan) == 13);
+}
+
+TEST_CASE("Existing roads and concrete are counted and never paved over", "[quantbot][concrete][planner]") {
+    Ground ground;
+    // Along the top edge, so the only row a 2x2 could use for the bare row is
+    // the road row itself. Roads are prepared ground and must survive.
+    for (int x = 4; x < 7; ++x) ground.roads.insert({x, 1});
+    const auto plan = planFoundation(4, 0, 3, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 3);
+    for (const auto& order : plan.orders) {
+        REQUIRE(order.item == Structure_Slab1);
+        REQUIRE(order.y == 0);
+    }
+    for (int x = 4; x < 7; ++x) REQUIRE_FALSE(paves(plan, x, 1));
+
+    // A footprint that roads and concrete already prepare needs no order at
+    // all, even for a builder that has no slab in its list.
+    Ground ready;
+    ready.roads.insert({4,4}); ready.roads.insert({5,4});
+    ready.prepared.insert({4,5}); ready.prepared.insert({5,5});
+    const auto none = planFoundation(4, 4, 2, 2, false, false, ready);
+    REQUIRE(none.complete);
+    REQUIRE(none.orders.empty());
+}
+
+TEST_CASE("A map edge and a blocked overhang fall back to single slabs", "[quantbot][concrete][planner]") {
+    Ground edge;
+    // Bottom-right corner: a 2x2 for the last column would leave the map.
+    const auto corner = planFoundation(edge.width - 3, edge.height - 2, 3, 2, true, true, edge);
+    REQUIRE(corner.complete);
+    for (int x = edge.width - 3; x < edge.width; ++x)
+        for (int y = edge.height - 2; y < edge.height; ++y) REQUIRE(paves(corner, x, y));
+    for (const auto& order : corner.orders) {
+        const int span = order.item == Structure_Slab4 ? 2 : 1;
+        REQUIRE(order.x + span <= edge.width);
+        REQUIRE(order.y + span <= edge.height);
+    }
+
+    Ground blocked;
+    // Every tile around the footprint already carries a building, so no slab
+    // may hang outside it. The footprint is still prepared in full.
+    for (int y = 3; y < 7; ++y) { blocked.blocked.insert({7,y}); blocked.blocked.insert({3,y}); }
+    for (int x = 3; x < 8; ++x) { blocked.blocked.insert({x,3}); blocked.blocked.insert({x,6}); }
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, blocked);
+    REQUIRE(plan.complete);
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 6; ++y) REQUIRE(paves(plan, x, y));
+    for (const auto& blockedTile : blocked.blocked)
+        REQUIRE_FALSE(paves(plan, blockedTile.first, blockedTile.second));
+
+    // With the last overhang gone and a single tile left over, the plan falls
+    // back to one 1x1 rather than paying for a 2x2 it cannot place.
+    Ground strip = blocked;
+    strip.prepared.insert({6,5});
+    const auto fallback = planFoundation(4, 4, 3, 2, true, true, strip);
+    REQUIRE(fallback.complete);
+    int singles = 0;
+    for (const auto& order : fallback.orders) singles += order.item == Structure_Slab1;
+    REQUIRE(singles == 1);
+    REQUIRE(paves(fallback, 6, 4));
+}
+
+TEST_CASE("Without the bulk slab the plan still prepares every tile", "[quantbot][concrete][planner]") {
+    Ground ground;
+    const auto plan = planFoundation(4, 4, 3, 2, false, true, ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size() == 6);
+    for (const auto& order : plan.orders) REQUIRE(order.item == Structure_Slab1);
+
+    // An isolated one-tile emplacement takes one single slab, never a 2x2.
+    const auto turret = planFoundation(4, 4, 1, 1, true, true, ground);
+    REQUIRE(turret.complete);
+    REQUIRE(turret.orders.size() == 1);
+    REQUIRE(turret.orders[0].item == Structure_Slab1);
+}
+
+TEST_CASE("A footprint that cannot be prepared defers instead of building bare", "[quantbot][concrete][planner]") {
+    Ground blocked;
+    blocked.blocked.insert({5,4}); // a unit or building on the footprint itself
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, blocked);
+    REQUIRE_FALSE(plan.complete);
+    REQUIRE(plan.orders.empty());
+
+    Ground noSlabs;
+    const auto unavailable = planFoundation(4, 4, 2, 2, false, false, noSlabs);
+    REQUIRE_FALSE(unavailable.complete);
+    REQUIRE(unavailable.orders.empty());
+
+    // A road on the footprint is prepared ground, so it is not a blocker.
+    Ground mixed;
+    mixed.roads.insert({5,4});
+    const auto withRoad = planFoundation(4, 4, 3, 2, true, true, mixed);
+    REQUIRE(withRoad.complete);
+    REQUIRE_FALSE(paves(withRoad, 5, 4));
+}
+
+TEST_CASE("Planned slabs extend the reach the next slab needs", "[quantbot][concrete][planner]") {
+    Ground ground;
+    ground.reachEverywhere = false;
+    // Only the left column of the footprint is inside the existing base.
+    for (int y = 0; y < ground.height; ++y) ground.reach.insert({4,y});
+    const auto plan = planFoundation(4, 4, 3, 2, true, true, ground);
+    REQUIRE(plan.complete);
+    for (int x = 4; x < 7; ++x) for (int y = 4; y < 6; ++y) REQUIRE(paves(plan, x, y));
+
+    // Nothing in reach at all: defer rather than order concrete that the
+    // engine would reject.
+    Ground unreachable;
+    unreachable.reachEverywhere = false;
+    const auto none = planFoundation(4, 4, 2, 2, true, true, unreachable);
+    REQUIRE_FALSE(none.complete);
+    REQUIRE(none.orders.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Generation outside the city simulation
+// ---------------------------------------------------------------------------
+
+namespace {
+QuantBotPowerInvestmentPolicy::Investment matureBase() {
+    QuantBotPowerInvestmentPolicy::Investment state;
+    state.deficit = 100;          // one windtrap short
+    state.generatorOutput = 100;  // Vanilla windtrap
+    state.unitCapital = 320;      // 300 credits plus a 2x2 of five-credit slab
+    state.spendable = 4000;
+    state.netIncome = 8000;       // measured over four game minutes
+    state.incomeMinutes = QuantBotSpendingPolicy::horizonMinutes;
+    state.repairMilliPerHitpoint = 9000; // ~36 credits of repair a game minute
+    return state;
+}
+} // namespace
+
+TEST_CASE("Generation sizes the whole package before buying one generator", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    REQUIRE(generatorsNeeded(0, 100) == 0);
+    REQUIRE(generatorsNeeded(-50, 100) == 0);
+    REQUIRE(generatorsNeeded(100, 100) == 1);
+    REQUIRE(generatorsNeeded(101, 100) == 2);
+    REQUIRE(generatorsNeeded(250, 100) == 3);
+    // A mod that publishes no usable output falls back to the Vanilla windtrap.
+    REQUIRE(generatorsNeeded(250, 0) == generatorsNeeded(250, defaultGeneratorOutput));
+
+    auto state = matureBase();
+    REQUIRE(packageCapital(state) == 320);
+    state.deficit = 250;
+    REQUIRE(packageCapital(state) == 960); // half a package closes nothing
+}
+
+TEST_CASE("Generation needs income, cash and a benefit it can name", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto state = matureBase();
+    REQUIRE(evaluate(state) == Verdict::BuyForRepairs);
+
+    // No deficit at all once repairs and queued generators are counted.
+    auto covered = state; covered.deficit = 0;
+    REQUIRE(evaluate(covered) == Verdict::NoDeficit);
+
+    // The cash has to be there after the core queues and the reserve.
+    auto poor = state; poor.spendable = 319;
+    REQUIRE(evaluate(poor) == Verdict::Unaffordable);
+    poor.spendable = 320;
+    REQUIRE(buys(evaluate(poor)));
+
+    // Thirty game seconds of measured net income must replace the capital.
+    // Four minutes of income at 8x the capital is exactly the boundary.
+    auto boundary = state; boundary.netIncome = 320 * 8;
+    REQUIRE(buys(evaluate(boundary)));
+    boundary.netIncome = 320 * 8 - 1;
+    REQUIRE(evaluate(boundary) == Verdict::IncomeTooLow);
+    // A starting balance is not income: the forecast, not the bank, decides.
+    auto banked = state; banked.netIncome = 0; banked.spendable = 100000;
+    REQUIRE(evaluate(banked) == Verdict::IncomeTooLow);
+}
+
+TEST_CASE("Avoided repairs or plain prosperity justify the generator", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    auto state = matureBase();
+    // 9000 milli per hitpoint, four hitpoints a minute, is 36 credits a minute
+    // and 360 over ten game minutes: short of the 320-credit package? No.
+    REQUIRE(avoidedRepairPerMinute(state) == 36);
+    REQUIRE(repaysThroughAvoidedRepairs(state, 320));
+    REQUIRE(evaluate(state) == Verdict::BuyForRepairs);
+
+    // A base made of large buildings repairs for free, so the repair case
+    // alone can never justify generation. Modest cash keeps it unbought.
+    auto free = state; free.repairMilliPerHitpoint = 0;
+    REQUIRE(avoidedRepairPerMinute(free) == 0);
+    REQUIRE(evaluate(free) == Verdict::RepairsTooCheap);
+
+    // Once the spare cash after the reserve is comfortable, a prosperous base
+    // stops arguing about repair credits and closes the deficit.
+    auto rich = free; rich.spendable = 5000;
+    REQUIRE(evaluate(rich) == Verdict::RepairsTooCheap);
+    rich.spendable = 5001;
+    REQUIRE(evaluate(rich) == Verdict::BuyWhileProsperous);
+    REQUIRE(buys(evaluate(rich)));
+
+    // Prosperity never excuses the income or affordability gates.
+    auto idle = rich; idle.netIncome = 0;
+    REQUIRE(evaluate(idle) == Verdict::IncomeTooLow);
+    auto huge = rich; huge.deficit = 10000; // 100 windtraps, 32000 credits
+    REQUIRE(evaluate(huge) == Verdict::Unaffordable);
+}
+
+TEST_CASE("The cheapest complete generation package wins deterministically", "[quantbot][power][economy]") {
+    using namespace QuantBotPowerInvestmentPolicy;
+    GeneratorChoice best;
+    GeneratorChoice wind{Structure_WindTrap, 100, 320, 320 * 3};        // 250 deficit
+    GeneratorChoice reactor{Structure_NuclearPlant, 1000, 1545, 1545};
+    REQUIRE(preferGenerator(wind, best));
+    best = wind;
+    REQUIRE(preferGenerator(reactor, best) == false); // 1545 > 960
+    best = GeneratorChoice{};
+    REQUIRE(preferGenerator(reactor, best));
+    // Equal packages keep the lowest item id, so every peer agrees. The
+    // windtrap is id 18 and the advanced windtrap id 56.
+    GeneratorChoice cheapWind{Structure_WindTrap, 100, 500, 500};
+    GeneratorChoice cheapAdvanced{Structure_AdvancedWindTrap, 300, 500, 500};
+    best = cheapAdvanced;
+    REQUIRE(preferGenerator(cheapWind, best));
+    best = cheapWind;
+    REQUIRE_FALSE(preferGenerator(cheapAdvanced, best));
+}
+
+TEST_CASE("Bulk foundations choose the open side before closing a residual strip", "[quantbot][concrete][planner]") {
+    Ground ground;
+    // The right side is occupied, but a bulk slab can overhang on the left.
+    ground.blocked.insert({7,4}); ground.blocked.insert({7,5});
+    const auto plan = planFoundation(4,4,3,2,true,true,ground);
+    REQUIRE(plan.complete);
+    REQUIRE(plan.orders.size()==2);
+    REQUIRE(plan.orders[0].item==Structure_Slab4);
+    REQUIRE(plan.orders[1].item==Structure_Slab4);
+    REQUIRE(paves(plan,3,4));
+    REQUIRE(paves(plan,3,5));
+    REQUIRE_FALSE(paves(plan,7,4));
 }

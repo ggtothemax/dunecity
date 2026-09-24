@@ -408,6 +408,10 @@ void runStarportEconomyProbe(Game& game) {
             auto& goalData=game.objectData.data[goal][HOUSE_HARKONNEN];
             auto& portData=game.objectData.data[Structure_StarPort][HOUSE_HARKONNEN];
             goalData.enabled=true;portData.enabled=true;
+            // Keep the foundations needed by these legal tech orders enabled.
+            // This fixture disables unrelated purchases, not required concrete.
+            game.objectData.data[Structure_Slab1][HOUSE_HARKONNEN].enabled=true;
+            game.objectData.data[Structure_Slab4][HOUSE_HARKONNEN].enabled=true;
             clearOrders();bot->difficulty=tier;bot->lastCalculatedSpice=0;
             house->producedPower=100000;house->takeCredits(house->getCredits());house->startingCredits=10000;
             // Unreachable tech must not justify an empty port.

@@ -50,6 +50,8 @@
 #include <structures/StarPort.h>
 #include <structures/ConstructionYard.h>
 #include <players/QuantBotBuildPolicy.h>
+#include <players/QuantBotFoundationPolicy.h>
+#include <players/QuantBotPowerInvestmentPolicy.h>
 #include <players/QuantBotCityPolicy.h>
 #include <players/CityEconomyInvestmentPolicy.h>
 #include <players/QuantBotSpendingPolicy.h>
@@ -3962,7 +3964,8 @@ void QuantBot::build(int militaryValue) {
     };
 
     const bool campaignPowerBudget = isCampaignGameType(currentGame->gameType)
-        && (difficulty==Difficulty::Easy || difficulty==Difficulty::Medium) && !citySimEnabled;
+        && (difficulty==Difficulty::Easy || difficulty==Difficulty::Medium)
+        && !citySimEnabled && !vanillaEconomy;
     auto campaignPowerNeeded = [&](int nextDemand) {
         int demand=0;
         for (Uint32 item=Structure_FirstID;item<=Structure_LastID;++item)
@@ -4622,65 +4625,61 @@ void QuantBot::build(int militaryValue) {
             if (offer.itemID == item) return int(offer.price);
         return 0;
     };
-    // Bare ground the base cannot do without: a blackout, an attack in progress
-    // or a colony with no refinery needs the building itself more than it needs
-    // it at full health, so those orders are allowed to skip their slabs.
     bool defendingEconomy=false;
-    auto foundationUrgent = [&](Uint32 item) {
-        if (itemCount[Structure_Refinery]==0) return true;
-        // Zoning is the city's growth cadence and its cheapest order. It takes
-        // a foundation whenever the treasury can carry one, but it never waits
-        // for slabs, so concrete cannot stall expansion.
-        if (DuneCity::isCityZoneStructure(item)) return true;
-        if (defendingEconomy && (QuantBotBuildPolicy::defensiveEmplacement(item)
-            || item==Structure_RepairYard)) return true;
-        return getHouse()->getProducedPower()<getHouse()->getPowerRequirement()
-            && QuantBotBuildPolicy::healthScaledOutput(item,citySimEnabled)
-            && data[item][houseID].power<0;
+    // Concrete is no longer an investment decision. Every ordinary building is
+    // prepared in full before it is ordered, in every mode and at every
+    // difficulty, because half health is a permanent loss of production,
+    // generation, land value or armour. Walls, roads and the slabs themselves
+    // are tile states with no placement penalty and stay exempt, and the yard
+    // an MCV deploys is never queued, so it keeps its own exception.
+    // An incomplete plan defers the building; it never places it bare.
+    auto foundationPlan = [&](const BuilderBase* builder, Uint32 item, Coord site,
+                              const std::vector<Uint32>& clearedZones = std::vector<Uint32>{}) {
+        QuantBotFoundationPolicy::Plan plan;
+        if (!getGameInitSettings().getGameOptions().concreteRequired
+            || !QuantBotBuildPolicy::foundationRequiredForItem(item) || !site.isValid()) {
+            plan.complete=true;
+            return plan;
+        }
+        const Coord size=getStructureSize(item);
+        if (size.x<=0 || size.y<=0) return plan;
+        // A builder with no slab in its list can still take a footprint that
+        // roads or existing concrete already prepare; anything else is deferred
+        // rather than placed bare.
+        return QuantBotFoundationPolicy::planFoundation(site.x,site.y,size.x,size.y,
+            campaignAvailableToBuild(builder,Structure_Slab4),
+            campaignAvailableToBuild(builder,Structure_Slab1),
+            [&](int x,int y) {
+                QuantBotFoundationPolicy::TileState state;
+                if (!getMap().tileExists(x,y)) return state;
+                const Tile* tile=getMap().getTile(x,y);
+                state.exists=true;
+                state.prepared=tile->hasPreparedFoundation();
+                state.road=tile->isRoad();
+                const auto* occupant=tile->getNonInfantryGroundObject();
+                const bool cleared=occupant && std::find(clearedZones.begin(),clearedZones.end(),
+                    occupant->getObjectID())!=clearedZones.end();
+                state.paveable=tile->isRock() && !tile->isMountain()
+                    && (!tile->isBlocked() || cleared) && (!tile->hasCityZone() || cleared);
+                state.inBuildRange=getMap().isWithinBuildRange(x,y,getHouse());
+                return state;
+            });
     };
     auto foundationOrders = [&](const BuilderBase* builder, Uint32 item, Coord site) {
-        std::vector<std::pair<Uint32,Coord>> foundations;
-        if (!getGameInitSettings().getGameOptions().concreteRequired
-            || QuantBotBuildPolicy::foundationExemptItem(item) || !site.isValid())
-            return foundations;
-        const Coord size=getStructureSize(item);
-        if (size.x<=0 || size.y<=0) return foundations;
-        int dx=1,dy=1,x0=site.x,y0=site.y;
-        // Start beside the existing base so each slab extends build range.
-        if (!getMap().isWithinBuildRange(x0,y0,getHouse())) {
-            if (getMap().isWithinBuildRange(site.x+size.x-1,site.y,getHouse())) {
-                x0+=size.x-1;dx=-1;
-            } else if (getMap().isWithinBuildRange(site.x,site.y+size.y-1,getHouse())) {
-                y0+=size.y-1;dy=-1;
-            } else { x0+=size.x-1;y0+=size.y-1;dx=dy=-1; }
-        }
-        const bool bulk=QuantBotBuildPolicy::useBulkFoundation(size.x,size.y,
-            campaignAvailableToBuild(builder,Structure_Slab4),[&](int x,int y) {
-                return getMap().getTile(site.x+x,site.y+y)->hasPreparedFoundation();
-            });
-        for (int x=x0;std::abs(x-x0)<size.x;x+=dx)
-            for (int y=y0;std::abs(y-y0)<size.y;y+=dy) {
-                const int slabSize=QuantBotBuildPolicy::foundationSlabSize(x-site.x,y-site.y,bulk,
-                    getMap().getTile(x,y)->hasPreparedFoundation());
-                const Uint32 slab=slabSize==2 ? Structure_Slab4 : Structure_Slab1;
-                if (slabSize && campaignAvailableToBuild(builder,slab)) foundations.emplace_back(slab,Coord(x,y));
-            }
-        if (foundations.empty()) return foundations;
-        int foundationCost=0;
-        for (const auto& foundation:foundations)
-            foundationCost+=data[foundation.first][houseID].price;
-        const int itemPrice=data[item][houseID].price;
-        // Productive ground is founded on principle; everything else only when
-        // the slabs cost less than repairing the placement penalty would, and
-        // the treasury carries them on top of the building and its reserve.
-        const bool worthIt=QuantBotBuildPolicy::foundationPriorityStructure(item,citySimEnabled)
-            || (money > 5000 && QuantBotBuildPolicy::foundationPaysForItself(data[item][houseID].hitpoints,
-                    itemPrice,foundationCost)
-                && QuantBotBuildPolicy::foundationAffordable(money,itemPrice,foundationCost,
-                    economyReserve+itemPrice));
-        if (!worthIt || QuantBotBuildPolicy::placeWithoutFoundation(foundationUrgent(item),
-                money,itemPrice,foundationCost)) foundations.clear();
-        return foundations;
+        return foundationPlan(builder,item,site).orders;
+    };
+    // The buildings this bot keeps at full health regardless of wealth. Used
+    // both by the repair pass below and by the generation investment, which
+    // prices exactly the repairs a closed power deficit would stop paying for.
+    // StructureBase charges repairs from the original owner's price table, so
+    // captured buildings and mod overrides are classified the way the engine
+    // actually bills them.
+    auto repairPrice = [&](const StructureBase* structure) {
+        return data[structure->getItemID()][structure->getOriginalHouseID()].price;
+    };
+    auto repairPolicyMaintains = [&](const StructureBase* structure) {
+        return QuantBotBuildPolicy::repairMaintainsValue(structure->getItemID(),citySimEnabled,
+            structure->getMaxHealth(),repairPrice(structure));
     };
     struct CapitalCandidate {
         Uint32 builder=NONE_ID, item=NONE_ID;
@@ -5277,9 +5276,11 @@ void QuantBot::build(int militaryValue) {
         planningBuilder=candidate.builder;clearPlacementCache(false,true);
         const Coord site=candidate.site.isValid() ? candidate.site : findPlaceLocation(candidate.item);
         std::vector<Uint32> removed;
-        if (site.isValid() && !redevelopmentZones(candidate.item,site,removed))
-            for (const auto& foundation:foundationOrders(builder,candidate.item,site))
-                candidate.foundationCost+=purchasePrice(builder,foundation.first);
+        if (site.isValid()) {
+            redevelopmentZones(candidate.item,site,removed);
+            for (const auto& foundation:foundationPlan(builder,candidate.item,site,removed).orders)
+                candidate.foundationCost+=purchasePrice(builder,foundation.item);
+        }
     }
     planningBuilder=NONE_ID; clearPlacementCache(false,true);
     int capitalChoice=-1;
@@ -5439,58 +5440,37 @@ void QuantBot::build(int militaryValue) {
 	for (const auto& entry : planningOrder) {
         const auto* pStructure = dynamic_cast<const StructureBase*>(getObject(entry.second));
 		if (pStructure && pStructure->getOwner() == getHouse()) {
-            if (pStructure->getItemID() == Structure_NuclearPlant
-                && !pStructure->isRepairing() && pStructure->getHealth() > 0
-                && pStructure->getHealth() < pStructure->getMaxHealth() && money >= 5) {
-                doRepair(pStructure);
-                traceDecision("reactor_repair", AITelemetry::Record()
-                    .set("object", pStructure->getObjectID()).set("health", pStructure->getHealth().lround())
-                    .set("max_health", pStructure->getMaxHealth()).set("credits", money));
+            // Condition is production, generation, land value and armour, so
+            // anything whose output follows its health — every factory, the
+            // yard itself, refineries, the whole windtrap family and the city
+            // reactor — is repaired as soon as the engine can be paid at all,
+            // as is everything the engine's integer formula repairs for free.
+            // City mode extends that to the entire colony, walls included,
+            // because a damaged footprint lowers its own land value. The rest
+            // waits for a comfortable treasury, and survival and engaged
+            // emplacements keep their emergency repair on top of all of it.
+            if (!pStructure->isRepairing() && pStructure->getHealth() > 0
+                && pStructure->getHealth() < pStructure->getMaxHealth()
+                && QuantBotBuildPolicy::canAffordRepairTick(getHouse()->getCredits())) {
+                const Uint32 repairItem = pStructure->getItemID();
+                const bool maintained = repairPolicyMaintains(pStructure);
+                const bool survival = pStructure->getHealth() < pStructure->getMaxHealth() * 0.40_fix
+                    && money > 1000;
+                const bool engaged = QuantBotBuildPolicy::defensiveEmplacement(repairItem)
+                    && pStructure->hasATarget();
+                const bool wealthy = QuantBotBuildPolicy::repairWhenWealthy(money);
+                if (maintained || survival || engaged || wealthy) {
+                    doRepair(pStructure);
+                    if (AITelemetry::log().enabled())
+                        traceDecision("structure_repair", AITelemetry::Record()
+                            .set("object", pStructure->getObjectID()).set("item", repairItem)
+                            .set("health", pStructure->getHealth().lround())
+                            .set("max_health", pStructure->getMaxHealth())
+                            .set("credits", getHouse()->getCredits()).set("spendable", money)
+                            .set("reason", maintained ? "condition_is_output"
+                                : survival ? "survival" : engaged ? "engaged_defence" : "wealth"));
+                }
             }
-			else if ((pStructure->isRepairing() == false)
-				&& (pStructure->getHealth() < pStructure->getMaxHealth())
-				&& (!getGameInitSettings().getGameOptions().concreteRequired
-					|| pStructure->getItemID() == Structure_Palace) // Palace repairs for free
-				&& (pStructure->getItemID() != Structure_Refinery
-					&& pStructure->getItemID() != Structure_Silo
-					&& pStructure->getItemID() != Structure_Radar
-					&& pStructure->getItemID() != Structure_WindTrap))
-			{
-				doRepair(pStructure);
-			}
-			else if ((pStructure->isRepairing() == false)
-				&& (pStructure->getHealth() < pStructure->getMaxHealth() * 0.40_fix)
-				&& money > 1000) {
-				doRepair(pStructure);
-			}
-			else if (!pStructure->isRepairing() && pStructure->getHealth() > 0
-                && pStructure->getHealth() < pStructure->getMaxHealth() && money > 5000) {
-				// Repair if we are rich
-				doRepair(pStructure);
-			}
-			else if (pStructure->getItemID() == Structure_RocketTurret
-                && !pStructure->isRepairing() && pStructure->getHealth() > 0
-                && pStructure->getHealth() < pStructure->getMaxHealth()) {
-				// Prioritize engaged turrets; routine repairs are handled above.
-				if (pStructure->hasATarget()) {
-					doRepair(pStructure);
-				}
-			}
-			// Windtrap repair: Keep windtraps at max health to maintain power buffer
-			// Damaged windtraps produce less power, so repair them to maintain 200 power surplus
-			else if ((powerRules || getHouse()->getProducedPower()<getHouse()->getPowerRequirement())
-                && QuantBotBuildPolicy::healthScaledOutput(pStructure->getItemID(),citySimEnabled)
-                && data[pStructure->getItemID()][houseID].power<0 && money>=5
-				&& pStructure->getHealth() < pStructure->getMaxHealth()
-				&& !pStructure->isRepairing()) {
-				int powerExcess = getHouse()->getProducedPower() - getHouse()->getPowerRequirement();
-				// Always repair if power surplus is below 200 (our buffer target)
-				// Or repair if we have money and power is below 300 (some buffer room)
-				if (powerExcess < 200 || (money > 500 && powerExcess < 300)) {
-					doRepair(pStructure);
-					logDebug("POWER: Repairing windtrap to maintain power buffer (excess: %d)", powerExcess);
-				}
-			}
 
 			// Special weapon launch logic (not for support AI)
 			if (pStructure->getItemID() == Structure_Palace && !supportMode) {
@@ -5689,64 +5669,102 @@ void QuantBot::build(int militaryValue) {
                     const Coord site=item==Structure_RocketTurret || item==Structure_GunTurret
                         ? findEffectiveTurretPlaceLocation(item) : findPlaceLocation(item);
                     if (!site.isValid()) return false;
-                    const auto foundations=foundationOrders(pBuilder,item,site);
+                    // Legacy campaign reconstruction and power orders share the
+                    // one foundation rule: no site it cannot prepare in full.
+                    const auto plan=foundationPlan(pBuilder,item,site);
+                    if(!plan.complete) {
+                        traceDecision("construction_rejected",AITelemetry::Record()
+                            .set("builder",planningBuilder).set("item",item).set("rule",rule)
+                            .set("reason","foundation_incomplete"));
+                        return false;
+                    }
                     int total=purchasePrice(pBuilder,item);
-                    for(const auto& foundation:foundations)total+=purchasePrice(pBuilder,foundation.first);
+                    for(const auto& foundation:plan.orders)total+=purchasePrice(pBuilder,foundation.item);
                     if(money<total) return false;
                     auto& places=builderPlaceLocations[planningBuilder];
                     places.clear();
-                    for(const auto& foundation:foundations) {
-                        if(!produceItemWithLogging(foundation.first,sourceLine,"building_foundation"))return false;
-                        places.push_back(foundation.second);
+                    // Concrete this building will not stand on is wasted cash.
+                    // If any part of the sequence is refused, give it all back.
+                    auto abandonFoundation=[&](size_t laid) {
+                        for(size_t i=0;i<laid;++i) doCancelItem(pBuilder,plan.orders[i].item);
+                        places.clear();
+                        return false;
+                    };
+                    for(size_t i=0;i<plan.orders.size();++i) {
+                        if(!produceItemWithLogging(plan.orders[i].item,sourceLine,"building_foundation"))
+                            return abandonFoundation(i);
+                        places.push_back(Coord(plan.orders[i].x,plan.orders[i].y));
                     }
                     const auto priorSites=places.size();
-                    if(!produceItemWithLogging(item,sourceLine,rule))return false;
+                    if(!produceItemWithLogging(item,sourceLine,rule))
+                        return abandonFoundation(plan.orders.size());
                     if(places.size()==priorSites)places.push_back(site); // Nuclear may reserve in the acceptance wrapper.
                     reservedStructures[planningBuilder]={item,site};
                     clearPlacementCache();
                     return true;
                 };
 
-                // Spend once to unlock bulk foundations, including campaign
-                // reconstruction paths that bypass the ordinary build-order list.
+                // Bulk concrete comes before anything optional this yard could
+                // buy, in every mode and at every difficulty, as soon as the
+                // technology allows it. Every ordinary building now waits for a
+                // full foundation, and the 2x2 slab is one order where Slab1
+                // needs four — so income, reserve, power and defence
+                // preconditions were all gating the unlock behind the buildings
+                // it makes cheaper. Only the cost of the upgrade itself remains,
+                // and a damaged yard repairs first so it can accept it. A yard
+                // that cannot reach the level, or a tree without Slab4, simply
+                // keeps founding with single slabs.
+                const bool bulkSlabReachable =
+                    data[Structure_Slab4][houseID].enabled
+                    && data[Structure_Slab4][houseID].techLevel <= currentGame->techLevel
+                    && data[Structure_Slab4][houseID].builder == int(Structure_ConstructionYard)
+                    && campaignPermitsStructure(Structure_Slab4);
                 auto upgradeForConcrete = [&]() {
-                    if (pBuilder->getItemID()==Structure_ConstructionYard
-                    && !defendingEconomy && !protectionCapital
-                    && getHouse()->getProducedPower() >= getHouse()->getPowerRequirement()
-					&& !pBuilder->isUpgrading() && pBuilder->getProductionQueueSize() == 0
-					&& QuantBotBuildPolicy::upgradeYardForBulkSlab(
-						getGameInitSettings().getGameOptions().concreteRequired,
-						data[Structure_Slab4][houseID].enabled
-							&& data[Structure_Slab4][houseID].techLevel <= currentGame->techLevel
-							&& data[Structure_Slab4][houseID].builder == int(Structure_ConstructionYard)
-							&& campaignPermitsStructure(Structure_Slab4),
-						pBuilder->getCurrentUpgradeLevel(), data[Structure_Slab4][houseID].upgradeLevel,
-						pBuilder->getMaxUpgradeLevel(),
-						itemCount[Structure_Refinery] > 0 && getHouse()->getNumItems(Unit_Harvester) > 0,
-						money, pBuilder->getUpgradeCost(),
-						economyReserve + data[Structure_Refinery][houseID].price,
-						std::any_of(capitalBuilders.begin(), capitalBuilders.end(), [&](const auto* other) {
-							return other != pBuilder && other->getItemID() == Structure_ConstructionYard
-								&& other->isUpgrading();
-						}))) {
-					if (pBuilder->getHealth() < pBuilder->getMaxHealth() && !pBuilder->isRepairing()) {
-						doRepair(pBuilder);
-					} else if (pBuilder->getHealth() >= pBuilder->getMaxHealth()) {
-						const int upgradeCost = pBuilder->getUpgradeCost();
-						const bool accepted = upgradeWithLogging(__LINE__);
-
-						traceDecision("yard_upgrade_for_concrete", AITelemetry::Record()
-							.set("builder", pBuilder->getObjectID()).set("accepted", accepted)
-							.set("cost", upgradeCost).set("spendable", money)
-							.set("level", pBuilder->getCurrentUpgradeLevel())
-							.set("reason", "unlock_bulk_slab"));
-                        return accepted;
+                    if (pBuilder->getItemID()!=Structure_ConstructionYard
+                        || pBuilder->isUpgrading() || pBuilder->getProductionQueueSize()!=0
+                        || !QuantBotBuildPolicy::bulkSlabUpgradePending(
+                            getGameInitSettings().getGameOptions().concreteRequired, bulkSlabReachable,
+                            pBuilder->getCurrentUpgradeLevel(), data[Structure_Slab4][houseID].upgradeLevel,
+                            pBuilder->getMaxUpgradeLevel())) return false;
+                    // The upgrade is owed and reachable, so this yard spends the
+                    // pass on it and on nothing else — waiting for the credits or
+                    // for another yard's turn is still the upgrade's pass, not a
+                    // licence to buy something cheaper first.
+                    const bool anotherUpgrading = std::any_of(capitalBuilders.begin(), capitalBuilders.end(),
+                        [&](const auto* other) {
+                            return other != pBuilder && other->getItemID() == Structure_ConstructionYard
+                                && other->isUpgrading();
+                        });
+                    const int upgradeCost = pBuilder->getUpgradeCost();
+                    auto hold = [&](const char* reason) {
+                        traceDecision("yard_upgrade_for_concrete", AITelemetry::Record()
+                            .set("builder", pBuilder->getObjectID()).set("accepted", false)
+                            .set("cost", upgradeCost).set("spendable", money)
+                            .set("level", pBuilder->getCurrentUpgradeLevel())
+                            .set("reason", reason));
+                    };
+                    if (!QuantBotBuildPolicy::upgradeYardForBulkSlab(
+                            getGameInitSettings().getGameOptions().concreteRequired, bulkSlabReachable,
+                            pBuilder->getCurrentUpgradeLevel(), data[Structure_Slab4][houseID].upgradeLevel,
+                            pBuilder->getMaxUpgradeLevel(), money, upgradeCost, anotherUpgrading)) {
+                        if (anotherUpgrading) { hold("another_yard_unlocking_bulk_slab"); return true; }
+                        hold("saving_for_bulk_slab");
+                        return true;
+                    }
+					if (pBuilder->getHealth() < pBuilder->getMaxHealth()) {
+						if (!pBuilder->isRepairing()) doRepair(pBuilder);
+						hold("repair_before_bulk_slab");
+						return true; // The affordable upgrade owns this pass.
 					}
-				}
-
-                    return false;
+					const bool accepted = upgradeWithLogging(__LINE__);
+					traceDecision("yard_upgrade_for_concrete", AITelemetry::Record()
+						.set("builder", pBuilder->getObjectID()).set("accepted", accepted)
+						.set("cost", upgradeCost).set("spendable", money)
+						.set("level", pBuilder->getCurrentUpgradeLevel())
+						.set("reason", "unlock_bulk_slab"));
+                    return accepted;
                 };
-                if (gameMode==GameMode::Campaign && upgradeForConcrete()) continue;
+                if (upgradeForConcrete()) continue;
 
                 auto queueCampaignWindtrap = [&](int nextDemand) {
                     if (!campaignPowerNeeded(nextDemand) || pBuilder->getItemID()!=Structure_ConstructionYard
@@ -5761,6 +5779,109 @@ void QuantBot::build(int militaryValue) {
                     return true;
                 };
                 if (queueCampaignWindtrap(0)) continue;
+
+                // Generation outside the city simulation is an investment, not
+                // a function. Vanilla's House::hasPower() answers true whatever
+                // the meters say, so this never asks it: it compares the raw
+                // requirement with raw production, counts the output that
+                // repairs in progress and queued generators will deliver, and
+                // puts the remaining package through the documented economics
+                // in QuantBotPowerInvestmentPolicy. City power rules, the first
+                // prerequisite windtrap and the turret-power option are all
+                // untouched and still run ahead of this. Custom and legacy
+                // campaign games at every difficulty share the one gate.
+                auto economicGenerator = [&]() -> Uint32 {
+                    if (!vanillaEconomy || supportMode || defendingEconomy
+                        || pBuilder->getItemID()!=Structure_ConstructionYard
+                        || pBuilder->isUpgrading() || pBuilder->getProductionQueueSize()!=0) return NONE_ID;
+                    // Income and whatever production core this tree actually
+                    // offers come first; absent technology is not a blocker.
+                    auto coreEstablished=[&](Uint32 item) {
+                        return !data[item][houseID].enabled
+                            || data[item][houseID].techLevel>currentGame->techLevel
+                            || getHouse()->getNumItems(item)>0;
+                    };
+                    if (getHouse()->getNumItems(Structure_Refinery)==0 || getHouse()->getNumItems(Unit_Harvester)==0
+                        || !coreEstablished(Structure_LightFactory)
+                        || !coreEstablished(Structure_HeavyFactory)) return NONE_ID;
+                    // Capacity already paid for: the health a damaged generator
+                    // regains under the repair policy, and any queued generator.
+                    int restored=0, pendingOutput=0;
+                    for (const auto* structure:getStructureList()) {
+                        if (structure->getOwner()!=getHouse() || structure->getHealth()<=0) continue;
+                        const int nominal=-data[structure->getItemID()][structure->getOriginalHouseID()].power;
+                        if (nominal<=0 || structure->getMaxHealth()<=0) continue;
+                        const int current=(structure->getHealth()*nominal/structure->getMaxHealth()).floor();
+                        restored+=std::max(0,nominal-std::min(nominal,current));
+                    }
+                    for (int item=Structure_FirstID;item<=Structure_LastID;++item) {
+                        const int nominal=-data[item][houseID].power;
+                        if (nominal<=0) continue;
+                        pendingOutput+=std::max(0,itemCount[item]-getHouse()->getNumItems(item))*nominal;
+                    }
+                    // One generator at a time: a queued one is re-evaluated when
+                    // it lands, so parallel yards cannot over-buy capacity.
+                    if (pendingOutput>0) return NONE_ID;
+                    const int deficit=getHouse()->getPowerRequirement()
+                        - getHouse()->getProducedPower() - restored;
+                    if (deficit<=0) return NONE_ID;
+                    // Exactly the repairs a closed deficit stops paying for,
+                    // at the engine's own integer per-hitpoint charge.
+                    int repairMilli=0;
+                    for (const auto* structure:getStructureList())
+                        if (structure->getOwner()==getHouse() && structure->getHealth()>0
+                            && structure->getItemID()!=Structure_Wall
+                            && (repairPolicyMaintains(structure)
+                                || QuantBotBuildPolicy::repairWhenWealthy(money)))
+                            repairMilli+=QuantBotBuildPolicy::repairCreditsPerHitpointMilli(
+                                structure->getMaxHealth(),repairPrice(structure));
+                    QuantBotPowerInvestmentPolicy::GeneratorChoice best;
+                    for (Uint32 generator:{Uint32(Structure_WindTrap),Uint32(Structure_AdvancedWindTrap),
+                            Uint32(Structure_AdvancedWindTrapMK2),Uint32(Structure_AdvancedWindTrapMK3),
+                            Uint32(Structure_NuclearPlant)}) {
+                        const int output=-data[generator][houseID].power;
+                        if (output<=0 || !campaignAvailableToBuild(pBuilder,generator)
+                            || !findPlaceLocation(generator).isValid()) continue;
+                        QuantBotPowerInvestmentPolicy::GeneratorChoice candidate;
+                        candidate.item=generator;
+                        candidate.output=output;
+                        candidate.unitCapital=buildingCapitalCost(generator);
+                        candidate.packageCapital=QuantBotPowerInvestmentPolicy::generatorsNeeded(
+                            deficit,output)*candidate.unitCapital;
+                        if (QuantBotPowerInvestmentPolicy::preferGenerator(candidate,best)) best=candidate;
+                    }
+                    if (best.item==NONE_ID) return NONE_ID;
+                    QuantBotPowerInvestmentPolicy::Investment investment;
+                    investment.deficit=deficit;
+                    investment.generatorOutput=best.output;
+                    investment.unitCapital=best.unitCapital;
+                    // Forecast recurring income from the current fleet and field;
+                    // starting cash is not income, and core queues keep their reserve.
+                    investment.spendable=QuantBotBuildPolicy::spendableCredits(money,economyReserve);
+                    investment.netIncome=forecastNetIncome;
+                    investment.incomeMinutes=QuantBotSpendingPolicy::horizonMinutes;
+                    investment.repairMilliPerHitpoint=repairMilli;
+                    const auto verdict=QuantBotPowerInvestmentPolicy::evaluate(investment);
+                    const bool buy=QuantBotPowerInvestmentPolicy::buys(verdict);
+                    traceDecision("power_investment",AITelemetry::Record()
+                        .set("builder",pBuilder->getObjectID()).set("item",best.item)
+                        .set("raw_required",getHouse()->getPowerRequirement())
+                        .set("raw_produced",getHouse()->getProducedPower())
+                        .set("repair_restored_output",restored).set("pending_output",pendingOutput)
+                        .set("deficit",deficit).set("generator_output",best.output)
+                        .set("unit_capital",best.unitCapital)
+                        .set("generators_needed",QuantBotPowerInvestmentPolicy::generatorsNeeded(deficit,best.output))
+                        .set("package_capital",QuantBotPowerInvestmentPolicy::packageCapital(investment))
+                        .set("spendable_after_reserve",investment.spendable)
+                        .set("economy_reserve",economyReserve)
+                        .set("forecast_net_income",forecastNetIncome)
+                        .set("forecast_minutes",QuantBotSpendingPolicy::horizonMinutes)
+                        .set("maintained_repair_milli_per_hitpoint",repairMilli)
+                        .set("avoided_repairs_per_minute",QuantBotPowerInvestmentPolicy::avoidedRepairPerMinute(investment))
+                        .set("accepted",buy)
+                        .set("reason",QuantBotPowerInvestmentPolicy::describe(verdict)));
+                    return buy ? best.item : Uint32(NONE_ID);
+                };
 
                 // Hard/Brutal establish repair capacity; Medium only replaces an authored
                 // yard before optional expansion, including its missing prerequisites.
@@ -6486,6 +6607,13 @@ void QuantBot::build(int militaryValue) {
 									logDebug("***CampAI Build windtrap: power %d/%d", getHouse()->getProducedPower(), getHouse()->getPowerRequirement());
 								}
 							}
+							// Legacy campaign reconstruction shares the economic
+							// generation gate: Vanilla's hasPower() above never
+							// reports the raw shortage that degrades the base.
+							else if (const Uint32 generator = economicGenerator(); generator != NONE_ID) {
+								if (queueFoundedStructure(generator, __LINE__, "power_investment"))
+									++itemCount[generator];
+							}
 							else if (money > 3000
 								&& campaignAvailableToBuild(pBuilder,Structure_RocketTurret)
 								&& pBuilder->getProductionQueueSize() == 0
@@ -6641,8 +6769,8 @@ void QuantBot::build(int militaryValue) {
 									}
 								}
 
-                if (itemID==NONE_ID && !skipRemainingStructureLogic && upgradeForConcrete())
-                    skipRemainingStructureLogic=true;
+								// The bulk-concrete upgrade already ran ahead of this
+								// whole selection, for every mode and difficulty.
 
 								// Essential infrastructure - Build Order:
 								// 1. WindTrap (if 0)
@@ -6681,6 +6809,17 @@ void QuantBot::build(int militaryValue) {
 						logDebug("POWER-RECOVERY: Building windtrap for power deficit (%d)", powerDeficit);
 					}
 				}
+                // 1c. Economic generation outside the city simulation. Ahead of
+                // every optional purchase below, behind the first windtrap and
+                // the functional recovery above, and only when the documented
+                // gate accepts the whole package.
+                if (itemID == NONE_ID && !skipRemainingStructureLogic) {
+                    const Uint32 generator = economicGenerator();
+                    if (generator != NONE_ID) {
+                        itemID = generator; structureRule = "power_investment";
+                        skipRemainingStructureLogic = true;
+                    }
+                }
                 // Honour the winning service before optional power headroom,
                 // opening tech, civic growth and production expansion. Actual
                 // blackout recovery above remains necessary to operate it.
@@ -7896,7 +8035,7 @@ void QuantBot::build(int militaryValue) {
             int selectedCost=itemID!=NONE_ID ? purchasePrice(pBuilder,itemID) : 0;
             if (selectedPlaceLocation.isValid())
                 for (const auto& foundation:foundationOrders(pBuilder,itemID,selectedPlaceLocation))
-                    selectedCost+=purchasePrice(pBuilder,foundation.first);
+                    selectedCost+=purchasePrice(pBuilder,foundation.item);
             if (isCitySim && !pBuilder->isUpgrading() && !pBuilder->isOnHold()
                 && pBuilder->getProductionQueueSize()==0
                 && !(protectionCapital && capitalPending())
@@ -7937,23 +8076,43 @@ void QuantBot::build(int militaryValue) {
             }
 
 			if (selectedPlaceLocation.isValid()) {
-                // Protect productive/defensive health, city land value, and
-                // worthwhile rich-economy investments through the shared policy.
+                // Plan redevelopment against the ground after its zones are
+                // removed. Buildings consumed their old foundations at placement,
+                // so replacement buildings need newly queued slabs as well.
 				std::vector<Uint32> zonesToRemove;
                 const bool redevelop = redevelopmentZones(itemID, selectedPlaceLocation, zonesToRemove);
-                const auto foundations=redevelop ? std::vector<std::pair<Uint32,Coord>>{}
-                    : foundationOrders(pBuilder,itemID,selectedPlaceLocation);
+                const auto plan = foundationPlan(pBuilder,itemID,selectedPlaceLocation,zonesToRemove);
+                if (!plan.complete) {
+                    traceDecision("construction_rejected",AITelemetry::Record()
+                        .set("builder",planningBuilder).set("item",itemID).set("rule",structureRule)
+                        .set("reason","foundation_incomplete")
+                        .set("x",selectedPlaceLocation.x).set("y",selectedPlaceLocation.y));
+                    continue;
+                }
+                const auto& foundations=plan.orders;
                 int foundationCost=0;
-                for (const auto& foundation:foundations) foundationCost+=purchasePrice(pBuilder,foundation.first);
+                for (const auto& foundation:foundations) foundationCost+=purchasePrice(pBuilder,foundation.item);
                 if (!foundations.empty() && money < purchasePrice(pBuilder,itemID)+foundationCost) {
                     traceDecision("capital_order_blocked",AITelemetry::Record().set("plan",capitalDecision)
                         .set("builder",planningBuilder).set("item",itemID).set("reason","foundation_budget")
                         .set("price",purchasePrice(pBuilder,itemID)).set("foundation_cost",foundationCost).set("spendable",money));
                     continue;
                 }
-                for (const auto& foundation : foundations)
-                    if (produceItemWithLogging(foundation.first,__LINE__,"building_foundation"))
-                        placeLocations.push_back(foundation.second);
+                size_t foundationsQueued=0;
+                auto cancelFoundations=[&]() {
+                    for (size_t i=0;i<foundationsQueued;++i)
+                        doCancelItem(pBuilder,foundations[i].item);
+                    placeLocations.clear();
+                };
+                for (const auto& foundation : foundations) {
+                    if (!produceItemWithLogging(foundation.item,__LINE__,"building_foundation")) break;
+                    placeLocations.push_back(Coord(foundation.x,foundation.y));
+                    ++foundationsQueued;
+                }
+                if (foundationsQueued!=foundations.size()) {
+                    cancelFoundations();
+                    continue;
+                }
                 if (!foundations.empty()) placeLocations.push_back(selectedPlaceLocation);
 
 				if (produceItemWithLogging(itemID, __LINE__, structureRule)) {
@@ -7995,7 +8154,7 @@ void QuantBot::build(int militaryValue) {
 					if (itemID == strategicReserveItem) strategicReserveCost = 0;
 					clearPlacementCache();
 				} else {
-					placeLocations.clear();
+					cancelFoundations();
 				}
 			}
 			else if (itemID != NONE_ID && campaignAvailableToBuild(pBuilder,itemID)) {
@@ -8003,7 +8162,7 @@ void QuantBot::build(int militaryValue) {
 				// would have founded anyway; the same policy decides both, so a
 				// building never waits for ground it would not have prepared.
 				bool needsConcreteExpansion = getGameInitSettings().getGameOptions().concreteRequired
-					&& QuantBotBuildPolicy::foundationPriorityStructure(itemID, isCitySim);
+					&& QuantBotBuildPolicy::foundationRequiredForItem(itemID);
 
 				if (needsConcreteExpansion && campaignAvailableToBuild(pBuilder,Structure_Slab1)) {
 					Coord slabLocation = findSlabPlaceLocation(Structure_Slab1);
@@ -8084,13 +8243,33 @@ void QuantBot::build(int militaryValue) {
                     };
 
 
+                    // House::placeStructure paves whatever tile it is given and
+                    // clears its road flag, so the only guard a slab has is this
+                    // one. Rock only, nothing standing on it, no road erased.
+                    const bool placingSlab = itemToBePlaced == Structure_Slab1
+                        || itemToBePlaced == Structure_Slab4;
+                    auto plannedSlabLegal = [&](Uint32 slab, const Coord& site) {
+                        const Coord span = getStructureSize(slab);
+                        if (!site.isValid()) return false;
+                        for (int dx = 0; dx < span.x; ++dx) for (int dy = 0; dy < span.y; ++dy) {
+                            const int x = site.x + dx, y = site.y + dy;
+                            if (!getMap().tileExists(x, y)) return false;
+                            const Tile* tile = getMap().getTile(x, y);
+                            if (tile->isRoad() || !tile->isRock() || tile->isMountain()
+                                || tile->isBlocked() || tile->hasCityZone()) return false;
+                        }
+                        return getMap().okayToPlaceStructure(site.x, site.y, span.x, span.y,
+                            false, getHouse(), false, slab);
+                    };
+
 					// Check if we have a pre-stored location (from concrete pre-placement)
 					if (!placeLocations.empty()) {
 						location = placeLocations.front();
 						Coord itemsize = getStructureSize(itemToBePlaced);
 
 						// Verify the location is still valid
-						if (getMap().okayToPlaceStructure(location.x, location.y, itemsize.x, itemsize.y, false, getHouse(), false, itemToBePlaced)
+						if ((!placingSlab || plannedSlabLegal(itemToBePlaced, location))
+                            && getMap().okayToPlaceStructure(location.x, location.y, itemsize.x, itemsize.y, false, getHouse(), false, itemToBePlaced)
                             && (itemToBePlaced != Structure_Road || !getMap().getTile(location.x,location.y)->isRoadConnection())
                             && cityRoadImpact(getMap(), location.x, location.y, itemsize.x, itemsize.y, itemToBePlaced).preservesConnections
                             && !overlapsReservedStructure(location.x, location.y, itemsize.x, itemsize.y)
@@ -8118,18 +8297,52 @@ void QuantBot::build(int militaryValue) {
                                 tracePlacementIssue("placement_deferred","road_waiting_for_useful_gap",oldSite);
                             }
                             placementIssueHandled = true;
-                        } else if (itemToBePlaced == Structure_Slab1 || itemToBePlaced == Structure_Slab4) {
-							// Redundant concrete can be refunded without changing the remaining plan.
-							tracePlacementIssue("placement_cancel", "planned_concrete_invalid", location);
-                            doCancelItem(pConstYard, itemToBePlaced);
-							placeLocations.pop_front();
-							logDebug("PRODUCTION: Cancelled concrete at (%d,%d) - already placed or invalid", location.x, location.y);
-							location = Coord::Invalid();
+                        } else if (placingSlab) {
+                            // A foundation slab is never dropped on its own: that
+                            // is exactly how a building ends up on bare ground.
+                            // Re-plan the reserved building's foundation against
+                            // the map as it is now and use the first order of this
+                            // kind. Concrete the ground no longer needs is
+                            // refunded; a footprint that can no longer be prepared
+                            // hands the building back as well, so the next pass
+                            // can choose another site.
+                            const Coord oldSite = location;
+                            location = Coord::Invalid();
+                            const auto reserved = reservedStructures.find(planningBuilder);
+                            QuantBotFoundationPolicy::Plan replan;
+                            replan.complete = true;
+                            if (reserved != reservedStructures.end())
+                                replan = foundationPlan(pBuilder, reserved->second.item, reserved->second.location);
+                            for (const auto& order : replan.orders)
+                                if (order.item == itemToBePlaced
+                                    && plannedSlabLegal(order.item, Coord(order.x, order.y))) {
+                                    location = Coord(order.x, order.y);
+                                    break;
+                                }
+                            if (location.isValid()) {
+                                placeLocations.pop_front();
+                                tracePlacementIssue("placement_replan", "foundation_replanned", location);
+                            } else if (replan.complete && replan.orders.empty()) {
+                                tracePlacementIssue("placement_cancel", "foundation_already_prepared", oldSite);
+                                doCancelItem(pConstYard, itemToBePlaced);
+                                placeLocations.pop_front();
+                            } else {
+                                tracePlacementIssue("placement_cancel", "foundation_unavailable", oldSite);
+                                doCancelItem(pConstYard, itemToBePlaced);
+                                if (reserved != reservedStructures.end()) {
+                                    const int queued = pConstYard->getProductionQueueSize();
+                                    doCancelItem(pConstYard, reserved->second.item);
+                                    if (pConstYard->getProductionQueueSize() < queued)
+                                        --itemCount[reserved->second.item];
+                                }
+                                placeLocations.clear();
+                                reservedStructures.erase(planningBuilder);
+                                clearPlacementCache();
+                            }
 							placementIssueHandled = true;
 						} else {
-                            // Finished structures do not require concrete. If a unit,
-                            // another building or a changed road blocks the old site,
-                            // find another legal footprint instead of throwing the order away.
+                            // Try another legal site if this one was blocked. The
+                            // final foundation check below still applies to that site.
                             const Coord oldSite = location;
                             placeLocations.pop_front();
                             placementCache.erase(itemToBePlaced);
@@ -8151,9 +8364,11 @@ void QuantBot::build(int militaryValue) {
                                 roadMaintenanceAttempted = true;
                                 location = findFinishedRoadSite(pBuilder);
                             }
-                        } else if (itemToBePlaced == Structure_Slab1 || itemToBePlaced == Structure_Slab4) {
-						// For concrete slabs, use specialized slab placement method
+                        } else if (placingSlab) {
+						// For concrete slabs, use specialized slab placement method.
+						// It is still held to the same ground rule as a planned one.
 						location = findSlabPlaceLocation(itemToBePlaced);
+						if (!plannedSlabLegal(itemToBePlaced, location)) location = Coord::Invalid();
 					} else if (itemToBePlaced == Structure_RocketTurret || itemToBePlaced == Structure_GunTurret) {
 						// For turrets, try city placement first (near crime hotspots),
 						// falling back to normal perimeter placement
@@ -8228,6 +8443,34 @@ void QuantBot::build(int militaryValue) {
                             tracePlacementIssue("placement_deferred", "ground_exit_blocked", location);
                             location=Coord::Invalid();
                             placementIssueHandled=true;
+                        }
+                        // Last gate before the ground is committed: whatever
+                        // happened to the planned slabs — cancelled, blocked,
+                        // overwritten, or a different site chosen dynamically —
+                        // a finished building is never dropped onto tiles that
+                        // are not prepared. Refund it and let the next pass
+                        // order its foundation and the building together.
+                        if (location.isValid() && !placingSlab
+                            && getGameInitSettings().getGameOptions().concreteRequired
+                            && QuantBotBuildPolicy::foundationRequiredForItem(itemToBePlaced)) {
+                            const Coord span=getStructureSize(itemToBePlaced);
+                            bool prepared=true;
+                            for (int dx=0;dx<span.x && prepared;++dx)
+                                for (int dy=0;dy<span.y && prepared;++dy) {
+                                    const int x=location.x+dx, y=location.y+dy;
+                                    prepared=getMap().tileExists(x,y)
+                                        && getMap().getTile(x,y)->hasPreparedFoundation();
+                                }
+                            if (!prepared) {
+                                tracePlacementIssue("placement_cancel","footprint_not_prepared",location);
+                                doCancelItem(pConstYard,itemToBePlaced);
+                                placeLocations.clear();
+                                reservedStructures.erase(planningBuilder);
+                                --itemCount[itemToBePlaced];
+                                clearPlacementCache();
+                                location=Coord::Invalid();
+                                placementIssueHandled=true;
+                            }
                         }
 						if (location.isValid()) {
 							traceDecision("placement_request", AITelemetry::Record().set("builder", pConstYard->getObjectID())

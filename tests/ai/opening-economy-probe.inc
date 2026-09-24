@@ -59,6 +59,78 @@ void runOpeningEconomyProbe(Game& game) {
                 return order.itemID;
         return Uint32(NONE_ID);
     };
+    // Foundation auditing. The yard queues its slabs in plan order and then the
+    // building, and records one planned location for each, so the two lists
+    // line up and describe exactly what the bot intends to prepare.
+    struct FoundationAudit {
+        Uint32 item=NONE_ID;
+        Coord site=Coord::Invalid();
+        std::vector<std::pair<Uint32,Coord>> slabs;
+    };
+    auto auditFoundation=[&]() {
+        FoundationAudit audit;
+        const auto& planned=bot->builderPlaceLocations[yard->getObjectID()];
+        auto site=planned.begin();
+        for(const auto& order:yard->currentProductionQueue) {
+            if(site==planned.end())break;
+            if(order.itemID==Structure_Slab1 || order.itemID==Structure_Slab4)
+                audit.slabs.emplace_back(order.itemID,*site);
+            else {audit.item=order.itemID;audit.site=*site;}
+            ++site;
+        }
+        return audit;
+    };
+    auto slabCovers=[&](const FoundationAudit& audit,int x,int y) {
+        for(const auto& slab:audit.slabs) {
+            const int span=slab.first==Structure_Slab4?2:1;
+            if(x>=slab.second.x && x<slab.second.x+span
+                && y>=slab.second.y && y<slab.second.y+span)return true;
+        }
+        return false;
+    };
+    // Every tile a slab would pave has to be legal ground, and a road is never
+    // erased: House::placeStructure clears the road flag of whatever it paves.
+    auto requireLegalSlabs=[&](const FoundationAudit& audit) {
+        for(const auto& slab:audit.slabs) {
+            const int span=slab.first==Structure_Slab4?2:1;
+            for(int dx=0;dx<span;++dx)for(int dy=0;dy<span;++dy) {
+                const int x=slab.second.x+dx,y=slab.second.y+dy;
+                require(currentGameMap->tileExists(x,y),"Concrete was planned off the map");
+                auto* tile=currentGameMap->getTile(x,y);
+                require(!tile->isRoad(),"Concrete would erase an existing road");
+                require(tile->isRock() && !tile->isMountain(),
+                    "Concrete was planned onto ground the engine cannot pave");
+                require(!tile->hasAStructure(),"Concrete was planned under a standing building");
+            }
+        }
+    };
+    auto requireFullyFounded=[&](const FoundationAudit& audit) {
+        require(audit.item!=NONE_ID && audit.site.isValid(),"Founded order lost its building");
+        const auto size=getStructureSize(audit.item);
+        for(int dx=0;dx<size.x;++dx)for(int dy=0;dy<size.y;++dy) {
+            const int x=audit.site.x+dx,y=audit.site.y+dy;
+            require(currentGameMap->tileExists(x,y),"Building site left the map");
+            require(currentGameMap->getTile(x,y)->hasPreparedFoundation() || slabCovers(audit,x,y),
+                "An ordinary building was ordered onto ground no slab prepares");
+        }
+        requireLegalSlabs(audit);
+    };
+    auto countSlabs=[&](Uint32 slab) {
+        int count=0;
+        for(const auto& order:yard->currentProductionQueue)count+=order.itemID==slab;
+        return count;
+    };
+    auto stripConcrete=[&] {
+        for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x) {
+            auto* tile=currentGameMap->getTile(x,y);
+            if(!tile->hasAStructure() && tile->isConcrete())tile->setType(Terrain_Rock);
+        }
+    };
+    auto pavePlain=[&] {
+        for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x)
+            if(!currentGameMap->getTile(x,y)->hasAStructure())currentGameMap->getTile(x,y)->setType(Terrain_Slab);
+    };
+
     place(Structure_WindTrap);place(Structure_Refinery);
     // Real queue checks while the opening still has an unambiguous productive
     // next building. Isolate policies from the later mature-base fixtures.
@@ -72,46 +144,106 @@ void runOpeningEconomyProbe(Game& game) {
             require(income!=nullptr,"Could not create opening income worker");
         }
         game.gameInitSettings.gameOptions.concreteRequired=true;
+        // Bulk concrete comes before any construction, at every difficulty.
         for (auto difficulty : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
                                QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
             bot->difficulty=difficulty;
             yard->curUpgradeLev=0;yard->updateBuildList();
-            build(100000);
+            const auto item=build(100000);
             require(yard->isUpgrading(),"Funded opening did not upgrade the yard before optional infrastructure");
+            require(item==NONE_ID,"Optional construction ran ahead of the affordable bulk-concrete upgrade");
+        }
+        // Saving for the upgrade owns the pass too: no cheap building first.
+        {
+            bot->difficulty=QuantBot::Difficulty::Hard;
+            yard->curUpgradeLev=0;yard->updateBuildList();
+            const int cost=yard->getUpgradeCost();
+            require(cost>1,"Fixture needs a priced yard upgrade");
+            const auto item=build(cost-1);
+            require(!yard->isUpgrading(),"Yard upgraded without the credits for it");
+            require(item==NONE_ID,"A yard saving for bulk concrete bought something else first");
+        }
+        // A tree that cannot reach the 2x2 slab never holds the yard; it keeps
+        // founding with singles instead.
+        {
+            game.objectData.data[Structure_Slab4][HOUSE_ATREIDES].enabled=false;
+            yard->curUpgradeLev=0;yard->updateBuildList();
+            stripConcrete();
+            const auto item=build(100000);
+            require(!yard->isUpgrading(),"An unreachable 2x2 slab still forced a yard upgrade");
+            require(item!=NONE_ID,"Low-tech foundation policy stopped construction altogether");
+            require(countSlabs(Structure_Slab4)==0,"Disabled 2x2 concrete was ordered");
+            require(countSlabs(Structure_Slab1)>0,"Low-tech opening did not fall back to single slabs");
+            requireFullyFounded(auditFoundation());
+            game.objectData.data[Structure_Slab4][HOUSE_ATREIDES]=slab4;
+            yard->updateBuildList();
+        }
+        // Concrete switched off: no upgrade, no slabs, construction unchanged.
+        {
+            game.gameInitSettings.gameOptions.concreteRequired=false;
+            yard->curUpgradeLev=0;yard->updateBuildList();
+            stripConcrete();
+            const auto item=build(100000);
+            require(!yard->isUpgrading(),"Disabled concrete still bought the bulk-slab upgrade");
+            require(item!=NONE_ID,"Disabled concrete stopped construction");
+            require(countSlabs(Structure_Slab1)==0 && countSlabs(Structure_Slab4)==0,
+                "Disabled concrete entered the AI queue");
+            game.gameInitSettings.gameOptions.concreteRequired=true;
         }
         // The rest of the opening tests exercise build selection after the
         // new foundation upgrade, so give them the unlocked level explicitly.
         clearOrders();yard->curUpgradeLev=std::max<int>(savedUpgrade,slab4.upgradeLevel);
-        auto queueCheck=[&](bool required,bool bulk) {
-            game.gameInitSettings.gameOptions.concreteRequired=required;
+        yard->updateBuildList();
+        // Every ordinary building is prepared in full, with and without the
+        // 2x2 slab, at every difficulty. There is no urgent or passive escape:
+        // the base has no spare cash and is short of power in the third case.
+        auto queueCheck=[&](bool bulk,int credits,int power) {
             game.objectData.data[Structure_Slab4][HOUSE_ATREIDES].enabled=bulk;
             yard->updateBuildList();
-            for(int y=0;y<currentGameMap->getSizeY();++y)for(int x=0;x<currentGameMap->getSizeX();++x) {
-                auto* tile=currentGameMap->getTile(x,y);
-                if(!tile->hasAStructure() && tile->isConcrete())tile->setType(Terrain_Rock);
+            stripConcrete();
+            clearOrders();
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
+            house->producedPower=power;bot->lastCalculatedSpice=1300000;
+            bot->build(5100);
+            const auto audit=auditFoundation();
+            if(credits>=100000 && power>=house->getPowerRequirement())
+                require(audit.item!=NONE_ID,"Funded opening did not order a founded building");
+            if(audit.item==NONE_ID) {
+                require(countSlabs(Structure_Slab1)==0 && countSlabs(Structure_Slab4)==0,
+                    "Concrete was ordered for a building the bot did not order");
+                return;
             }
-            const auto item=build(100000);
-            require(item!=NONE_ID,"Foundation opening did not order a building");
-            const auto size=getStructureSize(item);
-            const auto& info=game.objectData.data[item][HOUSE_ATREIDES];
-            const bool wanted=QuantBotBuildPolicy::foundationPriorityStructure(item,game.isCitySimEnabled())
-                || QuantBotBuildPolicy::foundationPaysForItself(info.hitpoints,info.price,
-                    size.x*size.y*game.objectData.data[Structure_Slab1][HOUSE_ATREIDES].price);
-            int singles=0,large=0;
-            for(const auto& order:yard->currentProductionQueue) {
-                singles+=order.itemID==Structure_Slab1;
-                large+=order.itemID==Structure_Slab4;
-            }
-            if(required && wanted) {
-                require(singles+4*large==size.x*size.y,"Productive opening building lacks its full foundation");
-                if(bulk && size.x>=2 && size.y>=2)require(large>0,"Upgraded yard failed to use 2x2 concrete");
-                if(!bulk)require(large==0,"Disabled 2x2 concrete was ordered");
-            } else require(singles==0 && large==0,"Disabled or uneconomic concrete entered the AI queue");
+            requireFullyFounded(audit);
+            if(!bulk)require(countSlabs(Structure_Slab4)==0,"Disabled 2x2 concrete was ordered");
+            const auto size=getStructureSize(audit.item);
+            if(bulk && size.x>=2 && size.y>=2)
+                require(countSlabs(Structure_Slab4)>0,"Upgraded yard failed to use 2x2 concrete");
         };
         for (auto difficulty : {QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
                                QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
             bot->difficulty=difficulty;
-            queueCheck(false,true);queueCheck(true,false);queueCheck(true,true);
+            queueCheck(false,100000,10000);queueCheck(true,100000,10000);
+            queueCheck(true,900,10000);        // no spare cash: still founded or deferred
+            queueCheck(true,100000,0);         // power short: no urgent bare placement
+        }
+        // A road across the footprint is prepared ground that survives.
+        {
+            bot->difficulty=QuantBot::Difficulty::Hard;
+            game.objectData.data[Structure_Slab4][HOUSE_ATREIDES].enabled=true;
+            yard->updateBuildList();
+            stripConcrete();
+            const auto site=bot->findPlaceLocation(Structure_LightFactory);
+            require(site.isValid(),"No fixture site for the road foundation check");
+            currentGameMap->getTile(site.x,site.y)->setRoad(true);
+            clearOrders();
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+            house->producedPower=10000;bot->lastCalculatedSpice=1300000;
+            bot->build(5100);
+            const auto audit=auditFoundation();
+            if(audit.item!=NONE_ID)requireFullyFounded(audit);
+            require(currentGameMap->getTile(site.x,site.y)->isRoad(),
+                "A planned slab was allowed to erase an existing road");
+            currentGameMap->getTile(site.x,site.y)->setRoad(false);
         }
         // Legacy non-city campaigns use a separate reconstruction branch.
         // It must share both the early upgrade and the foundation queue rules.
@@ -126,10 +258,13 @@ void runOpeningEconomyProbe(Game& game) {
                 bot->difficulty=difficulty;
                 game.gameInitSettings.gameOptions.concreteRequired=true;
                 yard->curUpgradeLev=0;yard->updateBuildList();
-                build(100000);
+                const auto first=build(100000);
                 require(yard->isUpgrading(),"Campaign rebuild bypassed the early concrete upgrade");
+                require(first==NONE_ID,"Campaign rebuild ran ahead of the affordable concrete upgrade");
                 clearOrders();yard->curUpgradeLev=std::max<int>(savedUpgrade,slab4.upgradeLevel);
-                queueCheck(false,true);queueCheck(true,false);queueCheck(true,true);
+                yard->updateBuildList();
+                queueCheck(false,100000,10000);queueCheck(true,100000,10000);
+                queueCheck(true,900,10000);queueCheck(true,100000,0);
             }
             clearOrders();bot->gameMode=mode;game.gameType=type;
             bot->initialItemCount[Structure_LightFactory]=originalLight;
@@ -178,6 +313,78 @@ void runOpeningEconomyProbe(Game& game) {
     require(build(100000)==Structure_Radar,"Rich opening skipped its heavy-factory prerequisite");
     place(Structure_Radar);
     require(build(100000)==Structure_HeavyFactory,"Rich opening built repair/Starport before first heavy factory");
+    // The heavy factory is 3x2: real terrain, real placement. Two 2x2 slabs,
+    // one of them laying new concrete beside the footprint, rather than one
+    // 2x2 and two singles or one that re-paves the slab before it.
+    {
+        const bool savedConcrete=game.gameInitSettings.gameOptions.concreteRequired;
+        const auto savedUpgrade=yard->curUpgradeLev;
+        game.gameInitSettings.gameOptions.concreteRequired=true;
+        yard->curUpgradeLev=std::max<Uint8>(savedUpgrade,
+            static_cast<Uint8>(game.objectData.data[Structure_Slab4][HOUSE_ATREIDES].upgradeLevel));
+        yard->updateBuildList();
+        stripConcrete();
+        const auto item=build(100000);
+        require(item==Structure_HeavyFactory,"Founded 3x2 fixture did not order the heavy factory");
+        const auto audit=auditFoundation();
+        requireFullyFounded(audit);
+        const auto size=getStructureSize(item);
+        require(size.x==3 && size.y==2,"Fixture expected a 3x2 factory footprint");
+        int bulk=0,singles=0,outside=0;
+        for(const auto& slab:audit.slabs) {
+            const int span=slab.first==Structure_Slab4?2:1;
+            (slab.first==Structure_Slab4?bulk:singles)++;
+            for(int dx=0;dx<span;++dx)for(int dy=0;dy<span;++dy) {
+                const int x=slab.second.x+dx,y=slab.second.y+dy;
+                if(x<audit.site.x || x>=audit.site.x+size.x
+                    || y<audit.site.y || y>=audit.site.y+size.y)++outside;
+            }
+        }
+        SDL_Log("FOUNDATION_3x2: site=%d,%d bulk=%d singles=%d outside=%d",
+            audit.site.x,audit.site.y,bulk,singles,outside);
+        require(bulk==2 && singles==0,"A 3x2 footprint did not use two 2x2 slabs");
+        require(outside==2,"The 3x2 residual strip did not lay its extra concrete beside the footprint");
+        game.gameInitSettings.gameOptions.concreteRequired=savedConcrete;
+        yard->curUpgradeLev=savedUpgrade;
+        yard->updateBuildList();
+        pavePlain();
+        clearOrders();
+    }
+    // The final coverage gate. However the slabs were lost — cancelled,
+    // blocked, overwritten, or a site chosen dynamically — a finished building
+    // is refunded and re-planned rather than dropped onto bare ground.
+    {
+        const bool savedConcrete=game.gameInitSettings.gameOptions.concreteRequired;
+        game.gameInitSettings.gameOptions.concreteRequired=true;
+        yard->updateBuildList();
+        stripConcrete();
+        clearOrders();
+        const Uint32 bare=Structure_LightFactory;
+        bot->clearPlacementCache();
+        const auto site=bot->findPlaceLocation(bare);
+        require(site.isValid(),"No fixture site for the bare-placement guard");
+        yard->doProduceItem(bare);
+        require(yard->getProductionQueueSize()>0,"Fixture could not queue the guarded building");
+        yard->currentProducedItem=bare;
+        yard->productionProgress=game.objectData.data[bare][HOUSE_ATREIDES].price;
+        require(yard->isWaitingToPlace(),"Fixture could not finish the guarded building");
+        bot->builderPlaceLocations[yard->getObjectID()].clear();
+        bot->builderPlaceLocations[yard->getObjectID()].push_back(site);
+        bot->reservedStructures[yard->getObjectID()]={bare,site};
+        const int before=house->getNumItems(bare);
+        house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+        house->producedPower=10000;bot->lastCalculatedSpice=1300000;
+        bot->build(5100);
+        require(house->getNumItems(bare)==before,
+            "A finished building was placed onto ground no slab had prepared");
+        require(yard->getProductionQueueSize()==0,
+            "The unprepared building was neither placed nor refunded");
+        clearOrders();
+        game.gameInitSettings.gameOptions.concreteRequired=savedConcrete;
+        yard->updateBuildList();
+        pavePlain();
+        SDL_Log("FOUNDATION_GUARD_PASS: an unprepared finished building is refunded, never placed bare");
+    }
     place(Structure_HeavyFactory);
     house->getChoam().availableItems.clear();
     // With prerequisites built and spending otherwise exhausted, the fallback
@@ -193,6 +400,140 @@ void runOpeningEconomyProbe(Game& game) {
     const bool enabled=worker.enabled;worker.enabled=false;
     require(build(1800)!=Structure_StarPort,"All disabled imports still caused Starport construction");
     worker.enabled=enabled;clearOrders();
+
+    const auto probeDifficulty=bot->difficulty;
+    // Condition policy across the whole base. Three quarters of health is above
+    // the survival rule and below full, so only the condition policy decides.
+    // Whatever the engine repairs for free, and whatever turns condition into
+    // output, production or land value, is repaired on fifty credits; the rest
+    // waits for a comfortable treasury. City mode maintains the whole colony.
+    auto repairSweep=[&](int credits) {
+        clearOrders();
+        std::vector<StructureBase*> damaged;
+        for(auto* structure:structureList) {
+            if(structure->getOwner()!=house || structure->getHealth()<=0)continue;
+            structure->setHealth(FixPoint(structure->getMaxHealth())*3/4);
+            structure->repairing=false;
+            damaged.push_back(structure);
+        }
+        require(!damaged.empty(),"No structures to exercise the repair policy");
+        house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
+        house->producedPower=10000;bot->lastCalculatedSpice=1300000;
+        bot->build(5100);
+        int maintainedCount=0,passiveCount=0;
+        for(auto* structure:damaged) {
+            const bool maintained=QuantBotBuildPolicy::repairMaintainsValue(structure->getItemID(),
+                game.isCitySimEnabled(),structure->getMaxHealth(),
+                game.objectData.data[structure->getItemID()][structure->getOriginalHouseID()].price);
+            maintainedCount+=maintained;passiveCount+=!maintained;
+            if(maintained || QuantBotBuildPolicy::repairWhenWealthy(credits))
+                require(structure->isRepairing(),
+                    "A building whose condition is worth credits was left damaged");
+            else require(!structure->isRepairing(),
+                "A passive building was repaired without the spare cash for it");
+            structure->setHealth(structure->getMaxHealth());structure->repairing=false;
+        }
+        require(maintainedCount>0,"Fixture has no condition-driven buildings");
+        if(!game.isCitySimEnabled())require(passiveCount>0,"Fixture has no passive buildings");
+        else require(passiveCount==0,"City mode left part of the colony unmaintained");
+        SDL_Log("REPAIR_POLICY: credits=%d maintained=%d passive=%d",credits,maintainedCount,passiveCount);
+    };
+    for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+            QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+        bot->difficulty=difficulty;
+        repairSweep(50);      // productive, free and city repairs on small change
+        repairSweep(100000);  // a wealthy base maintains everything it owns
+    }
+    bot->difficulty=probeDifficulty;
+    clearOrders();
+    SDL_Log("REPAIR_POLICY_PASS: condition-driven, free and city repairs at low cash; passive only when wealthy");
+
+    // Generation outside the city simulation. Vanilla's hasPower() answers true
+    // whatever the meters say, so only the economic gate can close a raw
+    // deficit. Other mods keep their functional power rules and are skipped.
+    if(!game.isCitySimEnabled() && !house->isPowerRequired()) {
+        const int windOutput=-game.objectData.data[Structure_WindTrap][HOUSE_ATREIDES].power;
+        require(windOutput>0,"Fixture needs a windtrap that produces power");
+        StructureBase* generator=nullptr;
+        for(auto* structure:structureList)
+            if(structure->getOwner()==house && structure->getItemID()==Structure_WindTrap)generator=structure;
+        require(generator!=nullptr,"Missing generation fixture");
+        auto generatorsQueued=[&] {
+            int count=0;
+            for(auto* structure:structureList) {
+                if(structure->getOwner()!=house || !structure->isABuilder())continue;
+                for(const auto& order:static_cast<BuilderBase*>(structure)->currentProductionQueue)
+                    count+=order.itemID==Structure_WindTrap || order.itemID==Structure_NuclearPlant;
+            }
+            return count;
+        };
+        auto powerBuild=[&](int credits,int deficit,int spice) {
+            clearOrders();
+            generator->setHealth(generator->getMaxHealth());generator->repairing=false;
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=credits;
+            bot->lastCalculatedSpice=spice;
+            house->producedPower=std::max(0,house->getPowerRequirement()-deficit);
+            bot->build(5100);
+            return generatorsQueued();
+        };
+        const auto savedMode=bot->gameMode;
+        const auto savedType=game.gameType;
+        // Model an established fleet in the same house inventory used by the
+        // live income forecast; the opening fleet is deliberately too small.
+        const int savedPowerWorkers=house->numItem[Unit_Harvester];
+        house->numItem[Unit_Harvester]=16;
+        for(auto difficulty:{QuantBot::Difficulty::Easy,QuantBot::Difficulty::Medium,
+                QuantBot::Difficulty::Hard,QuantBot::Difficulty::Brutal}) {
+            bot->difficulty=difficulty;
+            // Funded, earning and short of power: close the deficit.
+            require(powerBuild(100000,windOutput,1300000)>0,
+                "A funded raw power deficit did not buy generation");
+            // No measured income, however large the bank.
+            require(powerBuild(100000,windOutput,0)==0,
+                "Generation was bought out of a starting balance rather than income");
+            // No spare cash after the reserve, and nothing to repay it with.
+            require(powerBuild(600,windOutput,1300000)==0,
+                "Generation was bought without the cash to fund the package");
+            // No raw deficit at all.
+            require(powerBuild(100000,0,1300000)==0,
+                "Generation was bought with no raw power deficit");
+            // Repairs already under way restore the missing output.
+            clearOrders();
+            generator->setHealth(FixPoint(generator->getMaxHealth())/2);generator->repairing=false;
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+            bot->lastCalculatedSpice=1300000;
+            house->producedPower=std::max(0,house->getPowerRequirement()-windOutput/2);
+            bot->build(5100);
+            require(generatorsQueued()==0,
+                "Generation was bought for output a repair in progress already restores");
+            generator->setHealth(generator->getMaxHealth());generator->repairing=false;
+            // A generator already on order is not duplicated.
+            clearOrders();
+            house->storedCredits=0;house->cityCredits=0;house->startingCredits=100000;
+            bot->lastCalculatedSpice=1300000;
+            house->producedPower=std::max(0,house->getPowerRequirement()-windOutput);
+            yard->doProduceItem(Structure_WindTrap);
+            require(yard->getProductionQueueSize()>0,"Fixture could not queue the pending generator");
+            bot->build(5100);
+            require(generatorsQueued()==1,"A pending generator was duplicated");
+            // The core comes first: no worker fleet, no generation investment.
+            const int fieldWorkers=house->numItem[Unit_Harvester];
+            house->numItem[Unit_Harvester]=0;
+            require(powerBuild(100000,windOutput,1300000)==0,
+                "Generation was bought before the income core existed");
+            house->numItem[Unit_Harvester]=fieldWorkers;
+            // Legacy campaign reconstruction shares the same gate.
+            bot->gameMode=QuantBot::GameMode::Campaign;game.gameType=GameType::Campaign;
+            require(powerBuild(100000,windOutput,1300000)>0,
+                "Legacy campaign reconstruction never closes a raw power deficit");
+            bot->gameMode=savedMode;game.gameType=savedType;
+        }
+        house->numItem[Unit_Harvester]=savedPowerWorkers;
+        bot->difficulty=probeDifficulty;
+        clearOrders();
+        SDL_Log("POWER_INVESTMENT_PASS: funded deficit closed; no income, no cash, no core, "
+            "pending repair and pending generator all decline; custom and campaign, all difficulties");
+    }
 
     // Default must ignore the old cap in saved houses; explicit options win.
     house->maxHarvesters=60;

@@ -298,20 +298,22 @@ inline std::array<Uint32, 3> rankZones(int residential, int commercial, int indu
 }
 
 // ---------------------------------------------------------------------------
-// Concrete foundations
+// Concrete foundations and structure condition
 //
 // A building placed on unprepared ground loses half its health on placement and
 // then decays back to that floor whenever it is repaired. Health is not
 // cosmetic: windtraps convert it straight into power, refineries unload more
 // slowly, every builder builds more slowly, and in city mode a damaged
-// footprint scales down the land value under itself. Those buildings are
-// founded on principle. For the rest it is a pure financial question — slabs
-// now against repair credits later — so the decision uses the engine's own
-// repair price.
+// footprint scales down the land value under itself. Every ordinary building
+// is therefore fully founded before it is ordered — there is no rich, urgent or
+// otherwise selective exception. QuantBotFoundationPolicy lays out the slabs;
+// the predicates below say which buildings the condition rules apply to, and
+// price what the engine charges to repair them.
 // ---------------------------------------------------------------------------
 
 // Tile states and the one structure the engine excludes from degradation. They
-// never carry a foundation of their own.
+// never carry a foundation of their own, and a construction yard an MCV
+// deploys is never queued, so it cannot be prepared in advance either.
 inline bool foundationExemptItem(Uint32 item) {
     return item == NONE_ID || item == Structure_Wall || item == Structure_Slab1
         || item == Structure_Slab4 || item == Structure_Road || item == Structure_PowerLine;
@@ -345,13 +347,12 @@ inline bool defensiveEmplacement(Uint32 item) {
         || item == Structure_Chemipost;
 }
 
-// Founded whenever concrete is in play. In city mode that is the whole colony:
-// CityEffects scales each footprint's land value by the building's health, so a
-// half-health building halves the value of the ground it stands on.
-inline bool foundationPriorityStructure(Uint32 item, bool citySim) {
-    if (foundationExemptItem(item)) return false;
-    return citySim || healthScaledProduction(item) || healthScaledOutput(item, citySim)
-        || defensiveEmplacement(item);
+// Whenever concrete is in play, everything that is not a tile state is founded
+// in full before it is placed. In city mode that reading is also the strictest
+// one: CityEffects scales each footprint's land value by the building's health,
+// so a half-health building halves the value of the ground it stands on.
+inline bool foundationRequiredForItem(Uint32 item) {
+    return !foundationExemptItem(item);
 }
 
 // Credits the engine charges per hitpoint of repair, in thousandths.
@@ -372,50 +373,56 @@ inline int placementRepairCost(int maxHealth, int price) {
         : int(int64_t(maxHealth / 2) * repairCreditsPerHitpointMilli(maxHealth, price) / 1000);
 }
 
-// Discretionary foundations are an investment, not a rule: only worth laying
-// when the slabs cost less than the repairs they replace.
-inline bool foundationPaysForItself(int maxHealth, int price, int foundationCost) {
-    return foundationCost > 0 && placementRepairCost(maxHealth, price) > foundationCost;
+// The engine repairs the largest buildings for nothing, because its integer
+// hitpoint fraction collapses to zero above 512 maximum health. Those are kept
+// at full health unconditionally: it costs the treasury nothing at all.
+// This is the engine's exact fraction, not the rounded milli-credit figure: a
+// one-credit building at 512 maximum health still charges 1/1280 per hitpoint,
+// which rounds to zero thousandths without being free.
+inline bool repairsForFree(int maxHealth, int price) {
+    return maxHealth <= 0 || price <= 0 || (2 * 256) / maxHealth == 0;
 }
 
-// Discretionary foundations must leave the requested operating reserve.
-inline bool foundationAffordable(int credits, int itemPrice, int foundationCost, int reserve) {
-    return int64_t(credits) >= int64_t(itemPrice) + foundationCost + std::max(0, reserve);
+// Condition is worth real credits on these buildings, so they are repaired
+// whenever the engine can be paid at all. In city mode every footprint scales
+// its own land value by its health, so that is the whole colony, walls
+// included. Everything else waits for a comfortable treasury.
+inline bool repairMaintainsValue(Uint32 item, bool citySim, int maxHealth, int price) {
+    return citySim || healthScaledProduction(item) || healthScaledOutput(item, citySim)
+        || repairsForFree(maxHealth, price);
 }
 
-// Power blackouts, defended bases and a colony without income need the
-// building itself more than they need it at full health.
-inline bool placeWithoutFoundation(bool urgent, int credits, int itemPrice, int foundationCost) {
-    return urgent && credits >= itemPrice
-        && int64_t(credits) < int64_t(itemPrice) + foundationCost;
-}
+// The engine charges per repair tick, so it must have something to charge.
+inline bool canAffordRepairTick(int credits) { return credits >= 5; }
+inline bool repairWhenWealthy(int availableMoney) { return availableMoney > 5000; }
 
-// The 2x2 slab is one order and one placement where Slab1 needs four, so a bot
-// that founds its buildings wants the yard upgrade as soon as the economy can
-// pay for it — not as a late side effect of the rocket-turret prerequisite.
-// It is only ever a slab unlock: no concrete, no upgrade for this reason.
+// The 2x2 slab is one order and one placement where Slab1 needs four, and
+// every ordinary building now waits for its full foundation. The yard
+// therefore unlocks bulk concrete as soon as the technology allows it, ahead
+// of any optional construction: no income, reserve, power or defence
+// precondition, because those all depend on buildings this upgrade makes
+// cheaper to found. Only the cost of the upgrade itself gates it.
+//
+// `anotherYardUpgrading` keeps parallel yards from all stopping at once. It is
+// transient by construction — an upgrade finishes — so every yard reaches the
+// level in turn and none is locked out permanently.
 inline bool upgradeYardForBulkSlab(bool concreteRequired, bool bulkSlabAvailable,
                                    int currentUpgradeLevel, int requiredUpgradeLevel,
-                                   int maxUpgradeLevel, bool coreIncome, int credits,
-                                   int upgradeCost, int reserve, bool anotherYardUpgrading) {
-    return concreteRequired && bulkSlabAvailable && coreIncome && !anotherYardUpgrading
+                                   int maxUpgradeLevel, int credits, int upgradeCost,
+                                   bool anotherYardUpgrading) {
+    return concreteRequired && bulkSlabAvailable && !anotherYardUpgrading
         && requiredUpgradeLevel > 0 && currentUpgradeLevel < requiredUpgradeLevel
         && maxUpgradeLevel >= requiredUpgradeLevel && upgradeCost > 0
-        && int64_t(credits) >= int64_t(upgradeCost) + std::max(0, reserve);
+        && credits >= upgradeCost;
 }
 
-// A road is already foundation: a bulk slab must not erase it. Coordinates
-// below are relative to the building footprint, independently of queue order.
-template<class Prepared>
-inline bool useBulkFoundation(int width,int height,bool available,Prepared prepared) {
-    if (!available || width<2 || height<2) return false;
-    for (int x=0;x<2;++x) for (int y=0;y<2;++y) if (prepared(x,y)) return false;
-    return true;
-}
-inline int foundationSlabSize(int x,int y,bool bulk,bool prepared) {
-    if (prepared) return 0;
-    if (bulk && x<2 && y<2) return x==0 && y==0 ? 2 : 0;
-    return 1;
+// A yard that still owes this upgrade must not spend the pass on optional
+// construction instead; a damaged yard repairs first so it can accept it.
+inline bool bulkSlabUpgradePending(bool concreteRequired, bool bulkSlabAvailable,
+                                   int currentUpgradeLevel, int requiredUpgradeLevel,
+                                   int maxUpgradeLevel) {
+    return concreteRequired && bulkSlabAvailable && requiredUpgradeLevel > 0
+        && currentUpgradeLevel < requiredUpgradeLevel && maxUpgradeLevel >= requiredUpgradeLevel;
 }
 
 // Divide the remaining map spice between active houses before investing.

@@ -1,6 +1,6 @@
 # Building condition and concrete
 
-Local implementation: 1.0.776. These are DuneCity engine rules, shared by the
+Local implementation: 1.0.777. These are DuneCity engine rules, shared by the
 Vanilla/DuneCity/Dune2R/Tornie modes; they are not a claim that every economic
 mechanic matches Dune Dynasty.
 
@@ -66,12 +66,15 @@ with a preceding slab order.
 
 ## Economic interpretation
 
-At the default full-health yard speed, covering a 2x2 footprint costs 20 credits
+For tightly fitted foundations at the default full-health yard speed, covering
+a 2x2 footprint costs 20 credits
 and takes 3.84 seconds with one large slab, versus 15.36 seconds with singles.
 A 3x2 footprint costs 30 credits and takes 11.52 versus 23.04 seconds. A 3x3
 footprint costs 45 credits and takes 23.04 versus 34.56 seconds. Placement/AI
 handling adds latency; a damaged yard slows production. Tech/mod availability
-and Instant Build can change this comparison.
+and Instant Build can change this comparison. QuantBot now prefers large-slab
+overhangs: a clear 3x2 footprint uses two large slabs (40 credits, 7.68 seconds),
+trading 10 extra credits for one fewer construction/placement operation.
 
 Building bare then repairing immediately can deliver urgent production sooner,
 because repair and manufacturing run concurrently in this engine. It costs more
@@ -80,8 +83,8 @@ Dynasty pauses factory production during building repairs.
 
 Leaving a building at exactly half health avoids continuing foundation damage,
 but loses durability, factory speed/refinery unloading, windtrap output and city
-land value as applicable. Rich discretionary concrete outside city mode is only
-credit-saving if the building would otherwise be repaired. The current repair
+land value as applicable. Concrete outside city mode only saves repair credits if the building would
+otherwise be repaired. The current repair
 formula has integer `512 / maxHP`; buildings above 512 HP can repair for zero
 credits (while still requiring at least 5 credits to keep repairing). Do not
 justify Palace/Nuclear foundations with nonexistent repair-credit savings.
@@ -92,8 +95,9 @@ saves 11.52 seconds over four singles, so its manufacturing-time investment is
 recovered on the first fully covered 2x2 footprint. The upgrade unlock still
 requires the configured tech level (default level 4), and delaying the first
 refinery to buy it can be a worse trade than accepting single slabs briefly.
-The useful policy is early upgrade **after income exists**, not an unconditional
-first action.
+The requested QuantBot policy now prioritises this upgrade before new yard
+construction as soon as the configured technology permits it, including before
+income infrastructure. Missions where bulk slabs are still locked use singles.
 
 For the three 100-credit, 200-HP zones, repairing the initial missing-foundation
 health costs about 15.6 credits, less than their 20-credit concrete footprint.
@@ -108,23 +112,11 @@ Relevant implementation: `WindTrap.cpp`, `AdvancedWindTrap.cpp`,
 
 ## QuantBot decisions
 
-The policy applies at every difficulty, including the separate campaign
-reconstruction and power-order paths. With concrete enabled, productive
-buildings and defensive emplacements receive foundations; city mode extends
-that priority to every building because of land value. City zones select rock
-that slabs can actually cover. Urgent recovery and cash-limited zoning may build
-bare if the building is affordable but its foundation is not.
-
-Outside that priority set, discretionary foundations require more than 5,000
-spendable credits, a lower slab bill than the placement-repair bill, and enough
-money for the building, slabs, economy reserve and another building-price buffer.
-The threshold matches the existing general rich-building repair trigger.
-
-The slab upgrade runs before optional infrastructure once a refinery and
-harvester exist, Slab4 is enabled and technologically reachable, and funds cover
-the upgrade plus the economy reserve and a refinery-price buffer. Immediate
-power deficits and defensive needs retain priority. Only one yard upgrades for
-this purpose at a time; concrete-disabled games do not buy this upgrade for
-slabs. Damaged standard/advanced windtraps can trigger low-power repairs;
-Vanilla's unrelated power bypass no longer hides a real shortage from that
-repair decision.
+The 1.0.777 policy supersedes the earlier selective foundation and late repair
+rules. With concrete required, QuantBot upgrades for bulk slabs first when
+technology permits and fully founds ordinary buildings. Oversized slabs can
+cover the final narrow strip beside a footprint. It repairs health-sensitive
+and free-to-repair buildings without the rich-cash threshold; city mode extends
+that to all structures because of land value. See
+[QuantBot foundations, repairs and power](quantbot-foundation-repair-power.md)
+for the policy and Vanilla power investment criteria.
