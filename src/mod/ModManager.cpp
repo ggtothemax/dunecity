@@ -72,7 +72,6 @@ std::string vanillaOptions() {
     out << "[Game Options]\n";
     out << "Game Speed = 16\n";
     out << "Concrete Required = true\n";
-    out << "Structures Degrade On Concrete = true\n";
     out << "Fog of War = false\n";
     out << "Start with Explored Map = false\n";
     out << "Instant Build = false\n";
@@ -92,7 +91,6 @@ std::string cityOptions() {
     out << "[Game Options]\n";
     out << "Game Speed = 16\n";
     out << "Concrete Required = true\n";
-    out << "Structures Degrade On Concrete = false\n";
     out << "Fog of War = false\n";
     out << "Start with Explored Map = true\n";
     out << "Instant Build = false\n";
@@ -902,7 +900,6 @@ SettingsClass::GameOptionsClass ModManager::loadEffectiveGameOptions(
             
             if (key == "Game Speed") result.gameSpeed = std::stoi(value);
             else if (key == "Concrete Required") result.concreteRequired = parseBool(value);
-            else if (key == "Structures Degrade On Concrete") result.structuresDegradeOnConcrete = parseBool(value);
             else if (key == "Fog of War") result.fogOfWar = parseBool(value);
             else if (key == "Start with Explored Map") result.startWithExploredMap = parseBool(value);
             else if (key == "Instant Build") result.instantBuild = parseBool(value);

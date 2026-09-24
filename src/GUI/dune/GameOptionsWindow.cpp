@@ -49,12 +49,6 @@ GameOptionsWindow::GameOptionsWindow(SettingsClass::GameOptionsClass& initialGam
     vboxLeft.addWidget(&startWithExploredMapCheckbox);
     vboxLeft.addWidget(VSpacer::create(6));
 
-    structuresDegradeOnConcreteCheckbox.setText(_("Structures Degrade On Concrete"));
-    structuresDegradeOnConcreteCheckbox.setTooltipText(_("If checked structures will degrade on power shortage even if built on concrete."));
-    structuresDegradeOnConcreteCheckbox.setChecked(gameOptions.structuresDegradeOnConcrete);
-    vboxLeft.addWidget(&structuresDegradeOnConcreteCheckbox);
-    vboxLeft.addWidget(VSpacer::create(6));
-
     sandwormsRespawnCheckbox.setText(_("Killed Sandworms Respawn"));
     sandwormsRespawnCheckbox.setTooltipText(_("If checked killed sandworms respawn after some time."));
     sandwormsRespawnCheckbox.setChecked(gameOptions.sandwormsRespawn);
@@ -191,7 +185,6 @@ GameOptionsWindow::~GameOptionsWindow() {
 void GameOptionsWindow::onOK() {
     gameOptions.gameSpeed = currentGameSpeed;
     gameOptions.concreteRequired = concreteRequiredCheckbox.isChecked();
-    gameOptions.structuresDegradeOnConcrete = structuresDegradeOnConcreteCheckbox.isChecked();
     gameOptions.fogOfWar = fogOfWarCheckbox.isChecked();
     gameOptions.startWithExploredMap = startWithExploredMapCheckbox.isChecked();
     gameOptions.instantBuild = instantBuildCheckbox.isChecked();

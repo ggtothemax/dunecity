@@ -28,11 +28,10 @@ parser.add_argument('--free-for-all', action='store_true', help='Give each custo
 parser.add_argument('--capture-mib', type=int, default=1024, help='Diagnostic capture allowance; shipped default is unchanged')
 parser.add_argument('--wall-timeout', type=int, default=1800, help='Maximum wall seconds for the simulation')
 parser.add_argument('--level', type=int, choices=range(1,10), default=4)
-parser.add_argument('--mod', choices=('vanilla','dunecity','Dune2R'), default='vanilla')
+parser.add_argument('--mod', choices=('vanilla','dunecity','Dune2R','Tornie'), default='vanilla')
 parser.add_argument('--house', choices=tuple(h for h in house_names if h!='neutral'), default='harkonnen')
 parser.add_argument('--roster', help='Explicit custom-map house:team slots in lobby order, comma-separated')
 parser.add_argument('--harvester-limit', type=int, choices=range(-1,101), default=-1)
-parser.add_argument('--structures-degrade-on-concrete', action=argparse.BooleanOptionalAction, default=None)
 parser.add_argument('--rocket-turrets-need-power', action=argparse.BooleanOptionalAction, default=None)
 parser.add_argument('--partner-difficulty', choices=('easy','medium','hard','brutal'), default='easy')
 parser.add_argument('--enemy-ai', choices=('quantbot','ai-player'), default='quantbot', help='Enemy controller family; AI Player has Easy/Medium/Hard')
@@ -51,6 +50,8 @@ parser.add_argument('--credit-storage-probe', action='store_true',
 parser.add_argument('--stats-probe', action='store_true', help='Verify campaign results with a shared human/AI house')
 parser.add_argument('--nuclear-probe', action='store_true')
 parser.add_argument('--reactor-safety-probe', action='store_true')
+parser.add_argument('--degradation-probe', action='store_true',
+                    help='Verify Dynasty-aligned power damage, foundation decay and their save state')
 parser.add_argument('--radar-probe', action='store_true')
 parser.add_argument('--army-probe', action='store_true')
 parser.add_argument('--air-defense-probe', action='store_true')
@@ -171,8 +172,6 @@ env = dict(os.environ,DUNECITY_USERDIR=str(out/'profile'),SDL_VIDEODRIVER='dummy
 env['BALANCE_CAPTURE_MIB'] = str(args.capture_mib)
 if args.rocket_turrets_need_power is not None:
     env['BALANCE_ROCKET_TURRETS_NEED_POWER'] = str(int(args.rocket_turrets_need_power))
-if args.structures_degrade_on_concrete is not None:
-    env['BALANCE_DEGRADE_ON_CONCRETE'] = str(int(args.structures_degrade_on_concrete))
 if args.custom_map:
     env['BALANCE_CUSTOM_MAP'] = str(args.custom_map.resolve())
     env['BALANCE_ROSTER'] = ','.join(f'{house}:{team}' for house, team in roster)
@@ -189,6 +188,7 @@ if args.city_placement_probe: env['BALANCE_CITY_PLACEMENT_PROBE'] = '1'
 if args.opening_economy_probe: env['BALANCE_OPENING_ECONOMY_PROBE'] = '1'
 if args.nuclear_probe or args.reactor_safety_probe: env['BALANCE_NUCLEAR_PROBE'] = '1'
 if args.reactor_safety_probe: env['BALANCE_REACTOR_SAFETY_PROBE'] = '1'
+if args.degradation_probe: env['BALANCE_DEGRADATION_PROBE'] = '1'
 if args.radar_probe: env['BALANCE_RADAR_PROBE'] = '1'
 if args.army_probe: env['BALANCE_ARMY_PROBE'] = '1'
 if args.air_defense_probe: env['BALANCE_AIR_DEFENSE_PROBE'] = '1'

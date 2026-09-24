@@ -132,9 +132,9 @@ std::string userGameOptionsSection() {
 }
 
 void writeGameOptionsToConfig(INIFile& config, const std::string& section, const SettingsClass::GameOptionsClass& options) {
+    config.removeKey(section, "Structures Degrade On Concrete"); // obsolete option
     config.setIntValue(section, "Game Speed", options.gameSpeed);
     config.setBoolValue(section, "Concrete Required", options.concreteRequired);
-    config.setBoolValue(section, "Structures Degrade On Concrete", options.structuresDegradeOnConcrete);
     config.setBoolValue(section, "Fog of War", options.fogOfWar);
     config.setBoolValue(section, "Start with Explored Map", options.startWithExploredMap);
     config.setBoolValue(section, "Instant Build", options.instantBuild);
@@ -162,7 +162,6 @@ void applyGameOptionsFromConfig(const INIFile& config, const std::string& sectio
     };
     readInt("Game Speed", options.gameSpeed);
     readBool("Concrete Required", options.concreteRequired);
-    readBool("Structures Degrade On Concrete", options.structuresDegradeOnConcrete);
     readBool("Fog of War", options.fogOfWar);
     readBool("Start with Explored Map", options.startWithExploredMap);
     readBool("Instant Build", options.instantBuild);

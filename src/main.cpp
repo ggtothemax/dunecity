@@ -744,7 +744,6 @@ void createDefaultConfigFile(const std::string& configfilepath, const std::strin
                                 "[Game Options]\n"
                                 "Game Speed = 16                         # The default speed of the game: 32 = very slow, 8 = very fast, 16 = default\n"
                                 "Concrete Required = true                # If true building on bare rock will result in 50%% structure health penalty\n"
-                                "Structures Degrade On Concrete = true   # If true structures will degrade on power shortage even if built on concrete\n"
                                 "Fog of War = false                      # If true explored terrain will become foggy when no unit or structure is next to it\n"
                                 "Start with Explored Map = false         # If true the complete map is unhidden at the beginning of the game\n"
                                 "Instant Build = false                   # If true the building of structures and units does not take any time\n"
@@ -1263,7 +1262,6 @@ int main(int argc, char *argv[]) {
 
             settings.gameOptions.gameSpeed = myINIFile.getIntValue("Game Options","Game Speed",GAMESPEED_DEFAULT);
             settings.gameOptions.concreteRequired = myINIFile.getBoolValue("Game Options","Concrete Required",true);
-            settings.gameOptions.structuresDegradeOnConcrete = myINIFile.getBoolValue("Game Options","Structures Degrade On Concrete",true);
             settings.gameOptions.fogOfWar = myINIFile.getBoolValue("Game Options","Fog of War",false);
             settings.gameOptions.startWithExploredMap = myINIFile.getBoolValue("Game Options","Start with Explored Map",false);
             settings.gameOptions.instantBuild = myINIFile.getBoolValue("Game Options","Instant Build",false);

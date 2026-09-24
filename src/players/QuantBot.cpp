@@ -5432,7 +5432,8 @@ void QuantBot::build(int militaryValue) {
 			else if (pStructure->getItemID() == Structure_RocketTurret
                 && !pStructure->isRepairing() && pStructure->getHealth() > 0
                 && pStructure->getHealth() < pStructure->getMaxHealth()) {
-				if (!getGameInitSettings().getGameOptions().structuresDegradeOnConcrete || pStructure->hasATarget()) {
+				// Prioritize engaged turrets; routine repairs are handled above.
+				if (pStructure->hasATarget()) {
 					doRepair(pStructure);
 				}
 			}

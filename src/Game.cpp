@@ -648,7 +648,6 @@ void Game::initGame(const GameInitSettings& newGameInitSettings) {
         .set("start_cycle", gameCycleCount)
         .set("options", AITelemetry::Record()
             .set("concrete_required", gameInitSettings.getGameOptions().concreteRequired)
-            .set("structures_degrade_on_concrete", gameInitSettings.getGameOptions().structuresDegradeOnConcrete)
             .set("fog_of_war", gameInitSettings.getGameOptions().fogOfWar)
             .set("immortal_human_player", gameInitSettings.getGameOptions().immortalHumanPlayer)
             .set("harvester_limit_override", gameInitSettings.getGameOptions().maximumNumberOfHarvestersOverride))

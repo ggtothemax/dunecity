@@ -36,10 +36,25 @@
 #include <GUI/ObjectInterfaces/DefaultStructureInterface.h>
 #include <GUI/ObjectInterfaces/CityStatsStructureInterface.h>
 
+#include <dunecity/StructureDegradation.h>
+
+#include <algorithm>
 #include <set>
 #include <tuple>
 
 namespace {
+// SAVEGAMEVERSION 9847 splits the single legacy degrade timer into the
+// independent power-damage and foundation-decay state. Older saves carry one
+// Sint32 timer whose -1 sentinel cannot identify the original foundation, so
+// they restore without foundation decay (see StructureDegradation.h).
+constexpr Uint32 kDegradationSaveVersion = 9847;
+static_assert(SAVEGAMEVERSION >= kDegradationSaveVersion,
+              "StructureBase writes the split degradation state; SAVEGAMEVERSION must cover it");
+
+bool savegameHasDegradationState() {
+    return currentGame == nullptr || currentGame->getLoadedSavegameVersion() >= kDegradationSaveVersion;
+}
+
 bool isTornieStructureForDiagnostics(int itemID) {
     return itemID == Structure_AdvancedWindTrap
         || itemID == Structure_AdvancedWindTrapMK2
@@ -75,7 +90,9 @@ StructureBase::StructureBase(House* newOwner) : ObjectBase(newOwner) {
 
     repairing = false;
     fogged = false;
-    degradeTimer = MILLI2CYCLES(15*1000);
+    powerDamageTimer = DuneCity::Degradation::powerDamageIntervalCycles();
+    foundationDecayTimer = DuneCity::Degradation::foundationDecayIntervalCycles();
+    foundationDegrades = false;
 }
 
 StructureBase::StructureBase(InputStream& stream): ObjectBase(stream) {
@@ -85,7 +102,16 @@ StructureBase::StructureBase(InputStream& stream): ObjectBase(stream) {
     fogged = stream.readBool();
     lastVisibleFrame = stream.readUint32();
 
-    degradeTimer = stream.readSint32();
+    if(savegameHasDegradationState()) {
+        powerDamageTimer = stream.readSint32();
+        foundationDecayTimer = stream.readSint32();
+        foundationDegrades = stream.readBool();
+    } else {
+        const int legacyDegradeTimer = stream.readSint32();
+        powerDamageTimer = DuneCity::Degradation::legacyPowerDamageTimer(legacyDegradeTimer);
+        foundationDecayTimer = DuneCity::Degradation::foundationDecayIntervalCycles();
+        foundationDegrades = DuneCity::Degradation::legacyFoundationDegrades(legacyDegradeTimer);
+    }
 
     size_t numSmoke = stream.readUint32();
     for(size_t i=0;i<numSmoke; i++) {
@@ -136,7 +162,9 @@ void StructureBase::save(OutputStream& stream) const {
     stream.writeBool(fogged);
     stream.writeUint32(lastVisibleFrame);
 
-    stream.writeSint32(degradeTimer);
+    stream.writeSint32(powerDamageTimer);
+    stream.writeSint32(foundationDecayTimer);
+    stream.writeBool(foundationDegrades);
 
     stream.writeUint32(smoke.size());
     for(const StructureSmoke& structureSmoke : smoke) {
@@ -181,9 +209,10 @@ void StructureBase::assignToMap(const Coord& pos) {
     currentGameMap->viewMap(getOwner()->getHouseID(), pos, getViewRange());
     currentGameMap->incrementPathingRevision();
 
-    if(!bFoundNonConcreteTile && !currentGame->getGameInitSettings().getGameOptions().structuresDegradeOnConcrete) {
-        degradeTimer = -1;
-    }
+    // Dynasty parity: only a structure placed on an incomplete foundation decays
+    // from it. A full prepared foundation — and any game where concrete is not
+    // required at all — suppresses foundation decay, never power damage.
+    foundationDegrades = bFoundNonConcreteTile;
 }
 
 void StructureBase::blitToScreen() {
@@ -533,6 +562,37 @@ void StructureBase::setJustPlaced() {
     enhancedVisualState = -1;
 }
 
+void StructureBase::updateDegradation() {
+    namespace Decay = DuneCity::Degradation;
+
+    // Dynasty excludes walls (and slabs, which are tiles here) from both loops.
+    if(itemID == Structure_Wall) return;
+
+    // Foundation decay is independent of power. Dynasty checks the half-health
+    // threshold before applying the full house amount, so the final hit can
+    // cross that threshold. Process it before the house power tick, as Dynasty
+    // does when both timers expire together.
+    if(foundationDegrades && --foundationDecayTimer <= 0) {
+        foundationDecayTimer = Decay::foundationDecayIntervalCycles();
+        if(!Decay::foundationDecayExempt(currentGame->gameType,
+                                         currentGame->getGameInitSettings().getMission())
+           && getHealth() > FixPoint(Decay::foundationDecayFloor(getMaxHealth()))) {
+            setHealth(getHealth() - FixPoint(Decay::houseDegradingAmount(owner->getHouseID())));
+        }
+    }
+
+    // Use raw house supply/demand in every mode. House::hasPower() intentionally
+    // exempts Vanilla from unrelated power rules, such as turret operation.
+    if(--powerDamageTimer <= 0) {
+        powerDamageTimer = Decay::powerDamageIntervalCycles();
+        const FixPoint powerThreshold = FixPoint(Decay::powerHitpointsMax(getMaxHealth(),
+                                                owner->getProducedPower(), owner->getPowerRequirement()));
+        if(getHealth() > powerThreshold) {
+            setHealth(getHealth() - FixPoint(Decay::kPowerDamagePerInterval));
+        }
+    }
+}
+
 bool StructureBase::update() {
     if(((currentGame->getGameCycleCount() + getObjectID()) % 512) == 0) {
         currentGameMap->viewMap(owner->getHouseID(), location, getViewRange());
@@ -542,26 +602,7 @@ bool StructureBase::update() {
         lastVisibleFrame = curAnimFrame;
     }
 
-    // degrade
-    if((degradeTimer >= 0) && currentGame->getGameInitSettings().getGameOptions().concreteRequired && !owner->hasPower()) {
-        degradeTimer--;
-        if(degradeTimer <= 0) {
-            degradeTimer = MILLI2CYCLES(15*1000);
-
-            int damageMultiplyer = 1;
-            if(owner->getHouseID() == HOUSE_HARKONNEN || owner->getHouseID() == HOUSE_SARDAUKAR) {
-                damageMultiplyer = 3;
-            } else if(owner->getHouseID() == HOUSE_ORDOS) {
-                damageMultiplyer = 2;
-            } else if(owner->getHouseID() == HOUSE_MERCENARY) {
-                damageMultiplyer = 5;
-            }
-
-            if(getHealth() > getMaxHealth() / 2) {
-                setHealth( getHealth() - FixPoint(damageMultiplyer * getMaxHealth())/100);
-            }
-        }
-    }
+    updateDegradation();
 
     updateStructureSpecificStuff();
 

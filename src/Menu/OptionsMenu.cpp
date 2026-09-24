@@ -732,8 +732,8 @@ void OptionsMenu::saveConfiguration2File() {
     myINIFile.setBoolValue("Audio","Play Credits SFX",settings.audio.playCreditsSFX);
 
     myINIFile.setIntValue("Game Options","Game Speed",settings.gameOptions.gameSpeed);
+    myINIFile.removeKey("Game Options","Structures Degrade On Concrete");
     myINIFile.setBoolValue("Game Options","Concrete Required",settings.gameOptions.concreteRequired);
-    myINIFile.setBoolValue("Game Options","Structures Degrade On Concrete",settings.gameOptions.structuresDegradeOnConcrete);
     myINIFile.setBoolValue("Game Options","Fog of War",settings.gameOptions.fogOfWar);
     myINIFile.setBoolValue("Game Options","Start with Explored Map",settings.gameOptions.startWithExploredMap);
     myINIFile.setBoolValue("Game Options","Instant Build",settings.gameOptions.instantBuild);

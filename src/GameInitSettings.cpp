@@ -118,7 +118,9 @@ GameInitSettings::GameInitSettings(InputStream& stream) {
     multiplePlayersPerHouse = stream.readBool();
     gameOptions.gameSpeed = stream.readUint32();
     gameOptions.concreteRequired = stream.readBool();
-    gameOptions.structuresDegradeOnConcrete = stream.readBool();
+    // Reserved: the removed "Structures Degrade On Concrete" option. Read and
+    // discarded so existing saves and lobby payloads keep their layout.
+    stream.readBool();
     gameOptions.fogOfWar = stream.readBool();
     gameOptions.startWithExploredMap = stream.readBool();
     gameOptions.instantBuild = stream.readBool();
@@ -269,7 +271,7 @@ void GameInitSettings::save(OutputStream& stream) const {
     stream.writeBool(multiplePlayersPerHouse);
     stream.writeUint32(gameOptions.gameSpeed);
     stream.writeBool(gameOptions.concreteRequired);
-    stream.writeBool(gameOptions.structuresDegradeOnConcrete);
+    stream.writeBool(false);    // reserved: removed "Structures Degrade On Concrete" option
     stream.writeBool(gameOptions.fogOfWar);
     stream.writeBool(gameOptions.startWithExploredMap);
     stream.writeBool(gameOptions.instantBuild);

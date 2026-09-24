@@ -39,6 +39,7 @@
 #include "credit-capture-probe.inc"
 #include "refund-provenance-probe.inc"
 #include "campaign-city-economy-probe.inc"
+#include "degradation-probe.inc"
 
 int runCampaignBalanceProbe() {
     const int level = std::atoi(std::getenv("BALANCE_LEVEL"));
@@ -54,7 +55,12 @@ int runCampaignBalanceProbe() {
         enemyClass = enemy == "hard" ? "AIPlayerHard" : enemy == "medium" ? "AIPlayerMedium" : "AIPlayerEasy";
     const int percent = std::atoi(std::getenv("BALANCE_ATTACK_PERCENT"));
     const auto humanHouse=static_cast<HOUSETYPE>(std::getenv("BALANCE_HOUSE") ? std::atoi(std::getenv("BALANCE_HOUSE")) : HOUSE_HARKONNEN);
-    ModManager::instance().setActiveMod(std::getenv("BALANCE_MOD") ? std::getenv("BALANCE_MOD") : "vanilla");
+    const std::string requestedMod=std::getenv("BALANCE_MOD") ? std::getenv("BALANCE_MOD") : "vanilla";
+    if(!ModManager::instance().setActiveMod(requestedMod)
+       || ModManager::instance().getActiveModName()!=requestedMod)
+        throw std::runtime_error("Requested probe mod did not activate: "+requestedMod);
+    if(std::getenv("BALANCE_DEGRADATION_PROBE"))
+        settings.gameOptions=ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
     getQuantBotConfig().easy.attackForceMilitaryValueRatio = percent / 100.0f;
     settings.general.playerName = "Campaign balance observer";
     settings.network.metaServer = "http://127.0.0.1:1/";
@@ -62,8 +68,6 @@ int runCampaignBalanceProbe() {
     if (std::getenv("BALANCE_ROCKET_TURRETS_NEED_POWER"))
         settings.gameOptions.rocketTurretsNeedPower=std::atoi(std::getenv("BALANCE_ROCKET_TURRETS_NEED_POWER"))!=0;
     settings.gameOptions.immortalHumanPlayer = false;
-    if (std::getenv("BALANCE_DEGRADE_ON_CONCRETE"))
-        settings.gameOptions.structuresDegradeOnConcrete=std::atoi(std::getenv("BALANCE_DEGRADE_ON_CONCRETE"))!=0;
     if (std::getenv("BALANCE_HARVESTER_LIMIT"))
         settings.gameOptions.maximumNumberOfHarvestersOverride=std::atoi(std::getenv("BALANCE_HARVESTER_LIMIT"));
     if (std::getenv("BALANCE_PACING_PROBE")) settings.gameOptions.maximumNumberOfHarvestersOverride=100;
@@ -109,6 +113,10 @@ int runCampaignBalanceProbe() {
         AITelemetry::log().limit=std::stoull(std::getenv("BALANCE_CAPTURE_MIB"))*1024*1024;
     game->bReplay = false;
     game->initializeGameLoop();
+    if(std::getenv("BALANCE_DEGRADATION_PROBE")) {
+        runStructureDegradationProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
     if(std::getenv("BALANCE_HARVESTER_SAFETY_PROBE")) {
         runHarvesterSafetyProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;

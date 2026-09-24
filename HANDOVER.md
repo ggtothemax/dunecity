@@ -1,3 +1,39 @@
+## 2026-09-24 — Dynasty structure degradation across all modes
+
+Local candidate 1.0.775, branch `fix/dynasty-structure-degradation`, based on
+`e3eb127e` in `dunecity-degradation`. All modes now use independent power damage
+(1 absolute HP every 15 game seconds, down to Dynasty's quantized supply/demand
+threshold with a half-health minimum) and foundation decay (3 HP Harkonnen,
+2 HP Ordos, 1 HP all other houses every 180 game seconds). Complete prepared
+foundations prevent foundation decay. The existing Concrete Required switch
+still exempts foundation requirements when disabled. Power damage uses actual
+supply/demand even in Vanilla, without changing unrelated turret/power rules.
+Walls are excluded; foundation decay is exempt in campaign levels 1–2. A final
+foundation hit can cross half health, matching Dynasty's pre-hit threshold.
+
+Removed Structures Degrade On Concrete from UI, defaults, mod parsing, option
+hash/equality, telemetry, AI branches, translations and probe controls. Old
+settings streams retain an ignored reserved byte; config writes remove the
+obsolete key. Updated Tornie's payload checksum and made the diagnostic driver
+fail if its requested mod does not activate, preventing false Vanilla fallback
+passes. Degradation probes explicitly load each mod's real defaults.
+
+Save format 9847 persists both timers and the original foundation flag. Old
+saves' terrain and single timer cannot reliably identify the original slab
+coverage, so existing buildings loaded from pre-9847 saves receive power damage
+but no foundation decay. New placements record the flag normally. Protocol 29
+rejects peers using the old health rules. Placement health penalties unchanged.
+
+Validation: native app build and dependency audit; unit suite; real-engine
+placement, simultaneous damage, thresholds, wall exclusion, campaign gates,
+save/load continuation and old-save migration probes in Vanilla, DuneCity,
+Dune2R and Tornie; all 41 CTest targets passed (including corrected reruns). Initial menu/weapon failures exposed the
+Tornie checksum omission and were rerun after correction. Receipts:
+`/Users/stefan/Documents/projects/outputs/degradation/`.
+
+Built app: `dunecity-degradation/build/bin/dunecity.app`. Committed locally only;
+not pushed, released or installed over the user's game.
+
 ## 2026-09-24 — QuantBot builds an empty-market Starport for late tech
 
 User observed House IX locked because QuantBot skipped an empty CHOAM Starport.
