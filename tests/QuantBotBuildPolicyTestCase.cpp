@@ -2374,3 +2374,147 @@ TEST_CASE("Bulk foundations choose the open side before closing a residual strip
     REQUIRE(paves(plan,3,5));
     REQUIRE_FALSE(paves(plan,7,4));
 }
+
+#include <players/McvDeployPolicy.h>
+namespace {
+struct LocalDeployFixture {
+    static constexpr int w = 60, h = 40;
+    std::vector<McvDeployPolicy::Tile> tiles = std::vector<McvDeployPolicy::Tile>(w * h);
+    McvDeployPolicy::Tile& at(int x, int y) { return tiles[y * w + x]; }
+    int index(int x, int y) const { return y * w + x; }
+    void rock(int x0, int y0, int x1, int y1) {
+        for(int y = y0; y < y1; ++y) for(int x = x0; x < x1; ++x) { at(x,y).rock = true; at(x,y).free = true; }
+    }
+    void structure(int x, int y) { at(x,y).owned = true; at(x,y).free = false; at(x,y).passable = false; }
+    LocalDeployFixture() {
+        for(auto& tile : tiles) tile.passable = true;
+        rock(10,10,30,25);   // The formation the base already stands on.
+        rock(40,10,55,25);   // Untouched rock across the sand: a colony site.
+        structure(11,11);
+    }
+    McvDeployPolicy::Site choose(int x, int y) {
+        return McvDeployPolicy::choose(w, h, tiles, index(x,y), 12);
+    }
+};
+}
+
+TEST_CASE("An MCV on usable base rock deploys where it stands", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    const auto site = map.choose(20,20);
+    REQUIRE(site.valid());
+    // Distance is the first key, so the MCV's own footprint wins and the
+    // chosen site does not change while it keeps standing there.
+    CHECK(site.x == 20);
+    CHECK(site.y == 20);
+    CHECK(site.distance == 0);
+    CHECK(McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h, map.tiles,
+        map.index(20,20), 12).x == site.x);
+}
+
+TEST_CASE("Local deployment never colonises rock the base does not hold", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    for(int y = 10; y < 25; ++y) for(int x = 10; x < 30; ++x) map.at(x,y).blocked = true;
+    // Only the far formation is left. Local growth declines instead of
+    // starting a colony; that decision belongs to the expansion policy.
+    CHECK_FALSE(map.choose(20,20).valid());
+    // The foreign formation is genuinely usable, it is simply not ours.
+    map.structure(41,11);
+    const auto colony = map.choose(20,20);
+    REQUIRE(colony.valid());
+    CHECK(colony.x >= 40);
+}
+
+TEST_CASE("A site remembered by another MCV is not handed out twice", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    // The caller blocks the footprint another MCV is already driving at.
+    for(int dy = 0; dy < 2; ++dy) for(int dx = 0; dx < 2; ++dx) map.at(20+dx,20+dy).blocked = true;
+    const auto site = map.choose(20,20);
+    REQUIRE(site.valid());
+    CHECK(site.x < 30);
+    CHECK((site.x + 1 < 20 || site.x > 21 || site.y + 1 < 20 || site.y > 21));
+    CHECK(site.distance > 0);
+}
+
+TEST_CASE("A unit parked on the rock moves the footprint, not the formation", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    map.at(20,20).free = false;   // Another vehicle crossing the site.
+    const auto site = map.choose(20,20);
+    REQUIRE(site.valid());
+    CHECK(site.x < 30);
+    CHECK_FALSE((site.x <= 20 && 20 <= site.x + 1 && site.y <= 20 && 20 <= site.y + 1));
+}
+
+TEST_CASE("An MCV walled in gets no destination rather than an unreachable one", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    for(int dy = -1; dy <= 1; ++dy) for(int dx = -1; dx <= 1; ++dx)
+        if(dx || dy) map.structure(20+dx,20+dy);
+    CHECK_FALSE(map.choose(20,20).valid());
+}
+
+TEST_CASE("A cramped home formation still gives the MCV a site", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    for(auto& tile : map.tiles) { tile = McvDeployPolicy::Tile(); tile.passable = true; }
+    map.rock(10,10,13,14);        // Twelve tiles, one of them built on.
+    map.structure(10,10);
+    const auto site = map.choose(11,12);
+    REQUIRE(site.valid());
+    CHECK(site.room < 12);        // Below the wanted room, but not stranded.
+    CHECK(site.x >= 10);
+    CHECK(site.x <= 11);
+}
+
+TEST_CASE("An opening MCV keeps the formation it stands on", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    map.at(11,11) = McvDeployPolicy::Tile();
+    map.at(11,11).rock = true; map.at(11,11).free = true; map.at(11,11).passable = true;
+    const auto site = map.choose(45,20);
+    REQUIRE(site.valid());
+    CHECK(site.x == 45);
+    CHECK(site.y == 20);
+}
+
+TEST_CASE("Local deployment ranks travel first and room second", "[quantbot][mcv]") {
+    using McvDeployPolicy::Site;
+    CHECK(McvDeployPolicy::betterSite(Site{5,5,16,0}, Site{9,9,64,3}));
+    CHECK(McvDeployPolicy::betterSite(Site{9,9,64,3}, Site{5,5,16,3}));
+    CHECK_FALSE(McvDeployPolicy::betterSite(Site{9,9,64,4}, Site{5,5,16,3}));
+}
+
+TEST_CASE("A destination crossed by traffic is kept, not rerolled", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    const int trip = map.index(24,14);
+    map.at(24,14).free = false;   // A vehicle standing on the destination.
+    auto kept = McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h, map.tiles,
+        map.index(20,20), 12, trip);
+    CHECK(kept.x == 24);
+    CHECK(kept.y == 14);
+    // A building or a threat on the site does retire it, and the MCV falls
+    // back to the rock it is already standing on.
+    map.at(24,14).free = true;
+    map.at(24,14).blocked = true;
+    kept = McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h, map.tiles,
+        map.index(20,20), 12, trip);
+    CHECK(kept.x == 20);
+    CHECK(kept.y == 20);
+    // A destination on rock the base does not hold is never confirmed.
+    LocalDeployFixture foreign;
+    const auto refused = McvDeployPolicy::choose(LocalDeployFixture::w, LocalDeployFixture::h,
+        foreign.tiles, foreign.index(20,20), 12, foreign.index(45,14));
+    CHECK(refused.x == 20);
+    CHECK(refused.y == 20);
+}
+
+TEST_CASE("Local deployment searches beyond rejected ground-access candidates", "[quantbot][mcv]") {
+    LocalDeployFixture map;
+    int rejected=0;
+    const auto site=McvDeployPolicy::choose(LocalDeployFixture::w,LocalDeployFixture::h,
+        map.tiles,map.index(20,20),12,-1,[&](int x,int y) {
+            if(x==27&&y==22) return true;
+            ++rejected;
+            return false;
+        });
+    REQUIRE(site.valid());
+    CHECK(site.x==27);
+    CHECK(site.y==22);
+    CHECK(rejected>4);
+}

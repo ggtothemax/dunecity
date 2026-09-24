@@ -9544,3 +9544,42 @@ yard's leftover upgrade state. Added real queued-factory demand coverage.
 Evidence: ../outputs/quantbot-power-buffer/ (Air capture, log-findings.json,
 build.log, focused.log, vanilla-rerun.log). Full regression follows the queued
 MCV deployment fix. Committed locally; not pushed or installed over the Air game.
+
+
+## 2026-09-24 — Prompt local MCV deployment (local 1.0.779)
+
+Air 1.0.777 DuneCity session 1790238318405393-0 confirms delayed deployment,
+not a complete inability to deploy: Atreides had five MCVs and only one yard
+at 275 game seconds, over 87,000 credits, and one Light/Heavy Factory. Yard two
+appeared at 366 seconds; yard six at 853 seconds. The second Heavy Factory
+appeared at 822 seconds. The base was eventually overwhelmed; these timings
+identify the growth bottleneck but do not establish the only cause of defeat.
+
+Every additional city yard previously passed the remote-colony defence gate,
+including yards on home rock. findRockExpansionSite returned before surveying
+free home rock when advanced factories/turret coverage were missing. Deployment
+also independently required that gate, causing serial defence waits per yard.
+Local deployment now searches reachable, safe, unreserved 2x2 sites on connected
+rock already occupied by the base before considering remote colonisation.
+Exact connected rock is used: nearby build range across sand is not ownership.
+Existing engine deployment rules, ground access, threats, repeated-loss checks
+and remote-colony defence requirements remain. Trips keep their destinations;
+five seconds without movement permit a retry, while permanent site obstacles
+trigger replanning. Live MCV reservations avoid duplicate sites. The actual
+successful deployment result controls cleanup, with no reads of the deleted
+MCV. Existing saved assignment/timing maps are reused; no save-format changes.
+Deployment telemetry records location, target, ownership, defence gate and result.
+
+Version 779/protocol 33/policy local-mcv-deployment-v81, including the preceding
+778 power-buffer fix. Claude produced the planner and a bounded probe follow-up;
+Codex reviewed and corrected connected-rock classification, candidate filtering,
+retry timing and deployment lifetime/result handling. Evidence and captured Air
+logs: ../outputs/quantbot-mcv-local-deploy/. Native build and dependency audits
+pass. All 41 existing CTest targets pass (full-ctest.log), plus the new real-engine
+quantbot_mcv_deployment target (mcv-ctest.log): twelve home-rock MCVs deploy on
+the first pass across all four difficulties; a travelling MCV moves and deploys
+in 550 cycles / 8.8 game seconds. Reservations, transient traffic, stalled retry,
+permanent obstruction, disconnected nearby rock and first-yard cases pass.
+The focused unit/opening-economy tests also pass in all three modes. No full
+match win/loss claim is made by these regression fixtures.
+No push, release or installation over the running Air game.

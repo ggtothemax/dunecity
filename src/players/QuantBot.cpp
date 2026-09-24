@@ -1,4 +1,5 @@
 #include <players/RockExpansionPolicy.h>
+#include <players/McvDeployPolicy.h>
 #include <dunecity/CityStructurePopulation.h>
 #include <dunecity/ZonePower.h>
 #include <players/LocalPointIndex.h>
@@ -1123,13 +1124,10 @@ Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
     return Coord::Invalid();
 }
 
+// The opening search, for an MCV that is not growing an existing city base:
+// city growth and colonisation are chosen by manageMcv instead.
 Coord QuantBot::findMcvPlaceLocation(const MCV* pMCV) {
     AITelemetry::PerformanceScope perfScope("ai.findMcvPlaceLocation", getGameCycleCount(), getHouse()->getHouseID());
-    if(currentGame->isCitySimEnabled()&&getHouse()->getNumItems(Structure_ConstructionYard)>0) {
-        const Coord site=findRockExpansionSite(pMCV);
-        if(site.isValid())mcvExpansionSites[pMCV->getObjectID()]=site;
-        if(site.isValid()||availableBaseRock<48)return site;
-    }
 	// Always search for best location near the MCV's current position
 	// This works for both first MCV and expansion MCVs.
 	//
@@ -1222,9 +1220,212 @@ Coord QuantBot::findMcvPlaceLocation(const MCV* pMCV) {
 			bestLocation.x, bestLocation.y, bestLocationScore);
 	}
 
-	if(bestLocation.isValid()&&currentGame->isCitySimEnabled()&&getHouse()->getNumItems(Structure_ConstructionYard)>0)
-        mcvExpansionSites[pMCV->getObjectID()]=bestLocation;
 	return bestLocation;
+}
+
+std::vector<Coord> QuantBot::otherMcvSites(const MCV* mcv) const {
+    // Read through the live unit list so a destroyed MCV cannot keep a tile
+    // reserved, exactly as the rock expansion survey does.
+    std::vector<Coord> sites;
+    for(const auto* unit:getUnitList()) {
+        if(unit->getOwner()!=getHouse()||unit->getItemID()!=Unit_MCV||unit==mcv) continue;
+        const auto it=mcvExpansionSites.find(unit->getObjectID());
+        if(it!=mcvExpansionSites.end()&&it->second.isValid()) sites.push_back(it->second);
+    }
+    return sites;
+}
+
+bool QuantBot::onOwnRockFormation(Coord site) const {
+    if(site.isInvalid()) return false;
+    const auto& map=getMap();
+    const int houseID=getHouse()->getHouseID();
+    const int w=map.getSizeX(),h=map.getSizeY();
+    if(!map.tileExists(site.x,site.y)) return false;
+    // Build range can bridge sand: ownership requires connected buildable rock.
+    std::vector<bool> seen(static_cast<size_t>(w)*h,false);
+    std::vector<int> queue{site.y*w+site.x};
+    seen[queue.front()]=true;
+    for(size_t at=0;at<queue.size();++at) {
+        const int index=queue[at],x=index%w,y=index/w;
+        const auto* tile=map.getTile(x,y);
+        if(!tile->isRock()||tile->isMountain()) continue;
+        if(tile->hasAStructure()&&tile->getOwner()==houseID) return true;
+        const int steps[4][2]={{-1,0},{1,0},{0,-1},{0,1}};
+        for(const auto& step:steps) {
+            const int nx=x+step[0],ny=y+step[1];
+            if(!map.tileExists(nx,ny)||seen[ny*w+nx]) continue;
+            const auto* next=map.getTile(nx,ny);
+            if(!next->isRock()||next->isMountain()) continue;
+            seen[ny*w+nx]=true;queue.push_back(ny*w+nx);
+        }
+    }
+    return false;
+}
+
+bool QuantBot::mcvSiteUsable(const MCV* pMCV, Coord site) const {
+    if(site.isInvalid()) return false;
+    for(int dy=0;dy<2;++dy) for(int dx=0;dx<2;++dx) {
+        if(!getMap().tileExists(site.x+dx,site.y+dy)) return false;
+        const auto* tile=getMap().getTile(site.x+dx,site.y+dy);
+        // Permanent obstacles only. A unit crossing the site is transient and
+        // must not throw away a destination the MCV is still driving towards.
+        if(!tile->isRock()||tile->isMountain()||tile->hasCityZone()||tile->hasAStructure()) return false;
+    }
+    if(overlapsReservedStructure(site.x,site.y,2,2)) return false;
+    for(const auto& taken:otherMcvSites(pMCV))
+        if(CityPlacementPolicy::overlaps(site.x,site.y,2,2,taken.x,taken.y,2,2)) return false;
+    return true;
+}
+
+Coord QuantBot::findLocalDeploySite(const MCV* pMCV, Coord current) {
+    AITelemetry::PerformanceScope perfScope("ai.findLocalDeploySite", getGameCycleCount(), getHouse()->getHouseID());
+    if(pMCV==nullptr||pMCV->getLocation().isInvalid()) return Coord::Invalid();
+    const auto& map=getMap();
+    const Coord centre=pMCV->getLocation();
+    const int xLo=std::max(0,centre.x-kMcvLocalRadius),xHi=std::min(map.getSizeX()-1,centre.x+kMcvLocalRadius);
+    const int yLo=std::max(0,centre.y-kMcvLocalRadius),yHi=std::min(map.getSizeY()-1,centre.y+kMcvLocalRadius);
+    const int w=xHi-xLo+1,h=yHi-yLo+1;
+    if(w<2||h<2) return Coord::Invalid();
+    const int houseID=getHouse()->getHouseID();
+    std::vector<McvDeployPolicy::Tile> tiles(static_cast<size_t>(w)*h);
+    for(int y=0;y<h;++y) for(int x=0;x<w;++x) {
+        const auto* tile=map.getTile(xLo+x,yLo+y);
+        const auto* ground=tile->getNonInfantryGroundObject();
+        auto& out=tiles[y*w+x];
+        out.rock=tile->isRock()&&!tile->isMountain();
+        out.free=!tile->hasAStructure()&&(!tile->hasAGroundObject()||ground==pMCV);
+        out.passable=!tile->isMountain()&&!tile->hasAStructure();
+        out.owned=tile->hasAStructure()&&tile->getOwner()==houseID;
+        out.blocked=tile->hasCityZone()||overlapsReservedStructure(xLo+x,yLo+y,1,1)
+            ||dangerAt(Coord(xLo+x,yLo+y))>0
+            ||lostYardsNear(xLo+x,yLo+y,kRepeatedYardLossRadius)>=kRepeatedYardLossLimit;
+    }
+    // One yard per remembered site: two MCVs never drive at the same tile.
+    for(const auto& taken:otherMcvSites(pMCV))
+        for(int dy=0;dy<2;++dy) for(int dx=0;dx<2;++dx) {
+            const int x=taken.x+dx-xLo,y=taken.y+dy-yLo;
+            if(x>=0&&x<w&&y>=0&&y<h) tiles[y*w+x].blocked=true;
+        }
+    const int start=(centre.y-yLo)*w+(centre.x-xLo);
+    int prefer=-1;
+    if(current.isValid()&&current.x>=xLo&&current.x<=xHi&&current.y>=yLo&&current.y<=yHi)
+        prefer=(current.y-yLo)*w+(current.x-xLo);
+    // Ownership can lie outside this local window on the same formation.
+    if(onOwnRockFormation(centre)) tiles[start].owned=true;
+    if(std::none_of(tiles.begin(),tiles.end(),[](const auto& tile) { return tile.owned; }))
+        return Coord::Invalid();
+    const auto site=McvDeployPolicy::choose(w,h,tiles,start,kMcvDeployRoom,prefer,
+        [&](int x,int y) {
+            const Coord chosen(xLo+x,yLo+y);
+            return preservesGroundAccess(Structure_ConstructionYard,chosen);
+        });
+    return site.valid() ? Coord(xLo+site.x,yLo+site.y) : Coord::Invalid();
+}
+
+bool QuantBot::mcvMayDeployHere(const MCV* pMCV, bool expansion) {
+    const Coord at=pMCV->getLocation();
+    if(!pMCV->canDeploy()||overlapsReservedStructure(at.x,at.y,2,2)
+        || !preservesGroundAccess(Structure_ConstructionYard,at)) return false;
+    // An opening yard keeps the original rule: a legal footprint is enough.
+    if(!expansion) return true;
+    if(dangerAt(at,Coord(2,2))>0
+        || lostYardsNear(at.x,at.y,kRepeatedYardLossRadius)>=kRepeatedYardLossLimit) return false;
+    // Growth on the rock the base already holds is ordinary building work. It
+    // is covered by the base's own defences, so it must not wait for the
+    // outlying-colony checklist (repair yard, high tech factory and three
+    // rocket turrets over every expansion yard) the way a new formation does.
+    if(onOwnRockFormation(at)) return true;
+    return expansionDefenceReady()&&!nearRecentStructureLoss(at.x,at.y,2,2);
+}
+
+void QuantBot::manageMcv(const MCV* pMCV) {
+    if(planningBuilder!=NONE_ID) {
+        planningBuilder=NONE_ID;
+        clearPlacementCache();
+    }
+    const Uint32 id=pMCV->getObjectID();
+    // Progress refreshes the retry timer; traffic gets a grace period after arrival.
+    if(pMCV->isMoving()) {
+        mcvSurveyCycles[id]=getGameCycleCount();
+        return;
+    }
+    if(pMCV->wasForced()) return;
+    const Coord location=pMCV->getLocation();
+    const bool expansion=currentGame->isCitySimEnabled()&&getHouse()->getNumItems(Structure_ConstructionYard)>0;
+    const Uint32 cycle=getGameCycleCount();
+    const auto surveyed=mcvSurveyCycles.find(id);
+    const bool stale=surveyed==mcvSurveyCycles.end()||cycle-surveyed->second>=MILLI2CYCLES(5000);
+
+    auto remembered=[&]() {
+        const auto it=mcvExpansionSites.find(id);
+        return it!=mcvExpansionSites.end() ? it->second : Coord::Invalid();
+    };
+    Coord target=expansion ? remembered() : Coord::Invalid();
+    const char* choice="remembered";
+    bool surveyedNow=false;
+    // After five seconds without movement, a blocked destination can be
+    // replaced. Progress and brief traffic keep the existing assignment.
+    const bool deployableHere=mcvMayDeployHere(pMCV,expansion);
+    if(expansion&&(stale||(target.isValid()&&!mcvSiteUsable(pMCV,target)))) {
+        mcvSurveyCycles[id]=cycle;
+        surveyedNow=true;
+        // Grow on the formation the base already stands on first; only when it
+        // has no room left does colonising a new one apply, under its own
+        // gates. A stalled trip can use the nearest clear footprint; moving
+        // MCVs retain their assignments above.
+        Coord site=findLocalDeploySite(pMCV,(deployableHere||stale) ? Coord::Invalid() : target);
+        choice=site.isValid() ? "local" : "expansion";
+        if(!site.isValid()) site=findRockExpansionSite(pMCV);
+        if(site.isValid()) {
+            target=site;
+            mcvExpansionSites[id]=site;
+        } else if(!mcvSiteUsable(pMCV,target)) {
+            target=Coord::Invalid();
+            mcvExpansionSites.erase(id);
+            choice="none";
+        }
+    }
+
+    const bool atTarget=target.isValid()&&target==location;
+    const bool ready=(!expansion||atTarget)&&deployableHere;
+    // Read what the trace needs while the MCV still exists: a successful
+    // deployment destroys it. The formation check is only worth its flood fill
+    // when a stalled MCV is actually being reported.
+    const uint64_t signature=(static_cast<uint64_t>(target.isValid()?target.x+1:0)<<40)
+        ^(static_cast<uint64_t>(target.isValid()?target.y+1:0)<<24)
+        ^(static_cast<uint64_t>(ready?1:0)<<16)^(static_cast<uint64_t>(atTarget?1:0)<<8)
+        ^static_cast<uint64_t>(expansion?1:0);
+    const bool report=ready||lastMcvTrace[id]!=signature;
+    const bool couldDeploy=pMCV->canDeploy();
+    const bool ownFormation=report&&expansion&&onOwnRockFormation(location);
+    const bool deployed=ready&&doDeploy(pMCV);
+    if(deployed) {
+        mcvExpansionSites.erase(id);
+        mcvSurveyCycles.erase(id);
+        rockSurveyCycle=std::numeric_limits<Uint32>::max();
+        clearPlacementCache();
+    } else if(!expansion&&stale) {
+        mcvSurveyCycles[id]=cycle;
+        const Coord pos=findMcvPlaceLocation(pMCV);
+        if(pos.isValid()) doMove2Pos(pMCV,pos.x,pos.y,true);
+    } else if(target.isValid()&&!atTarget&&surveyedNow) {
+        // Reissue only at the retry cadence or after a permanent obstruction.
+        doMove2Pos(pMCV,target.x,target.y,true);
+    }
+
+    if(report) {
+        lastMcvTrace[id]=signature;
+        traceDecision("mcv_deployment",AITelemetry::Record().set("mcv",id)
+            .set("x",location.x).set("y",location.y)
+            .set("target_x",target.isValid()?target.x:-1).set("target_y",target.isValid()?target.y:-1)
+            .set("site",choice).set("expansion",expansion).set("deployed",deployed)
+            .set("at_target",atTarget).set("can_deploy",couldDeploy)
+            .set("own_formation",ownFormation)
+            .set("danger",dangerAt(location,Coord(2,2)))
+            .set("defence_ready",expansionDefenceReady())
+            .set("yards",getHouse()->getNumItems(Structure_ConstructionYard)));
+    }
+    if(deployed) lastMcvTrace.erase(id);
 }
 
 namespace {
@@ -9799,44 +10000,7 @@ void QuantBot::retreatAllUnits() {
                 case Unit_MCV: {
                     if (!campaignPermitsStructure(Structure_ConstructionYard)) break;
                     const MCV* pMCV = static_cast<const MCV*>(pUnit);
-                    if (pMCV != nullptr) {
-                        if (planningBuilder != NONE_ID) {
-                            planningBuilder=NONE_ID;
-                            clearPlacementCache();
-                        }
-                        //logDebug("MCV: forced: %d  moving: %d  canDeploy: %d",
-                        //pMCV->wasForced(), pMCV->isMoving(), pMCV->canDeploy());
-
-                        const bool expansion=currentGame->isCitySimEnabled()&&getHouse()->getNumItems(Structure_ConstructionYard)>0;
-                        const auto assigned=mcvExpansionSites.find(pMCV->getObjectID());
-                        const bool atExpansion=assigned!=mcvExpansionSites.end()&&assigned->second==pMCV->getLocation();
-                        if ((!expansion||atExpansion) && pMCV->canDeploy() && !pMCV->wasForced() && !pMCV->isMoving()
-                            && !overlapsReservedStructure(pMCV->getX(),pMCV->getY(),2,2)
-                            && preservesGroundAccess(Structure_ConstructionYard,pMCV->getLocation())
-                            && (!expansion || (expansionDefenceReady()
-                                && dangerAt(pMCV->getLocation(),Coord(2,2))==0
-                                && !nearRecentStructureLoss(pMCV->getX(),pMCV->getY(),2,2)
-                                && lostYardsNear(pMCV->getX(),pMCV->getY(),kRepeatedYardLossRadius)
-                                    <kRepeatedYardLossLimit))) {
-                            //logDebug("MCV: Deployed");
-                            doDeploy(pMCV);
-                            mcvExpansionSites.erase(pMCV->getObjectID());
-                            mcvSurveyCycles.erase(pMCV->getObjectID());
-                            rockSurveyCycle=std::numeric_limits<Uint32>::max();
-                            clearPlacementCache();
-                        }
-                        else if (!pMCV->isMoving() && !pMCV->wasForced()) {
-                            auto previous=mcvSurveyCycles.find(pMCV->getObjectID());
-                            if(previous!=mcvSurveyCycles.end()&&getGameCycleCount()-previous->second<MILLI2CYCLES(5000))break;
-                            mcvSurveyCycles[pMCV->getObjectID()]=getGameCycleCount();
-                            Coord pos = findMcvPlaceLocation(pMCV);
-                            if(pos.isValid()) doMove2Pos(pMCV, pos.x, pos.y, true);
-                            /*
-                            if(getHouse()->getNumItems(Unit_Carryall) > 0){
-                                doRequestCarryallDrop(pMCV);
-                            }*/
-                        }
-                    }
+                    if (pMCV != nullptr) manageMcv(pMCV);
                 } break;
 
                 case Unit_Harvester: {

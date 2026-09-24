@@ -461,6 +461,17 @@ if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
             --mod dunecity --build-dir ${CMAKE_BINARY_DIR}
             --output-dir ${CMAKE_BINARY_DIR}/police-budget-probe)
         set_tests_properties(quantbot_police_budget PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+        # MCVs must turn into yards on the rock the base already stands on,
+        # even while the advanced core and its turret cover are unfinished.
+        # The reported match ran this map and mod; the fixture asserts that
+        # the colonisation gate really is shut before it measures anything.
+        add_test(NAME quantbot_mcv_deployment COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --mcv-deployment-probe --repeatable
+            --mod dunecity
+            --custom-map "${CMAKE_SOURCE_DIR}/data/maps/singleplayer/5P - 128x128 - All against Atreides.ini"
+            --build-dir ${CMAKE_BINARY_DIR}
+            --output-dir ${CMAKE_BINARY_DIR}/mcv-deployment-probe)
+        set_tests_properties(quantbot_mcv_deployment PROPERTIES TIMEOUT 300 RUN_SERIAL TRUE)
         add_test(NAME quantbot_city_growth COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/ai/run-campaign-balance.py --city-growth-probe --repeatable
             --custom-map "${CMAKE_SOURCE_DIR}/data/maps/multiplayer/6P - 256x256 - Alkozeltser 4.ini"

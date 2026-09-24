@@ -59,6 +59,8 @@ parser.add_argument('--police-placement-probe', action='store_true')
 parser.add_argument('--police-budget-probe', action='store_true')
 parser.add_argument('--city-growth-probe', action='store_true',
                     help='Verify continuous city growth while proactive defence/supplier goals are unmet')
+parser.add_argument('--mcv-deployment-probe', action='store_true',
+                    help='Verify MCVs deploy on the rock the base already holds instead of driving around it')
 parser.add_argument('--custom-attack-probe', action='store_true')
 parser.add_argument('--factory-recovery-probe', action='store_true')
 parser.add_argument('--pressure-probe', action='store_true', help='Verify campaign wave readiness, survivor independence and save state')
@@ -195,6 +197,7 @@ if args.air_defense_probe: env['BALANCE_AIR_DEFENSE_PROBE'] = '1'
 if args.police_placement_probe: env['BALANCE_POLICE_PLACEMENT_PROBE'] = '1'
 if args.police_budget_probe: env['BALANCE_POLICE_BUDGET_PROBE'] = '1'
 if args.city_growth_probe: env['BALANCE_CITY_GROWTH_PROBE'] = '1'
+if args.mcv_deployment_probe: env['BALANCE_MCV_DEPLOYMENT_PROBE'] = '1'
 if args.custom_attack_probe: env['BALANCE_CUSTOM_ATTACK_PROBE'] = '1'
 if args.factory_recovery_probe: env['BALANCE_FACTORY_RECOVERY_PROBE'] = '1'
 if args.starport_probe: env['BALANCE_STARPORT_PROBE'] = '1'

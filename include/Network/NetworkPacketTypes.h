@@ -86,7 +86,8 @@
 // Version 29: Dynasty-aligned foundation and power degradation change simulation health.
 // Version 30: Health-scaled windtraps, city land condition and AI concrete policy.
 // Version 32: QuantBot anticipates queued demand and maintains a Vanilla power buffer.
-#define NETWORK_PROTOCOL_VERSION            32
+// Version 33: QuantBot local MCV deployment decisions change.
+#define NETWORK_PROTOCOL_VERSION            33
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size

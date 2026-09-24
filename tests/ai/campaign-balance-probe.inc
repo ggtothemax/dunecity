@@ -20,6 +20,7 @@
 #include "police-placement-probe.inc"
 #include "police-budget-probe.inc"
 #include "city-growth-probe.inc"
+#include "mcv-deployment-probe.inc"
 #include "opening-economy-probe.inc"
 #include "army-movement-probe.inc"
 #include "air-defense-probe.inc"
@@ -159,6 +160,10 @@ int runCampaignBalanceProbe() {
     }
     if (std::getenv("BALANCE_CITY_GROWTH_PROBE")) {
         runCityGrowthProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
+        return MENU_QUIT_DEFAULT;
+    }
+    if (std::getenv("BALANCE_MCV_DEPLOYMENT_PROBE")) {
+        runMcvDeploymentProbe(*game);game.reset();currentGame=nullptr;pLocalPlayer=nullptr;
         return MENU_QUIT_DEFAULT;
     }
     if (std::getenv("BALANCE_SHARED_SPENDING_PROBE")) {

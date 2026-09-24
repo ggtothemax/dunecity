@@ -188,6 +188,7 @@ private:
     // Diagnostic de-duplication only. These must never affect a game decision,
     // save, or lockstep state.
     std::map<Uint32, uint64_t> lastKiteTrace;
+    std::map<Uint32, uint64_t> lastMcvTrace;
     std::map<Uint32, uint64_t> lastHarvesterSafetyTrace;
     std::map<Uint32, std::pair<uint64_t, Uint32>> lastHeavyAllocationTrace;
     std::map<Uint32, AITelemetry::Record> placementScoreDetails;
@@ -208,12 +209,31 @@ private:
 
     Coord findMcvPlaceLocation(const MCV* pMCV);
     Coord findRockExpansionSite(const MCV* mcv = nullptr);
+    /// Orders one undeployed MCV: keep its remembered site, drive there, deploy.
+    void manageMcv(const MCV* pMCV);
+    /// A reachable 2x2 yard footprint on the rock formation the base already
+    /// occupies, or invalid when this formation has no room left. \a current
+    /// is the site this MCV is already driving at; it is kept while it stays
+    /// reachable rock of ours.
+    Coord findLocalDeploySite(const MCV* pMCV, Coord current = Coord::Invalid());
+    /// Is this remembered site still a legal yard footprint for this MCV?
+    /// Only permanent obstacles count, so passing traffic never rerolls it.
+    bool mcvSiteUsable(const MCV* pMCV, Coord site) const;
+    /// May this MCV turn into a yard where it stands right now?
+    bool mcvMayDeployHere(const MCV* pMCV, bool expansion);
+    /// Does this footprint share a rock formation with one of our structures?
+    bool onOwnRockFormation(Coord site) const;
+    /// Sites remembered by our other, still undeployed MCVs.
+    std::vector<Coord> otherMcvSites(const MCV* mcv) const;
     Uint32 rockSurveyCycle = std::numeric_limits<Uint32>::max();
     Coord rockExpansionSite = Coord::Invalid();
     int availableBaseRock = 0;
     Uint32 refineryQueueSince = std::numeric_limits<Uint32>::max();
     std::unordered_map<Uint32,Coord> mcvExpansionSites;
     std::unordered_map<Uint32,Uint32> mcvSurveyCycles;
+    /// Local deploy search window, and the free rock wanted around a new yard.
+    static constexpr int kMcvLocalRadius = 20;
+    static constexpr int kMcvDeployRoom = 12;
     Coord findPlaceLocation(Uint32 itemID);
     bool preservesGroundAccess(Uint32 item, Coord pos);
     void clearPlacementCache(bool geometryChanged = true, bool reuseForBuilder = false);
