@@ -206,9 +206,34 @@ private:
     void scrambleUnitsAndDefend(const ObjectBase* pIntruder, bool clearingSpice = false,
                                 const ObjectBase* protectedAsset = nullptr);
 
+    /// Aircraft attacking any building we own — the main base or an outlying
+    /// colony — are answered by the units that can actually shoot them down.
+    /// Runs on the ordinary checkAllUnits cadence, records its responders in
+    /// the saved defenceAssignments map and adds no state of its own.
+    void defendStructuresFromAircraft();
+    /// May this unit be committed to shooting an aircraft down? Human orders,
+    /// helper mode, workers, saboteurs and units needed at the repair yard are
+    /// never taken; an ordinary ground skirmish or rally order is.
+    bool availableAirDefender(const UnitBase* unit, const UnitBase* aircraft) const;
+    /// Reachable ground near \a victim that \a unit can defend from.
+    /// Search from this unit, respecting terrain and structures. Invalid when there
+    /// is none: the tile the aircraft is flying over may be a mountain or a
+    /// building, and is never an order for a ground unit.
+    Coord findAntiAirFiringPosition(const UnitBase* unit, const StructureBase* victim) const;
+    /// Is this rescue still live — the aircraft still attacking something of
+    /// ours, or still inside this defender's weapon range?
+    bool airAttackContinues(const UnitBase* defender, const ObjectBase* aircraft) const;
+    /// How far a defender will travel to reach an attacked building, and how
+    /// many answer one aircraft. Both bound the work this pass can create.
+    static constexpr int kAirRescueRadius = 40;
+    static constexpr int kAirRescueDefenders = 3;
+
 
     Coord findMcvPlaceLocation(const MCV* pMCV);
-    Coord findRockExpansionSite(const MCV* mcv = nullptr);
+    /// \a needsLocalSpace states that this MCV has already failed to find a
+    /// site on the rock the base stands on. The core prerequisite below then
+    /// cannot be satisfied where it stands, so it is waived for this query.
+    Coord findRockExpansionSite(const MCV* mcv = nullptr, bool needsLocalSpace = false);
     /// Orders one undeployed MCV: keep its remembered site, drive there, deploy.
     void manageMcv(const MCV* pMCV);
     /// A reachable 2x2 yard footprint on the rock formation the base already
@@ -284,6 +309,36 @@ private:
     std::vector<HarvesterStrikeTrace> harvesterStrikeTraces;
     void updateHarvesterStrikeTelemetry(bool final = false);
     Coord findSquadRallyLocation();
+    /// Opening space only, kept apart from the harvesting rally above: the
+    /// units a custom game starts with stand on the home rock the base needs
+    /// for its buildings, so each takes one short step towards the enemy onto
+    /// free sand. Units already off the rock are left alone, and a unit with no
+    /// safe site within reach receives no opening order at all.
+    void applyOpeningSpaceDispersal();
+    /// Where the opening build-out happens: the base centre, or the starting
+    /// MCV while no yard exists yet.
+    Coord openingAnchor();
+    /// Offset from \a anchor towards the nearest visible enemy, or towards the
+    /// middle of the map while nothing hostile has been seen. Zero when there
+    /// is no forward direction at all.
+    Coord openingForwardOffset(Coord anchor) const;
+    /// Is this unit still walking to, or holding, its opening site? Regrouping
+    /// leaves those units alone until the bounded opening window ends.
+    bool holdsOpeningPosition(const UnitBase* unit) const;
+    /// Opening sites handed out at game start, and the cycle at which ordinary
+    /// regrouping takes over again. Both decide orders — whether a unit is left
+    /// standing where it was stepped to, or marched back onto the home rock —
+    /// so both are part of the ordinary save from SAVEGAMEVERSION 9848 and of
+    /// every network checkpoint taken during the opening window.
+    std::unordered_map<Uint32,Coord> openingDispersal;
+    Uint32 openingDispersalUntil = 0;
+    static constexpr int kOpeningStepMin = 2;      ///< Off the rock, not a twitch.
+    static constexpr int kOpeningStepMax = 6;      ///< Still inside the base pocket.
+    static constexpr int kOpeningWormClearance = 8;
+    static constexpr Uint32 kOpeningHoldMs = 90000;
+    /// A custom game never starts with this many units; a larger count in a
+    /// save is corruption, not an opening.
+    static constexpr Uint32 kOpeningDispersalLimit = 4096;
     Coord findSquadRetreatLocation();
     void moveToOptimalSquadPosition(const UnitBase* pUnit, FixPoint squadRadius, int* orderBudget = nullptr);
     void kiteAwayFromThreat(const UnitBase* pUnit, const ObjectBase* pThreat, int desiredRange);
@@ -325,7 +380,11 @@ private:
     bool nearRecentStructureLoss(int x, int y, int width, int height) const;
     /// The house's oldest surviving construction yard: the main base anchor.
     Uint32 mainConstructionYardID() const;
-    bool expansionDefenceReady() const;
+    /// \a needsLocalSpace waives the core prerequisite (heavy factory, high
+    /// tech factory, repair yard) exactly as a measured built-out base does,
+    /// for a caller that has already established there is no usable site at
+    /// home. Defence cover, threat and recent-loss checks are unaffected.
+    bool expansionDefenceReady(bool needsLocalSpace = false) const;
     int expansionTurretsMissing(const StructureBase* yard, bool planned = true) const;
     /// Is this construction yard (or planned yard, NONE_ID) an expansion
     /// outside the main base rather than the base's own anchor?

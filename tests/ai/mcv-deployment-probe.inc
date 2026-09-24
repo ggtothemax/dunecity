@@ -15,6 +15,8 @@
 #include <structures/HeavyFactory.h>
 #include <structures/StarPort.h>
 #include <Choam.h>
+#include <misc/IMemoryStream.h>
+#include <misc/OMemoryStream.h>
 
 void runMcvDeploymentProbe(Game& game) {
     auto require=[](bool ok,const char* why){if(!ok){SDL_Log("MCV_DEPLOYMENT_FAIL: %s",why);throw std::runtime_error(why);}};
@@ -659,18 +661,41 @@ void runMcvDeploymentProbe(Game& game) {
         require(queuedMcvs()==0,"An MCV was queued while a colonist already existed");
 
         // 7g. The colonist drives to the surveyed formation and founds the
-        //     city there, on real engine frames.
+        //     city there, on real engine frames — and it does so under exactly
+        //     the conditions that stalled the delivered colonist in the
+        //     reported match. There, the advanced core was missing, the base
+        //     survey briefly reported room again (four cached footprints and an
+        //     unblocked placement search), and the home rock still held no
+        //     legal yard footprint at all. The colonist must not wait for a
+        //     local plot that does not exist: a core building it could only
+        //     ever put up at home cannot be the thing that keeps it parked.
         const Coord destination=bot->rockExpansionSite;
         require(destination.isValid(),"The colonisation survey lost its site");
         require(destination.x>=ground.x+36 && destination.y>=ground.y+3,
             "The colonisation site is not on the far formation");
-        for(int pass=0;pass<3 && bot->mcvExpansionSites.find(colonistID)==bot->mcvExpansionSites.end();++pass) {
-            colonist->setForced(false);
-            bot->manageMcv(colonist);
-            game.gameCycleCount+=MILLI2CYCLES(6000);
-        }
+        const int heldHeavy=house->numItem[Structure_HeavyFactory];
+        const int heldHighTech=house->numItem[Structure_HighTechFactory];
+        const int heldRepair=house->numItem[Structure_RepairYard];
+        house->numItem[Structure_HeavyFactory]=0;
+        house->numItem[Structure_HighTechFactory]=0;
+        house->numItem[Structure_RepairYard]=0;
+        bot->availableBaseFootprints=QuantBotColonisationPolicy::kCrampedFootprints;
+        bot->baseProductionRoomBlocked=false;
+        bot->mcvExpansionSites.erase(colonistID);
+        bot->mcvSurveyCycles.erase(colonistID);
+        colonist->setForced(false);
+        require(!bot->baseBuiltOut() && !bot->colonyMissionDue(),
+            "The measured base must report room again, or the stalled delivery is not reproduced");
+        require(!bot->expansionDefenceReady(),
+            "The missing advanced core must close the ordinary expansion gate, or nothing is waived");
+        require(!bot->findLocalDeploySite(colonist).isValid(),
+            "The home rock must hold no usable yard footprint, or the colonist is right to stay");
+        // One pass, not eventually: the delivered colonist idled for a minute.
+        bot->manageMcv(colonist);
         const auto assigned=bot->mcvExpansionSites.find(colonistID);
-        require(assigned!=bot->mcvExpansionSites.end(),"The colonist was given no site at all");
+        require(assigned!=bot->mcvExpansionSites.end(),
+            "The first pass left the colonist without a site, waiting for local room that"
+            " the home rock does not have");
         const Coord target=assigned->second;
         require(target.x>=ground.x+36 && target.x<ground.x+48
             && target.y>=ground.y+3 && target.y<ground.y+15,
@@ -688,6 +713,9 @@ void runMcvDeploymentProbe(Game& game) {
         require(currentGameMap->getTile(target)->hasAStructure(),
             "No construction yard stands on the settled formation");
         require(arrived.x>=ground.x+36,"The colonist deployed before reaching the new formation");
+        house->numItem[Structure_HeavyFactory]=heldHeavy;
+        house->numItem[Structure_HighTechFactory]=heldHighTech;
+        house->numItem[Structure_RepairYard]=heldRepair;
         // Settling is not a licence to keep buying: the survey now sees a yard
         // on that formation, so the same pass must not order another colonist.
         bot->rockSurveyCycle=std::numeric_limits<Uint32>::max();
@@ -817,6 +845,214 @@ void runMcvDeploymentProbe(Game& game) {
         require(frontage(roomy)>0,
             "The chosen site has neither a road nor open rock beside it while properly"
             " fronted ground was available");
+        unitList=savedUnits;structureList=savedStructures;
+    }
+
+    // 9. Opening space. The combat units a custom game starts with stand on the
+    //    home rock, which is the only ground the first buildings can use. Each
+    //    one takes a short step towards the enemy onto free sand: workers,
+    //    transports, saboteurs, a unit under a human order and anything already
+    //    off the rock are left alone, the sites are distinct, safe and actually
+    //    walked to by the engine, and a base with no sand within reach gets no
+    //    order at all.
+    {
+        constexpr int plotX=36,plotY=20;
+        Coord plot=Coord::Invalid();
+        for(int y=4;y+plotY+4<currentGameMap->getSizeY() && plot.isInvalid();++y)
+            for(int x=4;x+plotX+4<currentGameMap->getSizeX() && plot.isInvalid();++x) {
+                bool clear=true;
+                for(int dy=-4;dy<=plotY+4 && clear;++dy)
+                    for(int dx=-4;dx<=plotX+4 && clear;++dx)
+                        if(currentGameMap->getTile(x+dx,y+dy)->hasAGroundObject()) clear=false;
+                if(clear) plot=Coord(x,y);
+            }
+        require(plot.isValid(),"Opening space fixture needs a clear region");
+        auto spot=[&](int x,int y){ return Coord(plot.x+x,plot.y+y); };
+        auto plotTile=[&](int x,int y){ return currentGameMap->getTile(plot.x+x,plot.y+y); };
+        auto savedUnits=unitList;auto savedStructures=structureList;
+        unitList.clear();structureList.clear();
+        for(int y=-4;y<=plotY+4;++y) for(int x=-4;x<=plotX+4;++x) {
+            auto* tile=plotTile(x,y);
+            tile->setType(Terrain_Sand);tile->setRoad(false);tile->setOwner(INVALID);
+        }
+        // A narrow home rock: the nearest free sand lies five and six tiles east
+        // of the yard, inside the opening step, with the enemy further east.
+        for(int y=4;y<15;++y) for(int x=4;x<11;++x) plotTile(x,y)->setType(Terrain_Rock);
+        require(house->placeStructure(NONE_ID,Structure_ConstructionYard,spot(6,8).x,spot(6,8).y,true,true)!=nullptr,
+            "Opening space fixture could not build its yard");
+        auto* enemy=game.getHouse(HOUSE_ATREIDES)->placeStructure(NONE_ID,Structure_Silo,
+            spot(30,8).x,spot(30,8).y,true,true);
+        require(enemy!=nullptr,"Opening space fixture needs an enemy landmark");
+        enemy->setVisible(VIS_ALL,true);
+        bot->reservedStructures.clear();bot->recentStructureLosses.clear();
+        bot->builderPlaceLocations.clear();bot->planningBuilder=NONE_ID;
+        bot->clearPlacementCache();
+        bot->dangerUpdated=std::numeric_limits<Uint32>::max();
+        bot->refreshTacticalDanger();
+        bot->openingDispersal.clear();bot->openingDispersalUntil=0;
+        bot->squadRallyLocation=Coord::Invalid();
+        bot->rallySelectedCycle=std::numeric_limits<Uint32>::max();
+
+        auto troop=[&](Uint32 item,int x,int y) {
+            auto* unit=house->createUnit(item,true);
+            require(unit!=nullptr,"Opening space fixture could not create a unit");
+            unit->deploy(spot(x,y));
+            require(unit->getLocation()==spot(x,y),"Opening space fixture could not place a unit");
+            if(unit->canAttack()) bot->doSetAttackMode(unit,AREAGUARD);
+            unit->setForced(false);
+            return unit;
+        };
+        auto release=[&](UnitBase* unit) {
+            unit->setForced(false);
+            bot->doMove2Pos(unit,unit->getX(),unit->getY(),false);
+        };
+        auto onRock=[&](Coord at) {
+            return currentGameMap->tileExists(at) && currentGameMap->getTile(at)->isRock();
+        };
+        UnitBase* squad[4]={troop(Unit_Tank,5,6),troop(Unit_Quad,8,6),
+                            troop(Unit_Soldier,5,11),troop(Unit_Trike,9,12)};
+        auto* ordered=troop(Unit_Tank,8,11);          // Under a human order.
+        bot->onHumanUnitOrder(ordered->getObjectID());
+        auto* outside=troop(Unit_Quad,2,8);           // Already off the rock.
+        auto* worker=troop(Unit_Harvester,5,13);
+        auto* carrier=troop(Unit_Carryall,9,5);
+        auto* colonist=troop(Unit_MCV,9,4);
+        auto* agent=troop(Unit_Saboteur,6,12);
+        for(auto* unit:squad) require(onRock(unit->getLocation()),"A fixture unit does not start on the rock");
+        require(onRock(worker->getLocation()) && onRock(colonist->getLocation()),
+            "The excluded fixture units must also start on the rock, or exclusion proves nothing");
+        require(!onRock(outside->getLocation()),"The off-rock fixture unit stands on rock");
+        const Coord anchor=bot->openingAnchor();
+        require(anchor==spot(6,8),"The opening anchor is not the base the units are blocking");
+        require(bot->openingForwardOffset(anchor).x>0,
+            "The fixture's enemy is not visible eastwards, so 'towards the enemy' is untestable");
+
+        // The opening decision itself.
+        Coord started[4];
+        for(int i=0;i<4;++i) started[i]=squad[i]->getLocation();
+        const Coord workerStart=worker->getLocation(),colonistStart=colonist->getLocation();
+        const Coord orderedStart=ordered->getDestination(),outsideStart=outside->getDestination();
+        bot->applyOpeningSpaceDispersal();
+        require(bot->openingDispersal.size()==4,
+            "The opening step did not cover exactly the starting combat units on the rock");
+        std::set<std::pair<int,int>> used;
+        for(int i=0;i<4;++i) {
+            const auto entry=bot->openingDispersal.find(squad[i]->getObjectID());
+            require(entry!=bot->openingDispersal.end(),"A starting combat unit received no opening step");
+            const Coord site=entry->second;
+            require(squad[i]->getDestination()==site,"The opening step was not actually ordered");
+            require(!onRock(site),"An opening step ended on the rock the base needs");
+            require(site.x>started[i].x,"An opening step did not move towards the enemy");
+            const int walk=blockDistance(started[i],site).lround();
+            require(walk>=1 && walk<=QuantBot::kOpeningStepMax+QuantBot::kOpeningStepMin,
+                "An opening step left the base pocket instead of taking a short step");
+            require(blockDistance(anchor,site).lround()<=QuantBot::kOpeningStepMax+1,
+                "An opening site is not near the base");
+            require(bot->dangerAt(site)==0,"An opening site sits under a known threat");
+            require(currentGameMap->getTile(site)->isSand() || currentGameMap->getTile(site)->isDunes(),
+                "An opening site is not the open sand it was supposed to be");
+            require(used.insert({site.x,site.y}).second,"Two units were sent to the same tile");
+        }
+        for(auto* excluded:{worker,carrier,colonist,agent,ordered,outside})
+            require(bot->openingDispersal.count(excluded->getObjectID())==0,
+                "The opening step took a worker, transport, saboteur, human-ordered or off-rock unit");
+
+        // These sites decide orders — whether a unit is left standing where it
+        // was stepped to, or marched back onto the rock the first buildings
+        // need — so a save or network checkpoint taken inside the opening
+        // window has to carry them. An older save has no opening to restore.
+        {
+            const auto previousVersion=game.loadedSavegameVersion;
+            game.loadedSavegameVersion=SAVEGAMEVERSION;
+            OMemoryStream out;out.open();bot->save(out);
+            IMemoryStream input(out.getData(),out.getDataLength());
+            {
+                QuantBot restored(input,const_cast<House*>(bot->getHouse()));
+                require(restored.openingDispersal==bot->openingDispersal,
+                    "A save taken during the opening lost its dispersal sites");
+                require(restored.openingDispersalUntil==bot->openingDispersalUntil,
+                    "A save taken during the opening lost the cycle its window ends at");
+                for(int i=0;i<4;++i)
+                    require(restored.holdsOpeningPosition(squad[i]),
+                        "A restored opening no longer holds the units it had just placed");
+            }
+            game.loadedSavegameVersion=9847;
+            IMemoryStream legacyInput(out.getData(),out.getDataLength());
+            {
+                QuantBot legacy(legacyInput,const_cast<House*>(bot->getHouse()));
+                require(legacy.openingDispersal.empty() && legacy.openingDispersalUntil==0,
+                    "A pre-9848 save invented an opening dispersal");
+            }
+            game.loadedSavegameVersion=previousVersion;
+        }
+        require(worker->getLocation()==workerStart && colonist->getLocation()==colonistStart,
+            "An excluded unit was displaced");
+        require(ordered->getDestination()==orderedStart,"A human order was replaced by the opening step");
+        require(outside->getDestination()==outsideStart,"A unit already off the rock was shuffled");
+
+        // A helper bot never reorders the units its human is commanding.
+        for(auto* unit:squad) release(unit);
+        bot->openingDispersal.clear();bot->openingDispersalUntil=0;
+        bot->supportMode=true;
+        bot->applyOpeningSpaceDispersal();
+        require(bot->openingDispersal.empty(),"A support-mode helper issued opening orders");
+        bot->supportMode=false;
+
+        // The real custom-game opening path, then the engine frames that must
+        // actually clear the rock, and a regroup that may not undo them.
+        for(auto* unit:{worker,colonist,agent}) { unit->setVisible(VIS_ALL,false);unit->destroy(); }
+        for(auto* unit:squad) release(unit);
+        bot->openingDispersal.clear();bot->openingDispersalUntil=0;
+        bot->initialMilitaryValue=-1;                 // The once-per-game opening init.
+        bot->attackTimer=MILLI2CYCLES(600000);        // No wave interferes with the opening.
+        bot->update();
+        require(bot->openingDispersal.size()==4,
+            "The custom-game opening did not step its starting units off the rock");
+        for(int i=0;i<4;++i)
+            require(squad[i]->getDestination()==bot->openingDispersal[squad[i]->getObjectID()],
+                "The ordinary rally move overwrote the opening step");
+        const Uint32 deadline=game.getGameCycleCount()+MILLI2CYCLES(45000);
+        bool standing=false;
+        while(!standing && game.getGameCycleCount()<deadline) {
+            tick(10);
+            standing=true;
+            for(auto* unit:squad) if(onRock(unit->getLocation())) standing=false;
+        }
+        require(standing,"The starting units never walked off the rock within 45 seconds");
+        for(int i=0;i<4;++i)
+            require(!currentGameMap->getTile(started[i])->hasAGroundObject()
+                    || currentGameMap->getTile(started[i])->getObject()==squad[i],
+                "A freed rock tile is still occupied");
+        bot->checkAllUnits();
+        for(auto* unit:squad) {
+            require(!onRock(unit->getLocation()),"A unit was standing on the rock again after regrouping");
+            require(!onRock(unit->getDestination()),
+                "Regrouping ordered a unit that had just cleared the rock straight back onto it");
+        }
+
+        // No sand within reach: no order, and nothing destructive.
+        for(int y=-8;y<=8;++y) for(int x=-8;x<=8;++x) {
+            const Coord at=anchor+Coord(x,y);
+            if(currentGameMap->tileExists(at) && !currentGameMap->getTile(at)->hasAStructure())
+                currentGameMap->getTile(at)->setType(Terrain_Rock);
+        }
+        bot->dangerUpdated=std::numeric_limits<Uint32>::max();
+        bot->refreshTacticalDanger();
+        bot->openingDispersal.clear();bot->openingDispersalUntil=0;
+        // They now stand on ground that just became rock, so they are eligible
+        // again and every tile in reach is rock: exactly the fallback case.
+        for(auto* unit:squad) release(unit);
+        Coord held[4];
+        for(int i=0;i<4;++i) {
+            held[i]=squad[i]->getLocation();
+            require(onRock(held[i]),"The fallback fixture must leave its units on rock, or it tests nothing");
+        }
+        bot->applyOpeningSpaceDispersal();
+        require(bot->openingDispersal.empty(),"A base with no sand in reach still issued opening steps");
+        for(int i=0;i<4;++i)
+            require(squad[i]->getDestination()==held[i] && squad[i]->getLocation()==held[i],
+                "The fallback moved a unit anyway");
+        bot->openingDispersal.clear();bot->openingDispersalUntil=0;
         unitList=savedUnits;structureList=savedStructures;
     }
 

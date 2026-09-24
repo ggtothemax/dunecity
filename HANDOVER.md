@@ -1,3 +1,59 @@
+## 2026-09-24 — Opening space, prompt colonies and launcher air defence (local 1.0.783)
+
+Captured MBA 782 session 1790250645152912-0 on Sihaya-O'Donnell 128x64,
+seed 444573528, DuneCity tech 8, concrete off and turret power required.
+House 1's MCV 215 arrived at 11.80 game minutes but had no destination until
+12.73, then deployed at 13.09. The base briefly reported four free plots while
+no local yard footprint was usable; missing Heavy/High-Tech/Repair buildings
+closed remote expansion again. Ornithopters also destroyed remote yards at
+(90,52), (36,52) and (90,10), plus surrounding buildings. Generic reinforcement
+selection retained launchers in ground fights, and forced attacks on distant
+flying targets were dropped by the unit engine outside weapon range.
+
+Custom opening combat units now take distinct short steps toward visible enemies
+(or map centre) onto safe connected sand. Human orders, existing forced orders,
+workers, MCVs, transports, saboteurs and already-off-rock units are preserved.
+No safe nearby sand means no opening order. A 90-second hold keeps ordinary
+regrouping from pulling those units straight back onto the construction rock;
+combat can still take precedence. Campaign and support openings are unchanged.
+The hold and destinations persist in ordinary saves/checkpoints (save 9848);
+older saves load with no invented opening state.
+
+An already-delivered MCV whose local deployment search actually fails may waive
+the factory-core prerequisite when seeking safe remote rock, independently of a
+temporarily optimistic space survey. Approved remote destinations retain that
+exception at deployment. Existing turret cover, threat/loss/route checks and
+purchase limits remain; this changes deployment, not MCV purchase frequency.
+
+Aircraft targeting any owned structure trigger mobile anti-air response before
+the first damage callback. Launchers are preferred; ordinary AI ground attacks
+and rally orders yield, human orders and necessary repair do not. Responders
+move to reachable ground within two tiles of the attacked building instead of
+chasing the aircraft's tile. Transit is committed against incidental ground
+contacts, in-range responders fire, and ended attacks release the assignment.
+The existing saved defenceAssignments map holds the mission. Up to three
+responders per aircraft are recruited within 40 tiles, with stable assignments.
+Ground reachability uses a bounded eight-neighbour search around the journey,
+ignoring movable traffic but respecting buildings and vehicle terrain barriers.
+
+Version 783, protocol 37, policy opening-and-colony-defence-v85. Claude provided
+the initial implementation and fixtures; its second bounded run timed out after
+writing the patch. Codex completed reachability, committed transit, ground-contact
+priority, actual-firing tests and integration. Evidence lives in
+../outputs/quantbot-opening-space-783/. This candidate has not been installed,
+pushed or released.
+
+Native build, dependency audits, version consistency and diff checks pass.
+All 42 ordinary CTest targets pass. After the final route-selection optimization,
+the app was rebuilt and all three air-defence probes passed again. The probes
+require real travel and a launcher missile fired at the aircraft, protection
+against incidental ground-contact orders, human-order preservation, rejection of
+an enclosed launcher, stable in-range firing and release after the attack ends.
+The expanded MCV probe passes first-call remote assignment with missing factories
+and a misleading four-plot survey, actual travel/deployment, opening sand moves,
+no-safe-sand fallback and current/older save restoration. No new full-match
+victory result is claimed for this build.
+
 ## 2026-09-24 — Cramped production and Starport colonists (local 1.0.782)
 
 Current Air 781 session 1790248536426276-0, DuneCity Sihaya-O'Donnell 128x64,
@@ -49,7 +105,9 @@ All 42 ordinary CTest targets pass (seven focused plus 35 remaining). The
 full-match regression, seed 1804669015 on All against Atreides, wins against
 four Hard AI Player opponents at 53.70 game minutes, with concrete and
 rocket-turret power required. This checks broader play, not a replay of Sihaya.
-Evidence: ../outputs/quantbot-cramped-starport-782/. Not installed or released.
+Evidence: ../outputs/quantbot-cramped-starport-782/. Subsequently installed on
+the MBA; version, signature, matching binary and runtime rendering verified
+(../outputs/mba-test-782/install-verification.log). Not pushed or released.
 
 ## 2026-09-24 — Space-driven MCV colonisation (local 1.0.781)
 

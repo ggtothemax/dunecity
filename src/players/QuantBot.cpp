@@ -332,6 +332,18 @@ QuantBot::QuantBot(InputStream& stream, House* associatedHouse) : Player(stream,
             campaignOriginalStructures.insert(item);
         }
     }
+    if (currentGame->getLoadedSavegameVersion() >= 9848) {
+        openingDispersalUntil=stream.readUint32();
+        const auto count=stream.readUint32();
+        if(count>kOpeningDispersalLimit) throw std::runtime_error("Invalid opening dispersal state");
+        for(Uint32 i=0;i<count;++i) {
+            const auto id=stream.readUint32();
+            Coord site;
+            site.x=stream.readSint32();
+            site.y=stream.readSint32();
+            openingDispersal[id]=site;
+        }
+    }
     // Preserve an older save's initialized opening: fired triggers have already
     // been removed from TriggerManager, so rescanning could delay it forever.
     if (supportMode) {
@@ -422,8 +434,23 @@ void QuantBot::save(OutputStream& stream) const {
     stream.writeUint32(campaignSpiceZeroSince);
     stream.writeUint32(static_cast<Uint32>(campaignOriginalStructures.size()));
     for(auto item:campaignOriginalStructures) stream.writeUint32(item);
-
-
+    // The opening dispersal decides whether a starting unit is left where it
+    // was stepped to or regrouped onto the rock the first buildings need, so a
+    // save or network checkpoint taken during the opening window must carry
+    // it. Serialized in sorted object-ID order: the map is unordered, and a
+    // save has to be byte-identical on every client.
+    stream.writeUint32(openingDispersalUntil);
+    std::vector<Uint32> openingUnits;
+    openingUnits.reserve(openingDispersal.size());
+    for(const auto& entry:openingDispersal) openingUnits.push_back(entry.first);
+    std::sort(openingUnits.begin(),openingUnits.end());
+    stream.writeUint32(static_cast<Uint32>(openingUnits.size()));
+    for(const auto id:openingUnits) {
+        const Coord site=openingDispersal.at(id);
+        stream.writeUint32(id);
+        stream.writeSint32(site.x);
+        stream.writeSint32(site.y);
+    }
 }
 
 
@@ -617,31 +644,18 @@ void QuantBot::update() {
 	} break;
 
 	case GameMode::Custom: {
-		// set initial unit position
+		// Free the home rock: the starting combat units step a little way
+		// towards the enemy onto sand, so the opening build-out has room.
+		//
+		// This replaces the old opening rally sweep outright. That sweep gave
+		// every unit one forced move to a single tile, including units under a
+		// human order, units already carrying a forced order of their own and
+		// the units this pass deliberately leaves standing off the rock. A unit
+		// with no safe opening tile now simply receives no order at all.
+		applyOpeningSpaceDispersal();
+
+		// The rally location is still where later regrouping happens.
 		squadRallyLocation = findSquadRallyLocation();
-
-		// Move all military units to the squad rally location at game start
-		if (squadRallyLocation.isValid()) {
-			logDebug("  Moving all units to squad rally point: (%d, %d)", 
-				squadRallyLocation.x, squadRallyLocation.y);
-
-			int unitsMoved = 0;
-			for (const UnitBase* pUnit : getUnitList()) {
-				if (pUnit->getOwner() == getHouse()
-					&& pUnit->getItemID() != Unit_Carryall
-					&& pUnit->getItemID() != Unit_Sandworm
-					&& pUnit->getItemID() != Unit_Harvester
-					&& pUnit->getItemID() != Unit_MCV
-					&& pUnit->getItemID() != Unit_Frigate
-                        && pUnit->getItemID() != Unit_Saboteur) {
-
-					doMove2Pos(pUnit, squadRallyLocation.x, squadRallyLocation.y, true);
-					unitsMoved++;
-				}
-			}
-
-			logDebug("  Moved %d units to rally point", unitsMoved);
-		}
 
 		// Set harvester/military limits based on map size and difficulty from config
 		int mapsize = 4096; // Default fallback size
@@ -1065,8 +1079,8 @@ void QuantBot::onDamage(const ObjectBase* pObject, int damage, Uint32 damagerID)
 	}
 }
 
-Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
-    const bool defenceReady=expansionDefenceReady();
+Coord QuantBot::findRockExpansionSite(const MCV* mcv, bool needsLocalSpace) {
+    const bool defenceReady=expansionDefenceReady(needsLocalSpace);
     // A per-MCV query has nothing to measure, so the shut gate still costs
     // nothing. The base survey runs first and reports how much room the base
     // has left even while colonisation itself is blocked: that measurement is
@@ -1108,7 +1122,7 @@ Coord QuantBot::findRockExpansionSite(const MCV* mcv) {
             QuantBotColonisationPolicy::kCrampedFootprints);
     }
     // Re-evaluate after measuring this survey, not the previous base layout.
-    if(!expansionDefenceReady()) return Coord::Invalid();
+    if(!expansionDefenceReady(needsLocalSpace)) return Coord::Invalid();
     if(mcv && mcv->getLocation().isValid()) starts.push_back(mcv->getY()*w+mcv->getX());
     if(!mcv && starts.empty()) {
         // A base with no free rock left still stands somewhere. Start the route
@@ -1403,7 +1417,13 @@ bool QuantBot::mcvMayDeployHere(const MCV* pMCV, bool expansion) {
     // outlying-colony checklist (repair yard, high tech factory and three
     // rocket turrets over every expansion yard) the way a new formation does.
     if(onOwnRockFormation(at)) return true;
-    return expansionDefenceReady()&&!nearRecentStructureLoss(at.x,at.y,2,2);
+    // A mission that was already approved deploys where it was sent. The core
+    // prerequisite is waived for exactly the site this MCV was given and for no
+    // other tile, so a colonist that arrives after the base regains a little
+    // room is not turned away from the formation it just crossed the map for.
+    const auto assigned=mcvExpansionSites.find(pMCV->getObjectID());
+    const bool approvedSite=assigned!=mcvExpansionSites.end()&&assigned->second==at;
+    return expansionDefenceReady(approvedSite)&&!nearRecentStructureLoss(at.x,at.y,2,2);
 }
 
 void QuantBot::manageMcv(const MCV* pMCV) {
@@ -1461,6 +1481,23 @@ void QuantBot::manageMcv(const MCV* pMCV) {
             if(!site.isValid()) {
                 choice="expansion";
                 if(!colonise) site=findRockExpansionSite(pMCV);
+            }
+            if(!site.isValid()) {
+                // The local search has just failed for this MCV: there is no
+                // usable yard footprint on the rock the base stands on, whatever
+                // the base survey last measured. A core building that could only
+                // ever be built at home must not keep the colonist parked, so
+                // the remote survey runs once more with that prerequisite
+                // waived. The delivered colonist in the reported match waited a
+                // minute here because the base briefly reported room again.
+                //
+                // A trip already under way to a legal remote footprint is kept
+                // rather than re-ranked: the survey runs every five seconds and
+                // orders formations by distance, so without this an MCV could
+                // be sent between two equally good ones for ever.
+                site=(target.isValid()&&mcvSiteUsable(pMCV,target)&&!onOwnRockFormation(target))
+                    ? target : findRockExpansionSite(pMCV,true);
+                if(site.isValid()) choice="expansion_no_local";
             }
         }
         if(site.isValid()) {
@@ -1976,7 +2013,7 @@ int QuantBot::expansionTurretsMissing(const StructureBase* yard, bool planned) c
     return std::max(0,3-coverage);
 }
 
-bool QuantBot::expansionDefenceReady() const {
+bool QuantBot::expansionDefenceReady(bool needsLocalSpace) const {
     if (gameMode != GameMode::Custom || !currentGame->isCitySimEnabled() || supportMode
         || getHouse()->getNumItems(Structure_ConstructionYard) == 0) return true;
     const auto& data = currentGame->objectData.data;
@@ -1986,7 +2023,13 @@ bool QuantBot::expansionDefenceReady() const {
     // has to make room for. Waive that prerequisite only once the survey has
     // measured the base as built out, so the gate cannot close on itself.
     // Turret cover for existing expansions below is unaffected.
-    const bool builtOut = rockSurveyCycle != std::numeric_limits<Uint32>::max() && baseBuiltOut();
+    //
+    // A caller that has just failed to find any site at home knows the same
+    // thing first-hand, and more recently than the survey: the reported
+    // colonist stood idle for a minute because the base measurement briefly
+    // reported room again while its rock held no legal footprint at all.
+    const bool builtOut = needsLocalSpace
+        || (rockSurveyCycle != std::numeric_limits<Uint32>::max() && baseBuiltOut());
     // Complete the core first, then secure each expansion before committing
     // another MCV to an outlying site. Recovery of the only yard is exempt.
     if (!builtOut)
@@ -9043,6 +9086,18 @@ void QuantBot::scrambleUnitsAndDefend(const ObjectBase* intruder, bool clearingS
             isProtectedAsset(protectedAsset) ? intruder : nullptr,
             isProtectedAsset(protectedAsset) && protectedAsset->isAStructure());
     }
+    // Aircraft over one of our buildings are an anti-air problem, not a
+    // reinforcement problem. The proportional response below would send
+    // whatever is nearest at the aircraft's current tile, which a ground unit
+    // may not be able to stand on and which the engine drops as a target the
+    // moment it is out of weapon range. Hand the whole contact to the rescue.
+    const bool airOnBuilding = !clearingSpice && intruder->isAFlyingUnit()
+        && ((isProtectedAsset(protectedAsset) && protectedAsset->isAStructure())
+            || (isProtectedAsset(victim) && victim->isAStructure()));
+    if (airOnBuilding) {
+        defendStructuresFromAircraft();
+        return;
+    }
     auto value = [&](const ObjectBase* object) {
         const int price = currentGame->objectData.data[object->getItemID()][object->getOriginalHouseID()].price;
         return std::max(1,(FixPoint(price)*object->getHealth()/object->getMaxHealth()).lround());
@@ -9069,6 +9124,10 @@ void QuantBot::scrambleUnitsAndDefend(const ObjectBase* intruder, bool clearingS
         if (clearingSpice && blockDistance(contact,unit->getLocation())>clearingRadius) continue;
         const auto* target=unit->getTarget();
         const auto assignment=defenceAssignments.find(unit->getObjectID());
+        if (assignment!=defenceAssignments.end()) {
+            const auto* assigned=getObject(assignment->second);
+            if (assigned && assigned->isAFlyingUnit() && airAttackContinues(unit,assigned)) continue;
+        }
         if (assignment!=defenceAssignments.end() && target && target->isAUnit()) {
             const auto* victim=static_cast<const UnitBase*>(target)->getTarget();
             const auto* newVictim=intruder->isAUnit() ? static_cast<const UnitBase*>(intruder)->getTarget() : nullptr;
@@ -9111,6 +9170,217 @@ void QuantBot::scrambleUnitsAndDefend(const ObjectBase* intruder, bool clearingS
         .set("already_committed_value",committed).set("required_value",SimpleArmyPolicy::responseValue(threatValue))
         .set("reason",clearingSpice ? "clear_spice_launcher" : "under_attack")
         .set("dispatched",dispatched));
+}
+
+bool QuantBot::availableAirDefender(const UnitBase* unit, const UnitBase* aircraft) const {
+    if (!unit || !aircraft || unit->getOwner()!=getHouse() || !unit->isActive()
+        || !unit->isRespondable() || unit->isAFlyingUnit()) return false;
+    const Uint32 item=unit->getItemID();
+    if (item==Unit_Saboteur || item==Unit_Harvester || item==Unit_RebelHarvester
+        || item==Unit_MCV || item==Unit_Carryall || item==Unit_Frigate
+        || item==Unit_Sandworm) return false;
+    // canAttack settles which weapons reach the sky: launchers and rocket
+    // infantry do, tanks and soldiers do not, and a mod may draw the line
+    // somewhere else again. Nothing here enumerates unit types itself.
+    if (!unit->canAttack(aircraft)) return false;
+    // A human order, an explicit retreat and a trip to the repair yard all
+    // outrank the rescue. An ordinary attack, raid or rally order does not:
+    // interrupting those is the whole point.
+    return !humanControls(unit) && !reserveDamagedUnitForRepair(unit)
+        && unit->getAttackMode()!=RETREAT;
+}
+
+Coord QuantBot::findAntiAirFiringPosition(const UnitBase* unit, const StructureBase* victim) const {
+    if (!unit || !victim) return Coord::Invalid();
+    const auto& map=getMap();
+    const Coord here=unit->getLocation(), at=victim->getLocation(), size=victim->getStructureSize();
+    if (!map.tileExists(here)) return Coord::Invalid();
+    // Defend the building's vicinity, not the aircraft's moving position.
+    const int reach=std::max(1,std::min(2,unit->getWeaponRange()-1));
+    auto covers=[&](Coord p) {
+        const int dx=std::max({at.x-p.x,p.x-(at.x+size.x-1),0});
+        const int dy=std::max({at.y-p.y,p.y-(at.y+size.y-1),0});
+        return std::max(dx,dy)<=reach;
+    };
+    if (covers(here)) return here;
+    // Prove reachability from this defender, not merely connectivity around
+    // the building. Ignore moving traffic, but include permanent obstructions.
+    // Bound the search to the journey and a detour margin; eight neighbours
+    // match the engine's ground pathfinder.
+    constexpr int detour=12;
+    const int x0=std::max(0,std::min(here.x,at.x)-detour);
+    const int y0=std::max(0,std::min(here.y,at.y)-detour);
+    const int x1=std::min(map.getSizeX()-1,std::max(here.x,at.x+size.x)+detour);
+    const int y1=std::min(map.getSizeY()-1,std::max(here.y,at.y+size.y)+detour);
+    const int width=x1-x0+1;
+    std::vector<char> reached(static_cast<size_t>(width)*(y1-y0+1),0);
+    auto slot=[&](Coord p) { return (p.y-y0)*width+p.x-x0; };
+    std::vector<Coord> frontier{here};
+    reached[slot(here)]=1;
+    for(size_t head=0;head<frontier.size();++head) {
+        const Coord from=frontier[head];
+        for(int dy=-1;dy<=1;++dy) for(int dx=-1;dx<=1;++dx) {
+            if(!dx && !dy) continue;
+            const Coord next=from+Coord(dx,dy);
+            if(next.x<x0 || next.y<y0 || next.x>x1 || next.y>y1 || reached[slot(next)]) continue;
+            const auto* tile=map.getTile(next);
+            if(tile->hasAStructure() || (tile->isMountain() && !unit->isInfantry())) continue;
+            reached[slot(next)]=1;frontier.push_back(next);
+        }
+    }
+    Coord best=Coord::Invalid();
+    int bestWalk=std::numeric_limits<int>::max();
+    for(int y=std::max(y0,at.y-reach);y<=std::min(y1,at.y+size.y-1+reach);++y)
+        for(int x=std::max(x0,at.x-reach);x<=std::min(x1,at.x+size.x-1+reach);++x) {
+            const Coord post(x,y);
+            if(!reached[slot(post)] || !covers(post) || !unit->canPass(x,y)) continue;
+            const int walk=blockDistance(here,post).lround();
+            if(walk<bestWalk) { bestWalk=walk;best=post; }
+        }
+    return best;
+}
+
+bool QuantBot::airAttackContinues(const UnitBase* defender, const ObjectBase* aircraft) const {
+    if (!defender || !aircraft || aircraft->getHealth()<=0 || !aircraft->isActive()
+        || !aircraft->getOwner() || aircraft->getOwner()->getTeamID()==getHouse()->getTeamID()
+        || !aircraft->isVisible(getHouse()->getTeamID())) return false;
+    const auto* victim=aircraft->isAUnit()
+        ? static_cast<const UnitBase*>(aircraft)->getTarget() : nullptr;
+    if (victim && victim->getHealth()>0 && victim->isActive() && victim->getOwner()==getHouse()) return true;
+    // The attack is over. Keep the defender only while it can still shoot the
+    // aircraft from where it stands: nothing chases one that has broken off.
+    return defender->isInWeaponRange(aircraft);
+}
+
+/**
+    Aircraft attacking a building we own, wherever that building stands.
+
+    The reported match lost two outlying construction yards and the colonies
+    around them to ornithopters while launchers stayed on ground skirmishes and
+    rally points. The generic reinforcement response could not fix it: it skips
+    units already firing at something, and what it does order is a forced attack
+    on the aircraft's current tile — which the engine drops the moment the
+    aircraft is out of weapon range (UnitBase::engageTarget releases any flying
+    target beyond range, forced or not), leaving the launcher parked wherever it
+    happened to be standing.
+
+    So this owns the whole contact instead. It reads the attack from the
+    aircraft's target rather than waiting for damage, gives each attacked
+    building a bounded number of anti-air responders, has an in-range defender
+    fire instead of taking another move order, and sends the rest to a ground
+    tile from which the airspace over the building is covered. Assignments live
+    in the saved defenceAssignments map, so they survive save/load and are
+    respected by regrouping; nothing new is stored.
+*/
+void QuantBot::defendStructuresFromAircraft() {
+    if (supportMode || getHouse()==nullptr) return;
+    AITelemetry::PerformanceScope perfScope("ai.air_rescue",getGameCycleCount(),getHouse()->getHouseID());
+    const int myTeam=getHouse()->getTeamID();
+    struct AirAttack { const UnitBase* aircraft; const StructureBase* victim; };
+    std::vector<AirAttack> attacks;
+    for (const auto* unit:getUnitList()) {
+        if (!unit->isActive() || !unit->isAFlyingUnit() || unit->getHealth()<=0) continue;
+        if (!unit->getOwner() || unit->getOwner()->getTeamID()==myTeam) continue;
+        if (!unit->isVisible(myTeam)) continue;
+        // The attack itself, not the damage it has already done: waiting for a
+        // damage callback is what let the colonies burn down.
+        const auto* target=unit->getTarget();
+        if (!target || !target->isAStructure() || target->getOwner()!=getHouse()
+            || target->getHealth()<=0 || !target->isActive()) continue;
+        if (isCampaignEnemy() && !campaignLocalContact(unit)) continue;
+        attacks.push_back({unit,static_cast<const StructureBase*>(target)});
+    }
+    if (attacks.empty()) return;
+    std::sort(attacks.begin(),attacks.end(),[](const AirAttack& a,const AirAttack& b) {
+        if (a.victim->getObjectID()!=b.victim->getObjectID())
+            return a.victim->getObjectID()<b.victim->getObjectID();
+        return a.aircraft->getObjectID()<b.aircraft->getObjectID();
+    });
+    struct Candidate { const UnitBase* unit; int distance, busy; Uint32 id; };
+    std::set<Uint32> committed;
+    for (const auto& attack:attacks) {
+        const Uint32 aircraftID=attack.aircraft->getObjectID();
+        const Coord contact=attack.victim->getLocation();
+        std::vector<const UnitBase*> responders;
+        std::vector<Candidate> candidates;
+        std::map<Uint32,Coord> posts;
+        for (const auto* unit:getUnitList()) {
+            const Uint32 id=unit->getObjectID();
+            if (committed.count(id) || !availableAirDefender(unit,attack.aircraft)) continue;
+            const auto assigned=defenceAssignments.find(id);
+            if (assigned!=defenceAssignments.end()) {
+                // Already on this aircraft: keep it there. A rescue that is
+                // re-chosen every pass never arrives anywhere.
+                // Answering another live air attack: leave that one alone.
+                const auto* other=getObject(assigned->second);
+                if (assigned->second!=aircraftID && other && other->isAUnit() && other->isAFlyingUnit()
+                    && airAttackContinues(unit,other)) continue;
+            }
+            const int distance=blockDistance(unit->getLocation(),contact).lround();
+            const bool continuing=assigned!=defenceAssignments.end() && assigned->second==aircraftID;
+            if (distance>kAirRescueRadius && !continuing) continue;
+            if(continuing) {
+                const Coord post=unit->isInWeaponRange(attack.aircraft)
+                    ? unit->getLocation() : findAntiAirFiringPosition(unit,attack.victim);
+                if(post.isInvalid()) { defenceAssignments.erase(assigned);continue; }
+                posts[id]=post;responders.push_back(unit);continue;
+            }
+            candidates.push_back({unit,distance,assigned!=defenceAssignments.end() ? 1 : 0,id});
+        }
+        std::sort(candidates.begin(),candidates.end(),[](const Candidate& a,const Candidate& b) {
+            const auto launcher=[](const UnitBase* unit) {
+                return unit->getItemID()==Unit_Launcher || unit->getItemID()==Unit_EliteLauncher;
+            };
+            // Launchers provide the mobile air cover; nearby rocket infantry
+            // are a fallback when no launcher is available.
+            if(launcher(a.unit)!=launcher(b.unit)) return launcher(a.unit);
+            if (a.distance!=b.distance) return a.distance<b.distance;
+            if (a.busy!=b.busy) return a.busy<b.busy;   // Free troops before committed ones.
+            return a.id<b.id;
+        });
+        for (const auto& candidate:candidates) {
+            if (static_cast<int>(responders.size())>=kAirRescueDefenders) break;
+            // Only route the nearest preferred candidates we actually need.
+            const Coord post=candidate.unit->isInWeaponRange(attack.aircraft)
+                ? candidate.unit->getLocation() : findAntiAirFiringPosition(candidate.unit,attack.victim);
+            if(post.isInvalid()) continue;
+            posts[candidate.id]=post;responders.push_back(candidate.unit);
+        }
+        int firing=0, approaching=0, stranded=0;
+        for (const auto* unit:responders) {
+            const Uint32 id=unit->getObjectID();
+            committed.insert(id);
+            defenceAssignments[id]=aircraftID;
+            groundSquad.erase(id);
+            if (unit->getAttackMode()!=AREAGUARD) doSetAttackMode(unit,AREAGUARD);
+            if (unit->isInWeaponRange(attack.aircraft)) {
+                // Useful fire outranks another move order: a launcher that can
+                // already shoot is not marched at a tile the aircraft happens
+                // to be flying over.
+                if (unit->getTarget()!=attack.aircraft) doAttackObject(unit,attack.aircraft,true);
+                ++firing;
+                continue;
+            }
+            const Coord post=posts.at(id);
+            // No reachable ground covers this building for this unit. Ordering
+            // it at the aircraft would be ordering it onto thin air.
+            if (post.isInvalid()) { ++stranded; continue; }
+            if (unit->getAttackMode()!=AREAGUARD) doSetAttackMode(unit,AREAGUARD);
+            const_cast<UnitBase*>(unit)->setGuardPoint(post);
+            // Commit transit so incidental ground targets cannot arrest the
+            // rescue. The next air pass switches to fire as soon as it can.
+            if (unit->getLocation()!=post && (unit->getDestination()!=post
+                || !unit->wasForced() || unit->hasATarget()))
+                doMove2Pos(unit,post.x,post.y,true);
+            ++approaching;
+        }
+        if (firing || approaching || stranded)
+            traceDecision("air_rescue",AITelemetry::Record().set("aircraft",aircraftID)
+                .set("victim",attack.victim->getObjectID()).set("item",attack.victim->getItemID())
+                .set("x",contact.x).set("y",contact.y).set("firing",firing)
+                .set("approaching",approaching).set("no_firing_position",stranded)
+                .set("defenders",static_cast<int>(responders.size())));
+    }
 }
 
 bool QuantBot::tryLaunchOrnithopterStrike(const QuantBotConfig::DifficultySettings& diffSettings,
@@ -9691,6 +9961,185 @@ Coord QuantBot::findSquadRallyLocation() {
     return best;
 }
 
+Coord QuantBot::openingAnchor() {
+    const Coord base=findBaseCentre(getHouse()->getHouseID());
+    if (base.isValid()) return base;
+    // No yard yet: the MCV stands where the base is about to be built.
+    const UnitBase* mcv=nullptr;
+    for (const auto* unit:getUnitList())
+        if (unit->getOwner()==getHouse() && unit->isActive() && unit->getItemID()==Unit_MCV
+            && (!mcv || unit->getObjectID()<mcv->getObjectID())) mcv=unit;
+    return mcv ? mcv->getLocation() : Coord::Invalid();
+}
+
+Coord QuantBot::openingForwardOffset(Coord anchor) const {
+    Coord towards=Coord::Invalid();
+    int closest=std::numeric_limits<int>::max();
+    auto consider=[&](const ObjectBase* object) {
+        if (!object || !object->getOwner() || !object->isActive()
+            || object->getItemID()==Unit_Sandworm
+            || object->getOwner()->getTeamID()==getHouse()->getTeamID()
+            || !object->isVisible(getHouse()->getTeamID()) || object->getLocation().isInvalid()) return;
+        const int d=blockDistance(anchor,object->getLocation()).lround();
+        if (d<closest) { closest=d; towards=object->getLocation(); }
+    };
+    for (const auto* unit:getUnitList()) consider(unit);
+    for (const auto* structure:getStructureList()) consider(structure);
+    // Nothing hostile is visible at game start. The middle of the map is the
+    // direction opponents lie in and needs no knowledge we have not earned.
+    if (towards.isInvalid()) towards=Coord(getMap().getSizeX()/2,getMap().getSizeY()/2);
+    return towards-anchor;
+}
+
+/**
+    The combat units a custom game starts with stand on the home rock, which is
+    the only ground the opening build-out can use. Step each of them a short way
+    towards the enemy onto free sand, so the yard keeps its building space.
+
+    This is an opening decision only: it never moves workers, transports or
+    saboteurs, never starts an assault, and leaves alone any unit that is
+    already off the rock, under a human order, fighting or hunting. A unit with
+    no safe sand within reach receives no order here at all: the opening rally
+    sweep that used to move everything regardless has been withdrawn, so
+    "nowhere to step" now means the unit is left exactly where it stands.
+*/
+void QuantBot::applyOpeningSpaceDispersal() {
+    openingDispersal.clear();
+    openingDispersalUntil=0;
+    // Campaign missions keep their scripted opening, and a helper bot never
+    // reorders the units its human is commanding.
+    if (supportMode || gameMode!=GameMode::Custom
+        || (currentGame && isCampaignGameType(currentGame->gameType))) return;
+    const Coord anchor=openingAnchor();
+    if (anchor.isInvalid()) return;
+    refreshTacticalDanger();
+    const Coord forward=openingForwardOffset(anchor);
+    const bool hasForward=forward.x!=0 || forward.y!=0;
+    const int scale=std::max(1,std::max(std::abs(forward.x),std::abs(forward.y)));
+
+    // Worms are a hazard candidates keep clear of, but only the ones this
+    // house can actually see: a site chosen from a worm nobody has spotted is
+    // knowledge the AI has not earned.
+    std::vector<Coord> worms;
+    for (const auto* unit:getUnitList())
+        if (unit->isActive() && unit->getItemID()==Unit_Sandworm
+            && unit->isVisible(getHouse()->getTeamID())) worms.push_back(unit->getLocation());
+
+    std::vector<const UnitBase*> movers;
+    for (const auto* unit:getUnitList()) {
+        if (unit->getOwner()!=getHouse() || !unit->isActive() || !unit->isRespondable()
+            || !unit->isAGroundUnit() || unit->isAFlyingUnit() || !unit->canAttack()) continue;
+        const Uint32 item=unit->getItemID();
+        if (item==Unit_MCV || item==Unit_Harvester || item==Unit_Carryall || item==Unit_Frigate
+            || item==Unit_Saboteur || item==Unit_Sandworm) continue;
+        if (humanControls(unit) || unit->wasForced() || unit->hasATarget()
+            || unit->getAttackMode()==HUNT || unit->getAttackMode()==RETREAT) continue;
+        if (!getMap().tileExists(unit->getLocation())) continue;
+        // A unit already standing off the rock costs the base nothing.
+        if (!getMap().getTile(unit->getLocation())->isRock()) continue;
+        movers.push_back(unit);
+    }
+    if (movers.empty()) return;
+    std::sort(movers.begin(),movers.end(),
+        [](const UnitBase* a,const UnitBase* b) { return a->getObjectID()<b->getObjectID(); });
+
+    // Ground actually connected to where the units stand. Traffic is ignored
+    // because it moves; mountains and buildings are not.
+    //
+    // One shared flood fill would only prove that *some* mover can reach a
+    // candidate. Label each connected piece of the window separately instead,
+    // so a unit walled off behind its own neighbours is not handed a site on
+    // the far side of that wall.
+    const int window=kOpeningStepMax+4, span=window*2+1;
+    const int x0=anchor.x-window, y0=anchor.y-window;
+    auto inWindow=[&](Coord p) { return p.x>=x0 && p.y>=y0 && p.x<x0+span && p.y<y0+span; };
+    auto slot=[&](Coord p) { return (p.y-y0)*span+(p.x-x0); };
+    std::vector<int> component(static_cast<size_t>(span)*span,0);
+    int components=0;
+    std::vector<Coord> frontier;
+    for (const auto* unit:movers) {
+        const Coord from=unit->getLocation();
+        if (!inWindow(from) || component[slot(from)]) continue;
+        const int label=++components;
+        component[slot(from)]=label;
+        frontier.assign(1,from);
+        for (size_t head=0;head<frontier.size();++head) {
+            const Coord at=frontier[head];
+            for (const Coord step:{Coord(0,-1),Coord(1,0),Coord(0,1),Coord(-1,0)}) {
+                const Coord p=at+step;
+                if (!inWindow(p) || component[slot(p)] || !getMap().tileExists(p)) continue;
+                const auto* tile=getMap().getTile(p);
+                if (tile->isMountain() || tile->hasAStructure()) continue;
+                component[slot(p)]=label; frontier.push_back(p);
+            }
+        }
+    }
+
+    struct OpeningSite { Coord location; int score; };
+    std::vector<OpeningSite> sites;
+    for (int dy=-kOpeningStepMax;dy<=kOpeningStepMax;++dy)
+        for (int dx=-kOpeningStepMax;dx<=kOpeningStepMax;++dx) {
+            const int step=std::max(std::abs(dx),std::abs(dy));
+            if (step<kOpeningStepMin) continue;
+            const Coord p=anchor+Coord(dx,dy);
+            if (!getMap().tileExists(p) || !inWindow(p) || !component[slot(p)]) continue;
+            const auto* tile=getMap().getTile(p);
+            // Free open ground only: rock is what is being freed, spice belongs
+            // to the harvesters and a bloom kills whoever parks on it.
+            if (tile->isRock() || tile->isSpice() || tile->isSpiceBloom() || tile->isRoad()
+                || tile->hasAnObject()) continue;
+            if (dangerAt(p)>0) continue;
+            bool wormNear=false;
+            for (const Coord worm:worms)
+                if (blockDistance(p,worm).lround()<=kOpeningWormClearance) wormNear=true;
+            if (wormNear) continue;
+            const int ahead=hasForward ? (dx*forward.x+dy*forward.y)*4/scale : 0;
+            if (hasForward && ahead<=0) continue;   // Towards the enemy, never back into the base.
+            sites.push_back({p,step*3-ahead});
+        }
+
+    std::set<int> taken;
+    int placed=0;
+    for (const auto* unit:movers) {
+        const Coord from=unit->getLocation();
+        // Only ground this unit itself is standing on a connected piece of.
+        const int reachable=inWindow(from) ? component[slot(from)] : 0;
+        if (!reachable) continue;
+        const OpeningSite* best=nullptr;
+        int bestScore=std::numeric_limits<int>::max();
+        for (const auto& site:sites) {
+            if (component[slot(site.location)]!=reachable) continue;
+            if (taken.count(slot(site.location)) || !unit->canPass(site.location.x,site.location.y)) continue;
+            const int walk=blockDistance(from,site.location).lround();
+            if (walk>kOpeningStepMax+kOpeningStepMin) continue;
+            const int score=site.score*2+walk;
+            const bool earlier=best && (site.location.y<best->location.y
+                || (site.location.y==best->location.y && site.location.x<best->location.x));
+            if (score<bestScore || (score==bestScore && earlier)) { bestScore=score; best=&site; }
+        }
+        if (!best) continue;   // No safe sand within reach: this unit keeps its position.
+        doMove2Pos(unit,best->location.x,best->location.y,true);
+        openingDispersal[unit->getObjectID()]=best->location;
+        taken.insert(slot(best->location));
+        ++placed;
+        traceDecision("opening_space_step",AITelemetry::Record().set("unit",unit->getObjectID())
+            .set("item",unit->getItemID()).set("from_x",from.x).set("from_y",from.y)
+            .set("x",best->location.x).set("y",best->location.y)
+            .set("steps",blockDistance(from,best->location).lround()));
+    }
+    if (placed>0) openingDispersalUntil=getGameCycleCount()+MILLI2CYCLES(kOpeningHoldMs);
+    traceDecision("opening_space_dispersal",AITelemetry::Record().set("anchor_x",anchor.x)
+        .set("anchor_y",anchor.y).set("forward_x",forward.x).set("forward_y",forward.y)
+        .set("candidates",static_cast<int>(sites.size()))
+        .set("units",static_cast<int>(movers.size())).set("moved",placed)
+        .set("without_site",static_cast<int>(movers.size())-placed));
+}
+
+bool QuantBot::holdsOpeningPosition(const UnitBase* unit) const {
+    if (openingDispersal.empty() || getGameCycleCount()>=openingDispersalUntil) return false;
+    return unit && openingDispersal.count(unit->getObjectID())>0;
+}
+
 Coord QuantBot::findSquadRetreatLocation() {
 	Coord newSquadRetreatLocation = Coord::Invalid();
 
@@ -10039,6 +10488,10 @@ void QuantBot::moveToOptimalSquadPosition(const UnitBase* unit, FixPoint radius,
     if (!unit || unit->getItemID()==Unit_Saboteur || !unit->isRespondable() || humanControls(unit) || unit->hasATarget()
         || defenceAssignments.count(unit->getObjectID())
         || unit->wasForced() || unit->isMoving() || unit->getAttackMode()==HUNT) return;
+    // A unit that has just been stepped off the home rock stays off it for the
+    // opening window, instead of being regrouped straight back onto the ground
+    // the first buildings need.
+    if (holdsOpeningPosition(unit)) return;
     // Easy and Medium keep their reserve at home. Only the units actually sent
     // on a wave advance, and this function never touches a hunting unit.
     const bool homeAnchored = !isCampaignGameType(currentGame->gameType)
@@ -10121,6 +10574,9 @@ void QuantBot::retreatAllUnits() {
 
         refreshTacticalDanger();
         releaseLegacyGroundSquad();
+        // The opening window is bounded: after it, ordinary regrouping owns
+        // these units again.
+        if (!openingDispersal.empty() && getGameCycleCount()>=openingDispersalUntil) openingDispersal.clear();
         if (!supportMode) squadRallyLocation = findSquadRallyLocation();
         const QuantBotConfig& config = getQuantBotConfig();
         const QuantBotConfig::DifficultySettings& diffSettings = config.getSettings(static_cast<int>(difficulty));
@@ -10129,15 +10585,26 @@ void QuantBot::retreatAllUnits() {
         for (const auto* intruder : getUnitList()) {
             if (!intruder->isActive() || !intruder->isVisible(getHouse()->getTeamID())
                 || intruder->getOwner()->getTeamID()==getHouse()->getTeamID()) continue;
+            // Aircraft are handled by the rescue below instead, which does not
+            // wait for them to close to weapon range first.
+            if (intruder->isAFlyingUnit()) continue;
             const auto* victim=intruder->getTarget();
             if (victim && victim->isAStructure() && victim->getOwner()==getHouse()
                 && intruder->isInWeaponRange(victim)) scrambleUnitsAndDefend(intruder);
         }
+        // Aircraft on any building we own, main base or outlying colony, on the
+        // same cadence and before regrouping can claim the launchers again.
+        defendStructuresFromAircraft();
         // Defence is sized on contact. No fixed reserve owns troops or prevents
         // the main body helping when a city/harvester is under attack.
         for (auto it=defenceAssignments.begin();it!=defenceAssignments.end();) {
             const auto* unit=dynamic_cast<const UnitBase*>(getObject(it->first));
             const auto* target=getObject(it->second);
+            // A flying contact is answered by the anti-air rescue and ends with
+            // it: the engine releases any flying target beyond weapon range, so
+            // the forced-transit handling below would only park the defender.
+            const bool airborne=unit && target && !unit->isAFlyingUnit()
+                && target->isAUnit() && target->isAFlyingUnit();
             if (unit && unit->getItemID()==Unit_Saboteur) {
                 it=defenceAssignments.erase(it);
                 continue;
@@ -10147,10 +10614,20 @@ void QuantBot::retreatAllUnits() {
                 || !target || target->getHealth()<=0 || !target->isActive()
                 || target->getOwner()->getTeamID()==getHouse()->getTeamID()
                 || reserveDamagedUnitForRepair(unit) || unit->getAttackMode()==RETREAT
-                || !campaignDefensiveContact(unit,target)) {
+                || (airborne ? !airAttackContinues(unit,target) : !campaignDefensiveContact(unit,target))) {
                 if (unit && unit->getOwner()==getHouse() && !humanControls(unit)
-                    && unit->getAttackMode()==AREAGUARD) const_cast<UnitBase*>(unit)->setForced(false);
+                    && unit->getAttackMode()==AREAGUARD) {
+                    if (airborne && !reserveDamagedUnitForRepair(unit))
+                        doMove2Pos(unit,unit->getX(),unit->getY(),false);
+                    else const_cast<UnitBase*>(unit)->setForced(false);
+                }
                 it=defenceAssignments.erase(it);
+            } else if (airborne) {
+                // Fire whenever the aircraft comes inside weapon range, and
+                // otherwise leave the approach chosen for this rescue running.
+                if (unit->isInWeaponRange(target) && unit->getTarget()!=target)
+                    doAttackObject(unit,target,true);
+                ++it;
             } else {
                 // Keep the original contact during travel. On arrival restore
                 // ordinary target selection and kiting within this district.

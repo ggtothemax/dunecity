@@ -90,7 +90,8 @@
 // Version 34: City growth and air interception decisions, stadium requirement.
 // Version 35: Space-driven QuantBot colonisation decisions.
 // Version 36: Cramped city placement and Starport colonisation decisions.
-#define NETWORK_PROTOCOL_VERSION            36
+// Version 37: Opening space, prompt MCV colonies and launcher air defence change AI orders.
+#define NETWORK_PROTOCOL_VERSION            37
 
 // Mod transfer limits
 #define MAX_MOD_TRANSFER_SIZE   (10 * 1024 * 1024)  // 10MB max mod size
