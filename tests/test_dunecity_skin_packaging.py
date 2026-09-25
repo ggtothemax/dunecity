@@ -34,6 +34,9 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
             compact = unit / "categories" / "building_idle" / "states" / "d0_v0" / "processed.png"
             compact.parent.mkdir(parents=True)
             Image.new("RGBA", (64, 64), (100, 80, 40, 255)).save(compact)
+            icon = unit / "categories" / "icon_sprite" / "states" / "default" / "processed.png"
+            icon.parent.mkdir(parents=True)
+            Image.new("RGBA", (182, 110), (10, 20, 30, 255)).save(icon)
             metadata = {
                 "target_game": "dunecity",
                 "slug": "dunecity_harkonnen_residential_zone",
@@ -46,6 +49,9 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
                     "compact_frame_pixels": [64, 64],
                 },
                 "categories": {
+                    "icon_sprite": {"states": {"default": {"assets": {
+                        "processed": {"file": icon.relative_to(asset_root).as_posix()}
+                    }}}},
                     "building_idle": {
                         "states": {
                             "d0_v0": {
@@ -66,6 +72,8 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
 
             with Image.open(output / "atlases" / "idle" / "d0_v0" / "00.png") as packaged:
                 self.assertEqual(packaged.size, (64, 64))
+            with Image.open(output / "icon.png") as packaged_icon:
+                self.assertEqual(packaged_icon.size, (182, 110))
             manifest = configparser.ConfigParser()
             manifest.optionxform = str
             manifest.read(output / "zone.ini", encoding="ascii")
@@ -85,10 +93,16 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
             compact = unit / "categories" / "building_idle" / "states" / "frame_0" / "processed.png"
             compact.parent.mkdir(parents=True)
             Image.new("RGBA", (192, 192), (120, 60, 30, 255)).save(compact)
+            icon = unit / "categories" / "icon_sprite" / "states" / "default" / "processed.png"
+            icon.parent.mkdir(parents=True)
+            Image.new("RGBA", (91, 55), (10, 20, 30, 255)).save(icon)
             metadata = {
                 "target_game": "dunecity",
                 "slug": "dunecity_harkonnen_stadium",
                 "categories": {
+                    "icon_sprite": {"states": {"default": {"assets": {
+                        "processed": {"file": icon.relative_to(asset_root).as_posix()}
+                    }}}},
                     "building_idle": {
                         "states": {
                             "frame_0": {
@@ -109,6 +123,7 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
 
             with Image.open(output / "frames" / "00_frame_0.png") as packaged:
                 self.assertEqual(packaged.size, (192, 192))
+            self.assertTrue((output / "icon.png").is_file())
             manifest = configparser.ConfigParser()
             manifest.optionxform = str
             manifest.read(output / "building.ini", encoding="ascii")
