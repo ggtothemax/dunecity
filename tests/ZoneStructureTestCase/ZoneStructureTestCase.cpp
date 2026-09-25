@@ -362,6 +362,16 @@ TEST_CASE("ZoneStructure: tooltip uses house power model not tile power",
     REQUIRE(window.find("isCityPowered()") == std::string::npos);
 }
 
+TEST_CASE("ZoneStructure: selected Dune2 zones use the house icon",
+          "[zone][graphics][regression]") {
+    const std::string src = readSourceFile("include/GUI/ObjectInterfaces/ZoneStructureInterface.h");
+    REQUIRE_FALSE(src.empty());
+    REQUIRE(src.find("isDuneCityHouseUsingDune2(pZone->getOwner()->getHouseID())") != std::string::npos);
+    REQUIRE(src.find("objPicture.setVisible(showSkinIcon)") != std::string::npos);
+    REQUIRE(src.find("zonePreview.setVisible(!showSkinIcon)") != std::string::npos);
+    REQUIRE(src.find("getCivicOverlay() == ZoneStructure::CivicOverlay::None") != std::string::npos);
+}
+
 TEST_CASE("ZoneStructure: GFXManager creates zone placeholder graphics",
           "[zone][graphics][regression]") {
     std::string src = readSourceFile("src/FileClasses/GFXManager.cpp");

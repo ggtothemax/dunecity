@@ -1,3 +1,7 @@
+## 2026-09-25 — Selected DuneCity zone icons (PR #77, 1.0.785)
+
+The selected-zone sidebar was still hiding the ordinary per-house portrait and drawing a live top-down zone preview over it. Dune2-skinned Residential, Commercial, and Industrial zones now display the same authored Icon Sprite portrait used by the build menu. Unskinned zones and Hospital/Church civic overlays retain the live preview. A zone UI regression check covers this switch. Source metadata is bumped to 1.0.785 for the PR update.
+
 ## 2026-09-25 — Latest main, DuneCity skins, Android refresh and campaign skin choice (local 1.0.783)
 
 Fast-forwarded this Windows checkout to Stefan's `origin/main` at `6d8e2a92` and synchronized 34 accepted Oathkeeper DuneCity packages (23 zones, 11 buildings). The skin packager now includes an accepted landscape Icon Sprite Compact as `icon.png`; 32 icon files are present, while packages without accepted icons keep the engine fallback. The two units without eligible Compact cells remain skipped.
