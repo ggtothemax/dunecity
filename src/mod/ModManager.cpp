@@ -154,6 +154,21 @@ std::string bundledModFingerprint(const std::filesystem::path& source) {
         appendFingerprintBytes(hash, entry);
     }
 
+    // Skin test APKs and desktop builds can replace artwork without changing
+    // the game version or a PNG's byte count. Hash the bundled art itself.
+    if(source.filename() == "graphics_skins") {
+        for(const auto& entry : entries) {
+            const auto relative = entry.substr(0, entry.find('\n'));
+            std::ifstream file(source / relative, std::ios::binary);
+            if(!file) return {};
+            char buffer[65536];
+            while(file.read(buffer, sizeof(buffer)) || file.gcount() > 0) {
+                appendFingerprintBytes(hash, std::string(buffer, static_cast<size_t>(file.gcount())));
+            }
+            if(file.bad()) return {};
+        }
+    }
+
     // Include authoritative metadata contents so same-sized release updates
     // still refresh the installed managed copy.
     for(const char* metadata : {MOD_INI_FILE, "manifest.json", "checksums.sha256"}) {
@@ -1561,6 +1576,14 @@ void ModManager::seedDunecityFromDefaults() {
         try {
             const std::filesystem::path installedSkins =
                 std::filesystem::path(dunecityPath) / "graphics_skins";
+            // Android extracts its bundled payload directly into the app's
+            // writable mod directory. In that layout source and destination
+            // are the same tree; the APK payload marker handles refreshing.
+            if(bundledSkins.lexically_normal() == installedSkins.lexically_normal()) {
+                SDL_Log("ModManager: DuneCity graphics skins already staged in app storage");
+                SDL_Log("ModManager: Dunecity mod seeded successfully");
+                return;
+            }
             std::filesystem::create_directories(installedSkins);
             // Android's libc++ filesystem implementation reports
             // "Function not implemented" for recursive directory copy.
@@ -1573,10 +1596,22 @@ void ModManager::seedDunecityFromDefaults() {
                     std::filesystem::create_directories(destination);
                 } else if(entry.is_regular_file()) {
                     std::filesystem::create_directories(destination.parent_path());
-                    std::filesystem::copy_file(
-                        entry.path(), destination,
-                        std::filesystem::copy_options::overwrite_existing);
+                    // Android's external-storage filesystem may reject
+                    // copy_file(overwrite_existing) with EEXIST. Stream the
+                    // bundled bytes to a replacement file instead.
+                    std::ifstream sourceFile(entry.path(), std::ios::binary);
+                    std::ofstream destinationFile(destination, std::ios::binary | std::ios::trunc);
+                    destinationFile << sourceFile.rdbuf();
+                    if(!sourceFile || !destinationFile) {
+                        throw std::runtime_error("could not refresh bundled skin " + relative.string());
+                    }
                 }
+            }
+            const auto fingerprint = bundledModFingerprint(bundledSkins);
+            std::ofstream stamp(installedSkins / ".bundled-skin-fingerprint", std::ios::trunc);
+            stamp << fingerprint << "\n";
+            if(fingerprint.empty() || !stamp) {
+                throw std::runtime_error("could not write bundled-skin fingerprint");
             }
             SDL_Log("ModManager: Installed bundled DuneCity graphics skins");
         } catch(const std::exception& e) {
@@ -1689,6 +1724,18 @@ bool ModManager::dunecityNeedsReseed() const {
        && !std::filesystem::is_directory(std::filesystem::path(dunecityPath) / "graphics_skins")) {
         SDL_Log("ModManager: Bundled DuneCity graphics skins are missing from the profile, needs reseed");
         return true;
+    }
+    if(std::filesystem::is_directory(bundledSkins)
+       && bundledSkins.lexically_normal()
+          != (std::filesystem::path(dunecityPath) / "graphics_skins").lexically_normal()) {
+        std::ifstream stamp(std::filesystem::path(dunecityPath) / "graphics_skins" /
+                            ".bundled-skin-fingerprint");
+        std::string installedFingerprint;
+        std::getline(stamp, installedFingerprint);
+        if(installedFingerprint != bundledModFingerprint(bundledSkins)) {
+            SDL_Log("ModManager: Bundled DuneCity graphics skins changed, needs reseed");
+            return true;
+        }
     }
 
     if (installedObjectDataDiffersFromDefaults(DUNECITY_MOD_NAME)) {

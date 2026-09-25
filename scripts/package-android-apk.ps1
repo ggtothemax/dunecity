@@ -274,6 +274,20 @@ if ($androidVersionCode -le 0 -or $androidVersionCode -gt 2100000000) {
     throw "Android versionCode must be between 1 and 2100000000."
 }
 $payloadVersion = $androidVersionName -replace '[^0-9A-Za-z._-]', '_'
+$skinRoot = Join-Path $RepoRoot 'mods\dunecity\graphics_skins'
+$skinFiles = @(Get-ChildItem -LiteralPath $skinRoot -File -Recurse | Sort-Object FullName)
+$skinEntries = foreach ($skinFile in $skinFiles) {
+    $relative = $skinFile.FullName.Substring($skinRoot.Length).Replace('\', '/')
+    "$relative $((Get-FileHash -LiteralPath $skinFile.FullName -Algorithm SHA256).Hash)"
+}
+$skinFingerprintBytes = [System.Text.Encoding]::UTF8.GetBytes(($skinEntries -join "`n"))
+$skinHasher = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $skinFingerprint = ([System.BitConverter]::ToString($skinHasher.ComputeHash($skinFingerprintBytes))).Replace('-', '').Substring(0, 16)
+} finally {
+    $skinHasher.Dispose()
+}
+$payloadVersion = "$payloadVersion`_$skinFingerprint"
 
 $nativeBuildPath = if ([System.IO.Path]::IsPathRooted($NativeBuildDir)) {
     Get-FullPath $NativeBuildDir
@@ -337,6 +351,13 @@ if ($BuildNative) {
         Write-Host "Android toolchain requirements unchanged; reusing warm native build cache."
     }
 
+    # FetchContent checks out libdatachannel under the Android build tree.
+    # This drive may not record ownership; authorize only that fetched clone
+    # for this build process, without changing the user's global Git config.
+    $env:GIT_CONFIG_COUNT = '1'
+    $env:GIT_CONFIG_KEY_0 = 'safe.directory'
+    $env:GIT_CONFIG_VALUE_0 = (Join-Path $nativeBuildPath '_deps\libdatachannel-src').Replace('\', '/')
+
     $configureArguments = @(
         "-S", $RepoRoot,
         "-B", $nativeBuildPath,
@@ -353,15 +374,15 @@ if ($BuildNative) {
         "-DCMAKE_BUILD_TYPE=Release",
         "-DDUNECITY_BUILD_TESTS=OFF"
     )
-    & $cmakeCommand.Source @configureArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Android CMake configure failed with exit code $LASTEXITCODE"
-    }
-
     [ordered]@{
         fingerprint = $fingerprint
         requirements = $fingerprintData
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stampPath -Encoding ASCII
+
+    & $cmakeCommand.Source @configureArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Android CMake configure failed with exit code $LASTEXITCODE"
+    }
 
     & $cmakeCommand.Source --build $nativeBuildPath --target dunecity --parallel $NativeBuildJobs
     if ($LASTEXITCODE -ne 0) {
@@ -374,6 +395,8 @@ $nativeLib = Join-Path $nativeBuildPath "lib\libmain.so"
 if (-not (Test-Path -LiteralPath $nativeLib)) {
     throw "Missing native library: $nativeLib. Run this script with -BuildNative."
 }
+$nativeFingerprint = (Get-FileHash -LiteralPath $nativeLib -Algorithm SHA256).Hash.Substring(0, 16)
+$payloadVersion = "$payloadVersion`_$nativeFingerprint"
 
 $sdlSourceRoots = @(
     (Join-Path $nativeBuildPath "vcpkg_installed\vcpkg\blds\sdl2\src"),

@@ -82,6 +82,7 @@ bool HouseChoiceMenu::s_publicGame = true;
 int HouseChoiceMenu::s_startLevel = 1;
 int HouseChoiceMenu::s_supportBotIndex = 0;
 int HouseChoiceMenu::s_enemyAIIndex = 0;
+int HouseChoiceMenu::s_campaignSkin = 0;
 SettingsClass::GameOptionsClass HouseChoiceMenu::s_currentGameOptions;
 
 HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules, bool showLobby) : MenuBase(), showLobby(showLobby)
@@ -89,7 +90,10 @@ HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules, bool showLobby) : 
     OnlineModPolicy::restoreApprovedSelection();
     s_online = online;
     currentHouseChoiceScrollPos = 0;
-    if(!keepRules) s_currentGameOptions = effectiveGameOptions;
+    if(!keepRules) {
+        s_currentGameOptions = effectiveGameOptions;
+        s_campaignSkin = settings.general.duneCityCampaignSkin == 1 ? 1 : 0;
+    }
 
     // set up window
     int xpos = std::max(0,(getRendererWidth() - 640)/2);
@@ -171,7 +175,15 @@ HouseChoiceMenu::HouseChoiceMenu(bool online, bool keepRules, bool showLobby) : 
     populateLevels();
     startLevelDropDown.setOnSelectionChange([this](bool) { s_startLevel = startLevelDropDown.getSelectedEntryIntData(); });
     windowWidget.addWidget(&startLevelDropDown, Point(48, 315), Point(256, 22));
-    label("Choose a house above, then start below.", 48, 339);
+    label("DuneCity skin", 48, 339);
+    campaignSkinDropDown.addEntry(_("SimCity"), 0);
+    campaignSkinDropDown.addEntry(_("Dune2"), 1);
+    campaignSkinDropDown.setSelectedItem(s_campaignSkin);
+    campaignSkinDropDown.setOnSelectionChange([this](bool interactive) {
+        if(interactive) s_campaignSkin = campaignSkinDropDown.getSelectedEntryIntData() == 1 ? 1 : 0;
+    });
+    campaignSkinDropDown.setEnabled(ModManager::instance().isCityModeActive());
+    windowWidget.addWidget(&campaignSkinDropDown, Point(160, 337), Point(144, 24));
 
     label("Campaign mod", 48, 365);
     availableMods = ModManager::instance().listModChoices();
@@ -421,5 +433,6 @@ void HouseChoiceMenu::onModSelectionChanged(bool interactive) {
     currentHouseChoiceScrollPos = std::min(currentHouseChoiceScrollPos, getMaxHouseScrollPos());
     updateHouseChoice();
     updateModDescription();
+    campaignSkinDropDown.setEnabled(manager.isCityModeActive());
     updateConnection();
 }

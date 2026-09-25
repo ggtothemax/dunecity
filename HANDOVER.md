@@ -1,3 +1,13 @@
+## 2026-09-25 — Latest main, DuneCity skins, Android refresh and campaign skin choice (local 1.0.783)
+
+Fast-forwarded this Windows checkout to Stefan's `origin/main` at `6d8e2a92` and synchronized 34 accepted Oathkeeper DuneCity packages (23 zones, 11 buildings). The skin packager now includes an accepted landscape Icon Sprite Compact as `icon.png`; 32 icon files are present, while packages without accepted icons keep the engine fallback. The two units without eligible Compact cells remain skipped.
+
+Android APK staging now keys its payload marker to both the bundled skin bytes and the native library, so same-version test rebuilds refresh assets. Android extracts the payload directly to its app-storage mod directory; the C++ seeder now recognizes that source and destination are identical and avoids copying each skin onto itself. Desktop's separate bundled source and profile destination use a content fingerprint to reseed changed skins, including same-size artwork changes. Campaign setup exposes a DuneCity SimCity/Dune2 skin selector; its choice is put into campaign init settings and the co-op lobby default. Joining players can adjust their house's Skin dropdown in the co-op lobby.
+
+`python -m unittest tests.test_dunecity_skin_packaging` passed (4 tests). Android arm64 native and debug APK builds succeeded with the pinned `p2pkit` dependency installed using `npm ci --allow-git=all` in `platform/web`. Installed via `adb install -r` on device `3107TF1010002728`, preserving app data. The game launched as app 1.0.783; all 32 installed icons were present, and the installed Atreides Residential icon SHA-256 matched the packaged source. An on-device screenshot confirmed the new campaign selector shows Dune2. A full campaign/co-op session and visual sidebar-icon pass remain for play testing; no online session was started during this check.
+
+The review branch bumps source metadata to 1.0.784 for PR CI; the on-device APK above is the pre-bump 1.0.783 test build, not a 1.0.784 release build.
+
 ## 2026-09-24 — Opening space, prompt colonies and launcher air defence (local 1.0.783)
 
 Captured MBA 782 session 1790250645152912-0 on Sihaya-O'Donnell 128x64,

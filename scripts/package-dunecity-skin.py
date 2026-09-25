@@ -18,6 +18,26 @@ from pathlib import Path
 from PIL import Image
 
 
+def package_icon(metadata: dict, asset_root: Path, output: Path) -> bool:
+    """Install the accepted sidebar Compact, never the unapproved HQ image."""
+    icon_assets = (metadata.get("categories", {})
+                   .get("icon_sprite", {}).get("states", {})
+                   .get("default", {}).get("assets", {}))
+    compact_value = icon_assets.get("processed", {}).get("file", "")
+    if not compact_value:
+        return False
+    icon_path = (asset_root / compact_value).resolve()
+    if not icon_path.is_relative_to(asset_root.resolve()) or not icon_path.is_file():
+        return False
+    with Image.open(icon_path) as source:
+        icon = source.convert("RGBA")
+        if icon.width * 55 != icon.height * 91:
+            raise ValueError(f"Icon Compact must have 91:55 aspect ratio: {icon_path}")
+        output.mkdir(parents=True, exist_ok=True)
+        icon.save(output / "icon.png", optimize=True)
+    return True
+
+
 def package(source_unit: Path, output: Path, item_id: int, house_id: int) -> int:
     source_unit = source_unit.resolve()
     metadata = json.loads((source_unit / "unit.json").read_text(encoding="utf-8"))
@@ -110,6 +130,7 @@ def package(source_unit: Path, output: Path, item_id: int, house_id: int) -> int
     text = io.StringIO()
     manifest.write(text, space_around_delimiters=False)
     (output / "zone.ini").write_text(text.getvalue().rstrip() + "\n", encoding="ascii", newline="\n")
+    package_icon(metadata, asset_root, output)
     print(f"wrote {output / 'zone.ini'} with {packaged} accepted Compact cell(s)")
     return packaged
 
@@ -163,6 +184,7 @@ def package_building(source_unit: Path, output: Path, obj_pic: str, house_id: in
     text = io.StringIO()
     manifest.write(text, space_around_delimiters=False)
     (output / "building.ini").write_text(text.getvalue().rstrip() + "\n", encoding="ascii", newline="\n")
+    package_icon(metadata, asset_root, output)
     print(f"wrote {output / 'building.ini'} with {packaged} accepted Compact frame(s)")
     return packaged
 

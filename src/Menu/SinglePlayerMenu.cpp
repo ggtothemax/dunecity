@@ -151,6 +151,8 @@ void SinglePlayerMenu::playCampaign(bool showLobby) {
     GameInitSettings init = HouseChoiceMenu::isSingleMission()
         ? GameInitSettings((HOUSETYPE) player, HouseChoiceMenu::getStartLevel(), gameOptions)
         : GameInitSettings((HOUSETYPE) player, gameOptions, HouseChoiceMenu::getStartLevel());
+    const auto campaignSkin = GameInitSettings::sanitizeGraphicsSkin(HouseChoiceMenu::getCampaignSkin());
+    init.setCampaignGraphicsSkin(campaignSkin);
     if(supportSelected) {
         init.setMultiplePlayersPerHouse(true);
     }
@@ -161,6 +163,7 @@ void SinglePlayerMenu::playCampaign(bool showLobby) {
         }
         if(houseID == player) {
             GameInitSettings::HouseInfo humanHouseInfo((HOUSETYPE) player, 1);
+            humanHouseInfo.graphicsSkin = campaignSkin;
             humanHouseInfo.addPlayerInfo( GameInitSettings::PlayerInfo(settings.general.playerName, HUMANPLAYERCLASS) );
 
             if(supportSelected && supportPlayerClass != nullptr && *supportPlayerClass != '\0') {
@@ -171,6 +174,7 @@ void SinglePlayerMenu::playCampaign(bool showLobby) {
             init.addHouseInfo(humanHouseInfo);
         } else {
             GameInitSettings::HouseInfo aiHouseInfo((HOUSETYPE) houseID, 2);
+            aiHouseInfo.graphicsSkin = campaignSkin;
             aiHouseInfo.addPlayerInfo( GameInitSettings::PlayerInfo(getHouseNameByNumber( (HOUSETYPE) houseID), enemyAIClass) );
             init.addHouseInfo(aiHouseInfo);
         }

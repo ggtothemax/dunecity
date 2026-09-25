@@ -462,6 +462,9 @@ CustomGamePlayers::CustomGamePlayers(const GameInitSettings& newGameInitSettings
 
         if(duneCitySkinControls) {
             GameInitSettings::GraphicsSkin selectedSkin = GameInitSettings::GraphicsSkin::SimCity;
+            if(isCoopGameType(gameInitSettings.getGameType())) {
+                selectedSkin = gameInitSettings.getCampaignGraphicsSkin();
+            }
             if(bLoadMultiplayer && i < static_cast<int>(houseInfoListSetup.size())) {
                 selectedSkin = houseInfoListSetup.at(i).graphicsSkin;
             }
