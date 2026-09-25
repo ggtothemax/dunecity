@@ -1,0 +1,172 @@
+// Real renderer/sidebar regression probe; compiled only by the diagnostic runner.
+#include <Game.h>
+#include <GameInterface.h>
+#include <House.h>
+#include <Map.h>
+#include <GameInitSettings.h>
+#include <GUI/ObjectInterfaces/ZoneStructureInterface.h>
+#include <FileClasses/LoadSavePNG.h>
+#include <mod/ModManager.h>
+#include <Menu/HouseChoiceMenu.h>
+#include <Menu/CustomGamePlayers.h>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <filesystem>
+#include <chrono>
+#include <Menu/OptionsMenu.h>
+
+void skinRequire(bool condition, const char* message) {
+    if(!condition) throw std::runtime_error(message);
+}
+std::string skinRead(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(stream), {});
+}
+void skinWrite(const std::filesystem::path& path, const std::string& bytes) {
+    std::filesystem::create_directories(path.parent_path());
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    stream << bytes;
+    skinRequire(bool(stream), "Cannot write cache fixture");
+}
+void runSkinCacheProbe() {
+    namespace fs = std::filesystem;
+    auto& manager = ModManager::instance();
+    const fs::path profile = std::getenv("DUNECITY_USERDIR");
+    const fs::path installed = fs::path(manager.getModPath("dunecity")) / "graphics_skins";
+    const fs::path source = fs::path(getDuneLegacyDataDir()) / "mods/dunecity/graphics_skins";
+    skinRequire(!fs::equivalent(source, installed), "Cache fixture source must be isolated from destination");
+    const fs::path relative = "Dune2/zones/dunecity_atreides_residential_zone/zone.ini";
+    const auto accepted = skinRead(source / relative);
+    skinRequire(!accepted.empty() && skinRead(installed / relative) == accepted, "Fresh install payload mismatch");
+    const std::vector<fs::path> sentinels = {profile/"save/skin-probe.dls", profile/"mods/authored-probe/GameOptions.ini", profile/"settings.keep"};
+    for(const auto& path : sentinels) skinWrite(path, "preserve authored user data");
+    const auto options = skinRead(installed.parent_path()/"GameOptions.ini");
+    const auto configuration = skinRead(getConfigFilepath());
+    // A stale older installation with newer file timestamps and equal byte count.
+    skinWrite(installed / relative, std::string(accepted.size(), 'x'));
+    fs::last_write_time(installed / relative, fs::file_time_type::clock::now()+std::chrono::hours(24));
+    skinWrite(installed/".bundled-skin-fingerprint", "old-version-cache\n");
+    manager.refreshBundledDunecityGraphicsSkins();
+    skinRequire(skinRead(installed/relative)==accepted, "Equal-size stale cache survived upgrade");
+    // Same-version source edit of equal length; source mtime remains unchanged.
+    auto updated = accepted;
+    const auto value = updated.find("SourceUnit=");
+    skinRequire(value != std::string::npos, "Manifest fixture lacks SourceUnit");
+    updated[value+11] = updated[value+11] == 'd' ? 'D' : 'd';
+    const auto sourceTime = fs::last_write_time(source/relative);
+    skinWrite(source/relative,updated); fs::last_write_time(source/relative,sourceTime);
+    manager.refreshBundledDunecityGraphicsSkins();
+    skinRequire(skinRead(installed/relative)==updated, "Same-version same-size source update was skipped");
+    const auto installedTime = fs::last_write_time(installed/relative);
+    manager.refreshBundledDunecityGraphicsSkins();
+    skinRequire(fs::last_write_time(installed/relative)==installedTime, "Unchanged second launch recopied skin");
+    skinWrite(source/relative,accepted); fs::last_write_time(source/relative,sourceTime);
+    // Exercise the actual Advanced action, then simulate next-start restoration.
+    { OptionsMenu menu; menu.onClearDuneCityAssets();
+      skinRequire(menu.hasChildWindow() && !fs::exists(installed), "Advanced cache clear did not remove only the cache"); }
+    manager.refreshBundledDunecityGraphicsSkins();
+    skinRequire(skinRead(installed/relative)==accepted, "Manual clear did not recover bundled skin");
+    for(const auto& path : sentinels) skinRequire(skinRead(path)=="preserve authored user data", "Cache touched user data");
+    skinRequire(skinRead(installed.parent_path()/"GameOptions.ini")==options, "Cache touched gameplay configuration");
+    skinRequire(skinRead(getConfigFilepath())==configuration, "Cache changed application settings");
+    // Equivalent symlinked source/destination must never truncate the bundle.
+    const fs::path backup = installed.parent_path()/"skin-probe-backup";
+    fs::rename(installed,backup);
+    fs::create_directory_symlink(source,installed);
+    manager.refreshBundledDunecityGraphicsSkins();
+    skinRequire(skinRead(source/relative)==accepted, "Same-tree refresh damaged bundled source");
+    skinRequire(!manager.clearDunecityGraphicsCache(), "Desktop clear accepted the only bundled source");
+    fs::remove(installed); fs::rename(backup,installed);
+    SDL_Log("SKIN_CACHE_PROBE_PASS: fresh/stale/same-version cache, unchanged second refresh, Advanced recovery and user-data preservation");
+}
+int runSkinProbe() {
+    runSkinCacheProbe();
+    settings.general.playerName = "Skin tester";
+    settings.network.metaServer = "http://127.0.0.1:1/";
+    skinRequire(ModManager::instance().setActiveMod("dunecity"), "DuneCity mod missing");
+    auto rules = ModManager::instance().loadEffectiveGameOptions(settings.gameOptions);
+    std::ifstream map(PROBE_MAP_PATH);
+    std::string bytes((std::istreambuf_iterator<char>(map)), {});
+    skinRequire(!bytes.empty(), "Map fixture missing");
+    settings.network.relayUseDevelopmentEndpoint = true;
+    settings.network.directDevelopmentEndpoint = "";
+    effectiveGameOptions = rules;
+    {
+        HouseChoiceMenu host(true, false, true);
+        skinRequire(host.campaignSkinDropDown.isEnabled(), "Campaign skin selector disabled for DuneCity");
+        host.campaignSkinDropDown.setSelectedItem(1, true);
+        skinRequire(HouseChoiceMenu::getCampaignSkin() == 1, "Campaign selector lost interactive choice");
+    }
+    {
+        HouseChoiceMenu retry(true, true, true);
+        skinRequire(retry.campaignSkinDropDown.getSelectedEntryIntData() == 1, "Campaign retry lost skin choice");
+    }
+    {
+        GameInitSettings campaign(HOUSE_ATREIDES, rules, 1);
+        campaign.setCampaignGraphicsSkin(GameInitSettings::GraphicsSkin::Dune2);
+        campaign.enableCoop(true, "Skin probe");
+        campaign.setScenarioData(bytes);
+        CustomGamePlayers lobby(campaign, true);
+        skinRequire(lobby.duneCitySkinControls, "Co-op lobby skin controls absent");
+        skinRequire(lobby.houseInfo[0].graphicsSkinDropDown.getSelectedEntryIntData() == 1,
+                    "Campaign skin did not propagate into co-op lobby");
+        lobby.houseInfo[0].graphicsSkinDropDown.setSelectedItem(0);
+        lobby.addAllPlayersToGameInitSettings();
+        skinRequire(lobby.gameInitSettings.getHouseInfoList().front().graphicsSkin == GameInitSettings::GraphicsSkin::SimCity,
+                    "Co-op house skin override did not enter game settings");
+    }
+    skinRequire(ModManager::instance().setActiveMod("dunecity"), "Restore DuneCity mod failed");
+    auto game = std::make_unique<Game>(); currentGame = game.get();
+    GameInitSettings init("skins.ini", bytes, "Skin probe", true, rules);
+    for(const auto house : {HOUSE_ATREIDES, HOUSE_HARKONNEN}) {
+        GameInitSettings::HouseInfo info(house, house == HOUSE_ATREIDES ? 1 : 2);
+        info.graphicsSkin = GameInitSettings::GraphicsSkin::Dune2;
+        info.addPlayerInfo({house == HOUSE_ATREIDES ? "Skin tester" : "Other house", "HumanPlayer"});
+        init.addHouseInfo(info);
+    }
+    game->initGame(init);
+    for(const auto house : {HOUSE_ATREIDES, HOUSE_HARKONNEN}) {
+        auto* owner = game->getHouse(house);
+        skinRequire(owner != nullptr, "House missing");
+        for(const int item : {Structure_ZoneResidential, Structure_ZoneCommercial, Structure_ZoneIndustrial}) {
+            Coord site = Coord::Invalid();
+            for(int y=1; y<currentGameMap->getSizeY()-2 && !site.isValid(); ++y)
+                for(int x=1; x<currentGameMap->getSizeX()-2; ++x)
+                    if(currentGameMap->okayToPlaceStructure(x,y,2,2,false,nullptr)) { site=Coord(x,y); break; }
+            skinRequire(site.isValid(), "No zone placement site");
+            auto* zone = dynamic_cast<ZoneStructure*>(owner->placeStructure(NONE_ID,item,site.x,site.y,false,true));
+            skinRequire(zone != nullptr, "Zone placement failed");
+            skinRequire(zone->getStructureSize() == Coord(2,2), "Skin changed logical zone footprint");
+            pGFXManager->setDuneCityHouseGraphicsSkin(house, true);
+            {
+                std::unique_ptr<ZoneStructureInterface> panel(ZoneStructureInterface::create(zone->getObjectID()));
+                skinRequire(panel->update() && panel->objPicture.isVisible() && !panel->zonePreview.isVisible(),
+                            "Selected Dune2 zone displays top-down lot instead of house icon");
+                skinRequire(panel->objPicture.pTexture.get() == resolveItemPicture(item,house),
+                            "Selected zone and construction portrait differ");
+                SDL_SetRenderDrawColor(renderer, 20,20,20,255); SDL_RenderClear(renderer);
+                panel->draw(Point(20,20));
+                auto image = renderReadSurface(renderer);
+                const auto filename = "zone-"+std::to_string(house)+"-"+std::to_string(item)+".png";
+                SavePNG(image.get(), filename.c_str());
+                for(auto overlay : {ZoneStructure::CivicOverlay::Hospital, ZoneStructure::CivicOverlay::Church}) {
+                    zone->setCivicOverlay(overlay); panel->update();
+                    skinRequire(!panel->objPicture.isVisible() && panel->zonePreview.isVisible(),
+                                "Civic overlay lost live preview");
+                }
+                zone->setCivicOverlay(ZoneStructure::CivicOverlay::None);
+                pGFXManager->setDuneCityHouseGraphicsSkin(house, false); panel->update();
+                skinRequire(!panel->objPicture.isVisible() && panel->zonePreview.isVisible(),
+                            "SimCity zone lost live preview");
+            }
+            pGFXManager->setDuneCityHouseGraphicsSkin(house, true);
+            // Missing exact growth cell must decline the skin renderer so native art can draw.
+            skinRequire(!pGFXManager->drawDuneCityZone(item,house,0,99,99,
+                        GFXManager::DuneCityZoneActivity::Idle,0,200,200), "Missing cell lost native fallback");
+        }
+    }
+    SDL_Log("SKIN_PROBE_PASS: six real selected zones use construction portraits; 2x2 footprints, civic/SimCity live previews and missing-cell fallback pass");
+    game.reset(); currentGame=nullptr; pLocalPlayer=nullptr;
+    return MENU_QUIT_DEFAULT;
+}

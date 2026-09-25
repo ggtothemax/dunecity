@@ -136,10 +136,19 @@ void ZoneStructure::blitToScreen() {
             lround(realX) + structureSize.x * TILESIZE / 2);
         const int anchorY = screenborder->world2screenY(
             lround(realY) + structureSize.y * TILESIZE);
+        // A developed, powered industrial zone runs its authored smokestack
+        // progression. Every other state - and any package without an Active
+        // cell - keeps the static Idle Compact through GFXManager's fallback.
+        const bool industrialActive = zoneType_ == DuneCity::ZoneType::Industrial
+            && skinDensity_ > 0 && owner->hasPower();
+        const auto activity = industrialActive
+            ? GFXManager::DuneCityZoneActivity::Active
+            : GFXManager::DuneCityZoneActivity::Idle;
+        const Uint32 elapsedMs = industrialActive ? currentGame->getGameTime() : 0;
         if(pGFXManager->drawDuneCityZone(
             itemID, owner->getHouseID(), currentZoomlevel,
-            skinDensity_, skinValueTier_, GFXManager::DuneCityZoneActivity::Idle,
-            0, anchorX, anchorY)) {
+            skinDensity_, skinValueTier_, activity,
+            elapsedMs, anchorX, anchorY)) {
             return;
         }
     }

@@ -127,6 +127,19 @@ std::filesystem::path findBundledModPath(const std::string& modName) {
     return {};
 }
 
+// True when both paths name the same directory in the filesystem. Lexical
+// normalization catches the common Android layout where the bundled payload is
+// staged in place; equivalent() additionally catches symlinked or bind-mounted
+// install trees, where copying source over destination would truncate the art.
+bool isSameDirectoryTree(const std::filesystem::path& left, const std::filesystem::path& right) {
+    if(left.lexically_normal() == right.lexically_normal()) {
+        return true;
+    }
+    std::error_code error;
+    const bool equivalent = std::filesystem::equivalent(left, right, error);
+    return !error && equivalent;
+}
+
 void appendFingerprintBytes(uint64_t& hash, const std::string& value) {
     constexpr uint64_t prime = 1099511628211ULL;
     for(const unsigned char c : value) {
@@ -381,6 +394,12 @@ std::string ModManager::installerContentHash(const std::string& name) const {
                 const auto relative = entry.path().lexically_relative(root).generic_string();
                 if(relative == "mod.ini" || relative == "workshop-revision.ini"
                    || relative == MANAGED_MOD_STAMP || entry.path().filename() == ".DS_Store") continue;
+                // Local extraction/refresh bookkeeping is not mod content. Keep
+                // approval identical across desktop and Android, while still
+                // hashing every actual skin manifest, icon and atlas.
+                if(name == DUNECITY_MOD_NAME
+                   && (relative == "graphics_skins/.bundled-skin-fingerprint"
+                       || relative.rfind("graphics_skins/.dune2r_graphics_skins_", 0) == 0)) continue;
                 files[relative] = digest(entry.path());
             }
             return files;
@@ -448,6 +467,13 @@ void ModManager::initialize() {
     // Seed built-in dunecity mod if needed
     if (!modExists(DUNECITY_MOD_NAME) || dunecityNeedsReseed()) {
         seedDunecityFromDefaults();
+    } else {
+        // graphics_skins is a managed presentation payload, but the DuneCity
+        // mod directory also holds user-facing configuration. An existing
+        // profile therefore receives new Compacts and Icon Sprites - and
+        // recovers a cache cleared from Settings > Advanced - without a
+        // destructive full reseed.
+        refreshBundledDunecityGraphicsSkins();
     }
 
     // Seed built-in Tornie mod if needed. DuneCity 1.0.492:
@@ -1570,56 +1596,151 @@ void ModManager::seedDunecityFromDefaults() {
     // Install bundled graphics-only skins without deleting locally mounted
     // authored assets. The normal config files above remain authoritative;
     // this directory carries presentation payloads only.
-    const std::filesystem::path bundledDunecity = findBundledModPath(DUNECITY_MOD_NAME);
-    const std::filesystem::path bundledSkins = bundledDunecity / "graphics_skins";
-    if(std::filesystem::is_directory(bundledSkins)) {
-        try {
-            const std::filesystem::path installedSkins =
-                std::filesystem::path(dunecityPath) / "graphics_skins";
-            // Android extracts its bundled payload directly into the app's
-            // writable mod directory. In that layout source and destination
-            // are the same tree; the APK payload marker handles refreshing.
-            if(bundledSkins.lexically_normal() == installedSkins.lexically_normal()) {
-                SDL_Log("ModManager: DuneCity graphics skins already staged in app storage");
-                SDL_Log("ModManager: Dunecity mod seeded successfully");
-                return;
-            }
-            std::filesystem::create_directories(installedSkins);
-            // Android's libc++ filesystem implementation reports
-            // "Function not implemented" for recursive directory copy.
-            // Copy files individually; this also preserves locally authored
-            // files that are absent from the bundled presentation payload.
-            for(const auto& entry : std::filesystem::recursive_directory_iterator(bundledSkins)) {
-                const auto relative = std::filesystem::relative(entry.path(), bundledSkins);
-                const auto destination = installedSkins / relative;
-                if(entry.is_directory()) {
-                    std::filesystem::create_directories(destination);
-                } else if(entry.is_regular_file()) {
-                    std::filesystem::create_directories(destination.parent_path());
-                    // Android's external-storage filesystem may reject
-                    // copy_file(overwrite_existing) with EEXIST. Stream the
-                    // bundled bytes to a replacement file instead.
-                    std::ifstream sourceFile(entry.path(), std::ios::binary);
-                    std::ofstream destinationFile(destination, std::ios::binary | std::ios::trunc);
-                    destinationFile << sourceFile.rdbuf();
-                    if(!sourceFile || !destinationFile) {
-                        throw std::runtime_error("could not refresh bundled skin " + relative.string());
-                    }
-                }
-            }
-            const auto fingerprint = bundledModFingerprint(bundledSkins);
-            std::ofstream stamp(installedSkins / ".bundled-skin-fingerprint", std::ios::trunc);
-            stamp << fingerprint << "\n";
-            if(fingerprint.empty() || !stamp) {
-                throw std::runtime_error("could not write bundled-skin fingerprint");
-            }
-            SDL_Log("ModManager: Installed bundled DuneCity graphics skins");
-        } catch(const std::exception& e) {
-            SDL_Log("ModManager: Warning - DuneCity graphics skins were not copied: %s", e.what());
-        }
-    }
+    refreshBundledDunecityGraphicsSkins();
 
     SDL_Log("ModManager: Dunecity mod seeded successfully");
+}
+
+void ModManager::refreshBundledDunecityGraphicsSkins() const {
+    const std::filesystem::path bundledRoot = findBundledModPath(DUNECITY_MOD_NAME);
+    const std::filesystem::path bundledSkins = bundledRoot / "graphics_skins";
+    if(bundledRoot.empty() || !std::filesystem::is_directory(bundledSkins)) {
+        SDL_Log("ModManager: Bundled DuneCity graphics skins are unavailable");
+        return;
+    }
+
+    try {
+        const std::filesystem::path installedSkins =
+            std::filesystem::path(getModPath(DUNECITY_MOD_NAME)) / "graphics_skins";
+        // Android extracts its bundled payload directly into the app's
+        // writable mod directory, and a portable install can symlink the two
+        // together. In that layout source and destination are the same tree, so
+        // copying would truncate the art; the APK skin marker refreshes it.
+        if(isSameDirectoryTree(bundledSkins, installedSkins)) {
+            SDL_Log("ModManager: DuneCity graphics skins already staged in app storage");
+            return;
+        }
+
+        // The fingerprint covers bundled art bytes, so an unchanged payload
+        // exits here. Repeated launches therefore copy nothing at all; this is
+        // the only refresh trigger, a changed skin no longer forces a
+        // destructive reseed of the DuneCity gameplay configuration.
+        const auto fingerprint = bundledModFingerprint(bundledSkins);
+        const std::filesystem::path stampPath = installedSkins / ".bundled-skin-fingerprint";
+        std::ifstream installedStamp(stampPath);
+        std::string installedFingerprint;
+        std::getline(installedStamp, installedFingerprint);
+        if(!fingerprint.empty() && installedFingerprint == fingerprint) {
+            SDL_Log("ModManager: DuneCity graphics cache is current (%s)", fingerprint.c_str());
+            return;
+        }
+
+        std::filesystem::create_directories(installedSkins);
+        std::size_t copiedFiles = 0;
+        // The fingerprint above is the only skip: once it says the payload
+        // moved, every bundled file is rewritten. A per-file size or timestamp
+        // shortcut would keep stale bytes whenever authored art changed without
+        // changing its byte count, and the stamp below would then claim the
+        // cache is current.
+        //
+        // Android's libc++ filesystem implementation reports
+        // "Function not implemented" for recursive directory copy.
+        // Copy files individually; this also preserves locally authored
+        // files that are absent from the bundled presentation payload.
+        for(const auto& entry : std::filesystem::recursive_directory_iterator(bundledSkins)) {
+            const auto relative = std::filesystem::relative(entry.path(), bundledSkins);
+            const auto destination = installedSkins / relative;
+            if(entry.is_directory()) {
+                std::filesystem::create_directories(destination);
+                continue;
+            }
+            if(!entry.is_regular_file()) continue;
+
+            std::filesystem::create_directories(destination.parent_path());
+            // Android's external-storage filesystem may reject
+            // copy_file(overwrite_existing) with EEXIST. Stream the
+            // bundled bytes to a replacement file instead.
+            std::ifstream sourceFile(entry.path(), std::ios::binary);
+            std::ofstream destinationFile(destination, std::ios::binary | std::ios::trunc);
+            if(sourceFile && destinationFile) {
+                char buffer[65536];
+                while(sourceFile.read(buffer, sizeof(buffer)) || sourceFile.gcount() > 0) {
+                    destinationFile.write(buffer, sourceFile.gcount());
+                    if(!destinationFile) break;
+                }
+                destinationFile.flush();
+            }
+            if(!sourceFile.eof() || sourceFile.bad() || !destinationFile) {
+                throw std::runtime_error("could not refresh bundled skin " + relative.string());
+            }
+            ++copiedFiles;
+        }
+        // Stamp only after every bundled file landed: an exception above leaves
+        // the previous fingerprint (or none) in place so the next start retries.
+        if(fingerprint.empty()) {
+            throw std::runtime_error("could not fingerprint the bundled skin payload");
+        }
+        std::ofstream stamp(stampPath, std::ios::trunc);
+        stamp << fingerprint << "\n";
+        stamp.close();
+        if(stamp.fail()) {
+            throw std::runtime_error("could not write bundled-skin fingerprint");
+        }
+        SDL_Log("ModManager: Refreshed bundled DuneCity graphics skins (%zu files, %s)",
+                copiedFiles, fingerprint.c_str());
+    } catch(const std::exception& e) {
+        SDL_Log("ModManager: Warning - DuneCity graphics skins were not copied: %s", e.what());
+    }
+}
+
+bool ModManager::clearDunecityGraphicsCache() const {
+    const std::filesystem::path modRoot =
+        std::filesystem::path(getModPath(DUNECITY_MOD_NAME)).lexically_normal();
+    const std::filesystem::path graphicsCache =
+        (modRoot / "graphics_skins").lexically_normal();
+
+    // Keep this operation deliberately narrower than a mod reset. It is exposed
+    // in Settings > Advanced and must never remove gameplay configuration,
+    // saves, or another selectable mod.
+    if(graphicsCache.filename() != "graphics_skins"
+       || graphicsCache.parent_path() != modRoot) {
+        SDL_Log("ModManager: Refusing unsafe DuneCity graphics-cache path: %s",
+                graphicsCache.string().c_str());
+        return false;
+    }
+
+    const std::filesystem::path bundledRoot = findBundledModPath(DUNECITY_MOD_NAME);
+    const bool cacheIsBundledTree = !bundledRoot.empty()
+        && isSameDirectoryTree(bundledRoot / "graphics_skins", graphicsCache);
+#ifndef __ANDROID__
+    // A desktop install that mounts its shipped payload directly as the profile
+    // copy has no second source to recover from: removing it would require a
+    // reinstall, so refuse rather than destroy the artwork.
+    if(cacheIsBundledTree) {
+        SDL_Log("ModManager: DuneCity graphics cache is the bundled payload; nothing to clear");
+        return false;
+    }
+#else
+    // Android stages the APK payload in place, so bundled and installed are the
+    // same tree - but the APK is still a second source. The staging marker lives
+    // inside graphics_skins, so removing the directory removes the marker and
+    // the launcher re-extracts exactly this subtree on the next start. Gameplay
+    // configuration, other mods, saves, and settings keep their own markers and
+    // are not re-extracted.
+    (void)cacheIsBundledTree;
+#endif
+
+    std::error_code error;
+    const auto removed = std::filesystem::remove_all(graphicsCache, error);
+    if(error) {
+        SDL_Log("ModManager: Could not clear DuneCity graphics cache '%s': %s",
+                graphicsCache.string().c_str(), error.message().c_str());
+        return false;
+    }
+
+    SDL_Log("ModManager: Cleared DuneCity graphics cache (%llu entries removed)",
+            static_cast<unsigned long long>(removed));
+    return true;
 }
 
 // DuneCity 1.0.492: seed the Tornie mod. The source files
@@ -1719,24 +1840,9 @@ bool ModManager::dunecityNeedsReseed() const {
         return true;
     }
 
-    const auto bundledSkins = findBundledModPath(DUNECITY_MOD_NAME) / "graphics_skins";
-    if(std::filesystem::is_directory(bundledSkins)
-       && !std::filesystem::is_directory(std::filesystem::path(dunecityPath) / "graphics_skins")) {
-        SDL_Log("ModManager: Bundled DuneCity graphics skins are missing from the profile, needs reseed");
-        return true;
-    }
-    if(std::filesystem::is_directory(bundledSkins)
-       && bundledSkins.lexically_normal()
-          != (std::filesystem::path(dunecityPath) / "graphics_skins").lexically_normal()) {
-        std::ifstream stamp(std::filesystem::path(dunecityPath) / "graphics_skins" /
-                            ".bundled-skin-fingerprint");
-        std::string installedFingerprint;
-        std::getline(stamp, installedFingerprint);
-        if(installedFingerprint != bundledModFingerprint(bundledSkins)) {
-            SDL_Log("ModManager: Bundled DuneCity graphics skins changed, needs reseed");
-            return true;
-        }
-    }
+    // A missing, stale, or manually cleared graphics_skins tree is repaired by
+    // refreshBundledDunecityGraphicsSkins(), which only touches that subtree.
+    // Reseeding for presentation payloads would also rewrite gameplay config.
 
     if (installedObjectDataDiffersFromDefaults(DUNECITY_MOD_NAME)) {
         SDL_Log("ModManager: Dunecity %s drifted from defaults, needs reseed", OBJECT_DATA_FILE);

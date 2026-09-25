@@ -237,6 +237,23 @@ public:
      */
     void seedDunecityFromDefaults();
 
+    /**
+     * Refresh the bundled DuneCity presentation payload in the installed
+     * user-data mod without touching authored gameplay configuration. Safe to
+     * call on every start: an unchanged bundle copies nothing.
+     */
+    void refreshBundledDunecityGraphicsSkins() const;
+
+    /**
+     * Remove only the installed DuneCity presentation cache
+     * (`<mod>/graphics_skins`). The bundled copy is restored on the next
+     * application start - on Android by the launcher, which keeps its
+     * graphics-skin extraction marker inside that directory. Saves,
+     * configuration, and every other mod directory are left untouched.
+     * Returns false without deleting anything when no second source exists.
+     */
+    bool clearDunecityGraphicsCache() const;
+
     // DuneCity 1.0.492: seed the Tornie mod
     void seedTornieFromDefaults();
     void seedDune2RFromDefaults();

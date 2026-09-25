@@ -5,7 +5,8 @@ statistics, simulation rules, AI, maps, or the active gameplay mod.
 
 ## Selection rules
 
-- Campaign uses the global **Campaign Graphics Skin** option.
+- Campaign setup exposes **DuneCity skin** and initially uses the global
+  **Campaign Graphics Skin** preference. The choice propagates into co-op setup.
 - Custom, skirmish, and multiplayer lobbies expose a skin selector on each
   house slot. A shared-control house therefore has one shared skin.
 - SimCity is always the default.
@@ -97,10 +98,11 @@ zones/<asset>/icon.png
 buildings/<asset>/icon.png
 ```
 
-Authored icon sprites should be 91x55 RGBA PNGs. Missing faction icons fall
-back safely to the derived Dune2 portrait or native SimCity portrait. These
-paths are reserved for the future `~dune2config DuneCity` **Icon Sprite** asset
-category.
+Authored icon sprites use 91:55 aspect, including high-resolution multiples of
+91x55. The packager copies the accepted unit-level Icon Sprite Compact to
+`icon.png`; both sidebars fit it to the logical portrait area. Missing faction icons fall
+back safely to the derived Dune2 portrait or native SimCity portrait. Oathkeeper
+stores accepted icons in `categories/icon_sprite/states/default`.
 
 ## Canonical-main integration
 
@@ -125,3 +127,20 @@ checkout over current gameplay work. The integration consists of:
    special building, or activity frame.
 7. Android packaging of the complete authored skin set, followed by runtime
    verification at all zoom levels and multiplayer serialization compatibility.
+
+## Cache refresh and recovery
+
+Desktop refreshes changed bundled skin bytes without using graphics changes as
+a trigger to reseed gameplay configuration. Android carries a separate skin
+content marker inside `graphics_skins`, so artwork-only updates re-extract that
+subtree. Unchanged payloads are not recopied.
+
+**Settings > Advanced > Clear DuneCity Asset Cache** clears only the installed
+DuneCity `graphics_skins` directory; fully restart to recover bundled art. Saves,
+application settings and other mods are outside the operation. Desktop refuses
+to remove a sole shared source. Android can restore from its APK.
+
+Powered, developed industrial cells can use an eight-phase Active chain;
+incomplete/missing chains retain the Idle Compact. The currently committed
+packages have no Active frames. See the [integration audit and play-test guide](dunecity-skins-integration.md)
+for the missing-artwork blocker and validation limits.

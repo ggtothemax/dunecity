@@ -1,3 +1,30 @@
+## 2026-09-26 — Graphics PR integration candidate (1.0.786)
+
+Clean integration branch from main 6d8e2a92 replays PR77 (bb88766b, bb2c1481)
+and ports the useful PR75-only cache recovery and industrial activity support.
+All 397 PR77 skin files are unchanged: 34 packages (23 zones, 11 buildings),
+32 authored icons. The PR75 payload is an exact 395-file subset; PR77 adds
+Atreides Stadium. No current-main AI/gameplay/map/protocol work was replaced.
+
+Graphics-only desktop refresh no longer triggers a gameplay reseed and detects
+same-version/same-size byte changes. Android has a separate extraction marker
+inside graphics_skins; the Advanced cache action recovers on process restart.
+Local cache metadata no longer invalidates stock-mod content approval. Actual
+art and rule files remain checked. New real-SDL tests cover cache safety,
+selected zone portraits/fallbacks and campaign/co-op setup propagation.
+
+Native Release app is built in dunecity-skins-integration/build/bin/dunecity.app
+on claw.local. Dependency audits and eight packaging tests pass. Full CTest
+and focused rerun evidence is in ../outputs/skins-integration-786/. Initial full
+suite failures in menu approval and city stats shared the cache-stamp approval
+cause, now corrected. See docs/dunecity-skins-integration.md for full dispositions,
+play-test steps, and final validation limits; no phone or two-player test claimed.
+
+Merge remains blocked: neither PR packages any industrial Active phase images.
+The accepted Oathkeeper sources are on the Windows deployment path, unavailable
+here. Keep the integration a draft until those assets and platform acceptance
+are supplied. Do not claim visible industrial smoke from these static packages.
+
 ## 2026-09-25 — Selected DuneCity zone icons (PR #77, 1.0.785)
 
 The selected-zone sidebar was still hiding the ordinary per-house portrait and drawing a live top-down zone preview over it. Dune2-skinned Residential, Commercial, and Industrial zones now display the same authored Icon Sprite portrait used by the build menu. Unskinned zones and Hospital/Church civic overlays retain the live preview. A zone UI regression check covers this switch. Source metadata is bumped to 1.0.785 for the PR update.
