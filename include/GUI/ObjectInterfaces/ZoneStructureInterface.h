@@ -84,6 +84,15 @@ protected:
             return DefaultStructureInterface::update();
         }
 
+        // The live zone preview predates DuneCity's per-house Icon Sprites.
+        // Use the same portrait as the build menu when a Dune2 skin is active;
+        // civic overlays and unskinned zones still need their live preview.
+        const bool showSkinIcon = pZone->getCivicOverlay() == ZoneStructure::CivicOverlay::None
+            && pZone->getOwner()
+            && pGFXManager->isDuneCityHouseUsingDune2(pZone->getOwner()->getHouseID());
+        objPicture.setVisible(showSkinIcon);
+        zonePreview.setVisible(!showSkinIcon);
+
         std::string name;
         switch (pZone->getZoneType()) {
             case DuneCity::ZoneType::Residential: name = _("Residential") + std::string("\n") + _("Zone"); break;
