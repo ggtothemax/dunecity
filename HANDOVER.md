@@ -20,10 +20,12 @@ suite failures in menu approval and city stats shared the cache-stamp approval
 cause, now corrected. See docs/dunecity-skins-integration.md for full dispositions,
 play-test steps, and final validation limits; no phone or two-player test claimed.
 
-Merge remains blocked: neither PR packages any industrial Active phase images.
-The accepted Oathkeeper sources are on the Windows deployment path, unavailable
-here. Keep the integration a draft until those assets and platform acceptance
-are supplied. Do not claim visible industrial smoke from these static packages.
+Stefan subsequently confirmed to integrate whatever assets are present. Neither
+source PR changed when rechecked. The absent industrial Active phase images are
+an acknowledged limitation, not a merge blocker. Atreides Stadium is included.
+Integration CI 36199247907 passed Windows, Linux, browser, unit and service jobs;
+Mac was built/tested locally. Do not claim visible industrial smoke from these
+static packages, Android device testing, or a real two-player acceptance test.
 
 ## 2026-09-25 — Selected DuneCity zone icons (PR #77, 1.0.785)
 

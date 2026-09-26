@@ -143,4 +143,4 @@ to remove a sole shared source. Android can restore from its APK.
 Powered, developed industrial cells can use an eight-phase Active chain;
 incomplete/missing chains retain the Idle Compact. The currently committed
 packages have no Active frames. See the [integration audit and play-test guide](dunecity-skins-integration.md)
-for the missing-artwork blocker and validation limits.
+for the available-artwork scope and validation limits.

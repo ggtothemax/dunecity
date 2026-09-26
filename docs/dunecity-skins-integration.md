@@ -50,11 +50,13 @@ have not been independently verified here. #77's handover reports two units
 skipped for lack of eligible Compacts, but does not name them. Their identities
 cannot be inferred from the packaged payload.
 
-**Artwork blocker:** Neither PR contains any `Cell.*.Active` manifest section
+**Available-artwork scope:** Neither PR contains any `Cell.*.Active` manifest section
 or packaged industrial activity PNG. The integration preserves the runtime and
 packager support, but the current delivered art remains static. Obtain the
-accepted eight-phase Compacts before claiming visible smokestack animation or
-merging this as complete. Do not manufacture frames or replace newer growth art.
+accepted eight-phase Compacts before claiming visible smokestack animation.
+Stefan confirmed on 26 September to integrate whatever is present in the PRs;
+these absent frames therefore do not block this integration. Do not manufacture
+frames or replace newer growth art.
 
 ## Validation and limits
 
