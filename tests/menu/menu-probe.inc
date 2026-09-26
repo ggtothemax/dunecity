@@ -131,6 +131,17 @@ int runMenuProbe() {
             const auto revisions = Workshop::store().list("mod").size();
             const auto token = OnlineModPolicy::fingerprint();
             menuRequire(OnlineModPolicy::approvedName(token) == name, "Approved mod token cannot identify its installed mod");
+            if(name == "dunecity") {
+                // Cache stamps are runtime bookkeeping, never presentation or
+                // gameplay content. Android and desktop must approve the same art.
+                const auto marker = std::filesystem::path(mods.getModPath(name))
+                    / "graphics_skins" / ".dune2r_graphics_skins_probe";
+                { std::ofstream out(marker); out << "local extraction marker"; }
+                menuRequire(OnlineModPolicy::fingerprint() == token,
+                            "Android skin cache marker changed approved content identity");
+                std::filesystem::remove(marker);
+            }
+
             GameInitSettings campaign(HOUSE_ATREIDES, effectiveGameOptions, 1);
             campaign.enableCoop(true, "Approved campaign");
             // The community endpoint is disabled. Even publish/queue callers must

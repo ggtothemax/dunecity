@@ -34,6 +34,9 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
             compact = unit / "categories" / "building_idle" / "states" / "d0_v0" / "processed.png"
             compact.parent.mkdir(parents=True)
             Image.new("RGBA", (64, 64), (100, 80, 40, 255)).save(compact)
+            icon = unit / "categories" / "icon_sprite" / "states" / "default" / "processed.png"
+            icon.parent.mkdir(parents=True)
+            Image.new("RGBA", (182, 110), (10, 20, 30, 255)).save(icon)
             metadata = {
                 "target_game": "dunecity",
                 "slug": "dunecity_harkonnen_residential_zone",
@@ -46,6 +49,9 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
                     "compact_frame_pixels": [64, 64],
                 },
                 "categories": {
+                    "icon_sprite": {"states": {"default": {"assets": {
+                        "processed": {"file": icon.relative_to(asset_root).as_posix()}
+                    }}}},
                     "building_idle": {
                         "states": {
                             "d0_v0": {
@@ -66,6 +72,8 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
 
             with Image.open(output / "atlases" / "idle" / "d0_v0" / "00.png") as packaged:
                 self.assertEqual(packaged.size, (64, 64))
+            with Image.open(output / "icon.png") as packaged_icon:
+                self.assertEqual(packaged_icon.size, (182, 110))
             manifest = configparser.ConfigParser()
             manifest.optionxform = str
             manifest.read(output / "zone.ini", encoding="ascii")
@@ -85,10 +93,16 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
             compact = unit / "categories" / "building_idle" / "states" / "frame_0" / "processed.png"
             compact.parent.mkdir(parents=True)
             Image.new("RGBA", (192, 192), (120, 60, 30, 255)).save(compact)
+            icon = unit / "categories" / "icon_sprite" / "states" / "default" / "processed.png"
+            icon.parent.mkdir(parents=True)
+            Image.new("RGBA", (91, 55), (10, 20, 30, 255)).save(icon)
             metadata = {
                 "target_game": "dunecity",
                 "slug": "dunecity_harkonnen_stadium",
                 "categories": {
+                    "icon_sprite": {"states": {"default": {"assets": {
+                        "processed": {"file": icon.relative_to(asset_root).as_posix()}
+                    }}}},
                     "building_idle": {
                         "states": {
                             "frame_0": {
@@ -109,12 +123,155 @@ class DuneCitySkinPackagingTests(unittest.TestCase):
 
             with Image.open(output / "frames" / "00_frame_0.png") as packaged:
                 self.assertEqual(packaged.size, (192, 192))
+            self.assertTrue((output / "icon.png").is_file())
             manifest = configparser.ConfigParser()
             manifest.optionxform = str
             manifest.read(output / "building.ini", encoding="ascii")
             self.assertEqual(manifest.getint("Building", "Frames"), 1)
             self.assertEqual(manifest.get("Building", "ObjPic"), "Stadium")
             self.assertEqual(manifest.get("Frame.0", "SourceSlot"), "frame_0")
+
+    @staticmethod
+    def _industrial_unit(root: Path, phases: dict, compact_size=(64, 64), phase_size=(64, 64)) -> Path:
+        """Author a two-density industrial zone whose d1_v0 cell has `phases`.
+
+        `phases` maps a phase number to True (author the PNG) or False (declare
+        the state but leave the file missing), so a test can describe a
+        complete, partial, or deliberately reordered chain.
+        """
+        asset_root = root / "dune2"
+        unit = asset_root / "units" / "dunecity_harkonnen_industrial_zone"
+        states = {}
+        for slot in ("d0_v0", "d1_v0"):
+            compact = unit / "categories" / "building_idle" / "states" / slot / "processed.png"
+            compact.parent.mkdir(parents=True)
+            Image.new("RGBA", compact_size, (60, 60, 60, 255)).save(compact)
+            states[slot] = {"assets": {"processed": {"file": compact.relative_to(asset_root).as_posix()}}}
+        for phase, authored in phases.items():
+            name = f"d1_v0_phase_{phase}"
+            frame = unit / "categories" / "building_idle" / "states" / name / "processed.png"
+            frame.parent.mkdir(parents=True)
+            if authored:
+                # Distinct flat colour per phase so the packaged frame order is
+                # observable from the written PNGs alone.
+                Image.new("RGBA", phase_size, (phase * 10, 0, 0, 255)).save(frame)
+            states[name] = {"assets": {"processed": {"file": frame.relative_to(asset_root).as_posix()}}}
+        metadata = {
+            "target_game": "dunecity",
+            "slug": unit.name,
+            "dunecity": {
+                "asset_class": "industrial",
+                "compact_pixels_per_tile": 32,
+                "zone_atlas": {"density_columns": 2, "value_tier_rows": 1},
+            },
+            "render_profile": {
+                "logical_footprint_tiles": [2, 2],
+                "compact_frame_pixels": [64, 64],
+            },
+            "categories": {"building_idle": {"states": states}},
+        }
+        (unit / "unit.json").write_text(json.dumps(metadata), encoding="utf-8")
+        return unit
+
+    def test_complete_industrial_phase_chain_packages_ordered_active_frames(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            unit = self._industrial_unit(root, {phase: True for phase in range(1, 9)})
+            output = root / "output"
+
+            # Only the two Idle cells count as packaged Compact cells; the smoke
+            # chain is an activity variant of the developed cell.
+            self.assertEqual(MODULE.package(unit, output, 24, 1), 2)
+
+            manifest = configparser.ConfigParser()
+            manifest.optionxform = str
+            manifest.read(output / "zone.ini", encoding="ascii")
+            self.assertTrue(manifest.has_section("Cell.1.0.Active"))
+            self.assertEqual(manifest.getint("Cell.1.0.Active", "Frames"), 8)
+            self.assertEqual(manifest.getint("Cell.1.0.Active", "AtlasCount"), 8)
+            self.assertTrue(manifest.getboolean("Cell.1.0.Active", "Loop"))
+            self.assertEqual(manifest.getint("Cell.1.0.Active", "FrameWidth"), 64)
+            self.assertEqual(manifest.getint("Cell.1.0.Active", "AnchorY"), 64)
+            # The engine requires every chunk to start exactly where the
+            # previous one ended, in order, and to cover Frames in total.
+            covered = 0
+            for index in range(8):
+                self.assertEqual(manifest.getint("Cell.1.0.Active", f"FirstFrame.{index}"), covered)
+                covered += manifest.getint("Cell.1.0.Active", f"ChunkFrames.{index}")
+                self.assertEqual(
+                    manifest.get("Cell.1.0.Active", f"Atlas.{index}"),
+                    f"atlases/active/d1_v0/{index:02d}.png",
+                )
+            self.assertEqual(covered, 8)
+            # Frame N holds authored phase N+1.
+            for index in range(8):
+                with Image.open(output / "atlases" / "active" / "d1_v0" / f"{index:02d}.png") as frame:
+                    self.assertEqual(frame.convert("RGBA").getpixel((0, 0)), ((index + 1) * 10, 0, 0, 255))
+            # An undeveloped cell never smokes.
+            self.assertFalse(manifest.has_section("Cell.0.0.Active"))
+
+    def test_partial_industrial_phase_chain_falls_back_to_idle(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            phases = {phase: True for phase in range(1, 9)}
+            phases[5] = False
+            unit = self._industrial_unit(root, phases)
+            output = root / "output"
+
+            self.assertEqual(MODULE.package(unit, output, 24, 1), 2)
+
+            manifest = configparser.ConfigParser()
+            manifest.optionxform = str
+            manifest.read(output / "zone.ini", encoding="ascii")
+            # No partial chain: the engine keeps the static Idle Compact.
+            self.assertFalse(manifest.has_section("Cell.1.0.Active"))
+            self.assertTrue(manifest.has_section("Cell.1.0.Idle"))
+            self.assertFalse((output / "atlases" / "active").exists())
+
+    def test_reordered_industrial_phase_metadata_still_packages_authored_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # Declare the states back to front; lookup is by phase number, so
+            # the packaged frame order must not follow the metadata order.
+            unit = self._industrial_unit(root, {phase: True for phase in range(8, 0, -1)})
+            metadata = json.loads((unit / "unit.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                [key for key in metadata["categories"]["building_idle"]["states"] if "_phase_" in key],
+                [f"d1_v0_phase_{phase}" for phase in range(8, 0, -1)],
+            )
+            output = root / "output"
+
+            self.assertEqual(MODULE.package(unit, output, 24, 1), 2)
+
+            for index in range(8):
+                with Image.open(output / "atlases" / "active" / "d1_v0" / f"{index:02d}.png") as frame:
+                    self.assertEqual(frame.convert("RGBA").getpixel((0, 0)), ((index + 1) * 10, 0, 0, 255))
+
+    def test_industrial_phase_resize_keeps_pixel_art_edges(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            unit = self._industrial_unit(
+                root, {phase: True for phase in range(1, 9)}, phase_size=(32, 32)
+            )
+            # Author one phase as a hard two-colour edge at half the target size.
+            edge = unit / "categories" / "building_idle" / "states" / "d1_v0_phase_1" / "processed.png"
+            image = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
+            for x in range(16, 32):
+                for y in range(32):
+                    image.putpixel((x, y), (255, 255, 255, 255))
+            image.save(edge)
+            output = root / "output"
+
+            MODULE.package(unit, output, 24, 1)
+
+            with Image.open(output / "atlases" / "active" / "d1_v0" / "00.png") as frame:
+                scaled = frame.convert("RGBA")
+                self.assertEqual(scaled.size, (64, 64))
+                # Nearest neighbour introduces no blended intermediate pixels.
+                self.assertEqual(
+                    {pixel for pixel in scaled.getdata()},
+                    {(0, 0, 0, 255), (255, 255, 255, 255)},
+                )
 
     def test_sync_scans_manifests_and_packages_zone_and_building(self):
         with tempfile.TemporaryDirectory() as temporary:

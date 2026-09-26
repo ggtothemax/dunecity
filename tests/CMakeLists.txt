@@ -394,6 +394,10 @@ endif()
 if(APPLE AND CMAKE_GENERATOR STREQUAL "Ninja")
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME graphics_skin_probe COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_SOURCE_DIR}/tests/skins/run-skin-probe.py
+            --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/skin-probe)
+        set_tests_properties(graphics_skin_probe PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
         add_test(NAME menu_navigation_probe COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_SOURCE_DIR}/tests/menu/run-menu-probe.py
             --build-dir ${CMAKE_BINARY_DIR} --output-dir ${CMAKE_BINARY_DIR}/menu-probe)

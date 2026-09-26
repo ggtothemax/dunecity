@@ -1,3 +1,46 @@
+## 2026-09-26 — Graphics PR integration candidate (1.0.786)
+
+Clean integration branch from main 6d8e2a92 replays PR77 (bb88766b, bb2c1481)
+and ports the useful PR75-only cache recovery and industrial activity support.
+All 397 PR77 skin files are unchanged: 34 packages (23 zones, 11 buildings),
+32 authored icons. The PR75 payload is an exact 395-file subset; PR77 adds
+Atreides Stadium. No current-main AI/gameplay/map/protocol work was replaced.
+
+Graphics-only desktop refresh no longer triggers a gameplay reseed and detects
+same-version/same-size byte changes. Android has a separate extraction marker
+inside graphics_skins; the Advanced cache action recovers on process restart.
+Local cache metadata no longer invalidates stock-mod content approval. Actual
+art and rule files remain checked. New real-SDL tests cover cache safety,
+selected zone portraits/fallbacks and campaign/co-op setup propagation.
+
+Native Release app is built in dunecity-skins-integration/build/bin/dunecity.app
+on claw.local. Dependency audits and eight packaging tests pass. Full CTest
+and focused rerun evidence is in ../outputs/skins-integration-786/. Initial full
+suite failures in menu approval and city stats shared the cache-stamp approval
+cause, now corrected. See docs/dunecity-skins-integration.md for full dispositions,
+play-test steps, and final validation limits; no phone or two-player test claimed.
+
+Stefan subsequently confirmed to integrate whatever assets are present. Neither
+source PR changed when rechecked. The absent industrial Active phase images are
+an acknowledged limitation, not a merge blocker. Atreides Stadium is included.
+Integration CI 36199247907 passed Windows, Linux, browser, unit and service jobs;
+Mac was built/tested locally. Do not claim visible industrial smoke from these
+static packages, Android device testing, or a real two-player acceptance test.
+
+## 2026-09-25 — Selected DuneCity zone icons (PR #77, 1.0.785)
+
+The selected-zone sidebar was still hiding the ordinary per-house portrait and drawing a live top-down zone preview over it. Dune2-skinned Residential, Commercial, and Industrial zones now display the same authored Icon Sprite portrait used by the build menu. Unskinned zones and Hospital/Church civic overlays retain the live preview. A zone UI regression check covers this switch. Source metadata is bumped to 1.0.785 for the PR update.
+
+## 2026-09-25 — Latest main, DuneCity skins, Android refresh and campaign skin choice (local 1.0.783)
+
+Fast-forwarded this Windows checkout to Stefan's `origin/main` at `6d8e2a92` and synchronized 34 accepted Oathkeeper DuneCity packages (23 zones, 11 buildings). The skin packager now includes an accepted landscape Icon Sprite Compact as `icon.png`; 32 icon files are present, while packages without accepted icons keep the engine fallback. The two units without eligible Compact cells remain skipped.
+
+Android APK staging now keys its payload marker to both the bundled skin bytes and the native library, so same-version test rebuilds refresh assets. Android extracts the payload directly to its app-storage mod directory; the C++ seeder now recognizes that source and destination are identical and avoids copying each skin onto itself. Desktop's separate bundled source and profile destination use a content fingerprint to reseed changed skins, including same-size artwork changes. Campaign setup exposes a DuneCity SimCity/Dune2 skin selector; its choice is put into campaign init settings and the co-op lobby default. Joining players can adjust their house's Skin dropdown in the co-op lobby.
+
+`python -m unittest tests.test_dunecity_skin_packaging` passed (4 tests). Android arm64 native and debug APK builds succeeded with the pinned `p2pkit` dependency installed using `npm ci --allow-git=all` in `platform/web`. Installed via `adb install -r` on device `3107TF1010002728`, preserving app data. The game launched as app 1.0.783; all 32 installed icons were present, and the installed Atreides Residential icon SHA-256 matched the packaged source. An on-device screenshot confirmed the new campaign selector shows Dune2. A full campaign/co-op session and visual sidebar-icon pass remain for play testing; no online session was started during this check.
+
+The review branch bumps source metadata to 1.0.784 for PR CI; the on-device APK above is the pre-bump 1.0.783 test build, not a 1.0.784 release build.
+
 ## 2026-09-24 — Opening space, prompt colonies and launcher air defence (local 1.0.783)
 
 Captured MBA 782 session 1790250645152912-0 on Sihaya-O'Donnell 128x64,

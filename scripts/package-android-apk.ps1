@@ -96,6 +96,28 @@ function Get-FullPath([string]$Path) {
     return [System.IO.Path]::GetFullPath($Path)
 }
 
+function Get-DirectoryContentFingerprint([string]$Path) {
+    # Hashes relative paths plus file content, so re-authored artwork of an
+    # identical byte count still produces a new fingerprint. Returns a short
+    # token safe for an Android marker filename.
+    if (-not (Test-Path -LiteralPath $Path)) {
+        throw "Cannot fingerprint missing directory: $Path"
+    }
+    $root = (Get-FullPath $Path).TrimEnd('\')
+    $files = @(Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName)
+    $entries = foreach ($file in $files) {
+        $relative = $file.FullName.Substring($root.Length).Replace('\', '/')
+        "$relative $((Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash)"
+    }
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes(($entries -join "`n"))
+    $hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return ([System.BitConverter]::ToString($hasher.ComputeHash($bytes))).Replace('-', '').Substring(0, 16)
+    } finally {
+        $hasher.Dispose()
+    }
+}
+
 function Assert-UnderRoot([string]$Path, [string]$Root) {
     $fullPath = Get-FullPath $Path
     $fullRoot = (Get-FullPath $Root).TrimEnd('\') + '\'
@@ -274,6 +296,12 @@ if ($androidVersionCode -le 0 -or $androidVersionCode -gt 2100000000) {
     throw "Android versionCode must be between 1 and 2100000000."
 }
 $payloadVersion = $androidVersionName -replace '[^0-9A-Za-z._-]', '_'
+# The DuneCity skin tree carries its own marker inside graphics_skins, so its
+# content hash no longer has to force a full payload recopy; only the engine
+# fingerprint does. Artwork-only updates then re-extract that subtree alone and
+# leave authored gameplay configuration, other mods, saves and settings in place.
+$duneCitySkinsPath = Join-Path $RepoRoot 'mods\dunecity\graphics_skins'
+$duneCitySkinsVersion = Get-DirectoryContentFingerprint $duneCitySkinsPath
 
 $nativeBuildPath = if ([System.IO.Path]::IsPathRooted($NativeBuildDir)) {
     Get-FullPath $NativeBuildDir
@@ -337,6 +365,13 @@ if ($BuildNative) {
         Write-Host "Android toolchain requirements unchanged; reusing warm native build cache."
     }
 
+    # FetchContent checks out libdatachannel under the Android build tree.
+    # This drive may not record ownership; authorize only that fetched clone
+    # for this build process, without changing the user's global Git config.
+    $env:GIT_CONFIG_COUNT = '1'
+    $env:GIT_CONFIG_KEY_0 = 'safe.directory'
+    $env:GIT_CONFIG_VALUE_0 = (Join-Path $nativeBuildPath '_deps\libdatachannel-src').Replace('\', '/')
+
     $configureArguments = @(
         "-S", $RepoRoot,
         "-B", $nativeBuildPath,
@@ -353,15 +388,15 @@ if ($BuildNative) {
         "-DCMAKE_BUILD_TYPE=Release",
         "-DDUNECITY_BUILD_TESTS=OFF"
     )
-    & $cmakeCommand.Source @configureArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "Android CMake configure failed with exit code $LASTEXITCODE"
-    }
-
     [ordered]@{
         fingerprint = $fingerprint
         requirements = $fingerprintData
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $stampPath -Encoding ASCII
+
+    & $cmakeCommand.Source @configureArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Android CMake configure failed with exit code $LASTEXITCODE"
+    }
 
     & $cmakeCommand.Source --build $nativeBuildPath --target dunecity --parallel $NativeBuildJobs
     if ($LASTEXITCODE -ne 0) {
@@ -374,6 +409,8 @@ $nativeLib = Join-Path $nativeBuildPath "lib\libmain.so"
 if (-not (Test-Path -LiteralPath $nativeLib)) {
     throw "Missing native library: $nativeLib. Run this script with -BuildNative."
 }
+$nativeFingerprint = (Get-FileHash -LiteralPath $nativeLib -Algorithm SHA256).Hash.Substring(0, 16)
+$payloadVersion = "$payloadVersion`_$nativeFingerprint"
 
 $sdlSourceRoots = @(
     (Join-Path $nativeBuildPath "vcpkg_installed\vcpkg\blds\sdl2\src"),
@@ -565,6 +602,9 @@ public class Dune2RActivity extends SDLActivity {
     private static final String TAG = "Dune2RActivity";
     private static final String PAYLOAD_ROOT = "dune2r_payload";
     private static final String PAYLOAD_MARKER = ".dune2r_payload___PAYLOAD_VERSION__";
+    private static final String SKINS_RELATIVE_PATH = "mods/dunecity/graphics_skins";
+    private static final String SKINS_MARKER_PREFIX = ".dune2r_graphics_skins_";
+    private static final String SKINS_MARKER = SKINS_MARKER_PREFIX + "__SKINS_VERSION__";
 
     @Override
     protected String[] getLibraries() {
@@ -615,15 +655,56 @@ public class Dune2RActivity extends SDLActivity {
 
         File marker = new File(outputRoot, PAYLOAD_MARKER);
         if (marker.exists()) {
+            // The full payload is current. The presentation cache is tracked
+            // separately so an artwork-only update, or a cache cleared from
+            // Settings > Advanced, re-extracts just that subtree without
+            // rewriting authored gameplay configuration or other mods.
+            refreshGraphicsSkins(outputRoot);
             return;
         }
 
         try {
             copyAssetTree(getAssets(), PAYLOAD_ROOT, outputRoot);
+            writeGraphicsSkinsMarker(outputRoot);
             marker.createNewFile();
         } catch (IOException e) {
             throw new RuntimeException("Failed to stage Dune2R payload", e);
         }
+    }
+
+    private void refreshGraphicsSkins(File outputRoot) {
+        File skinsRoot = new File(outputRoot, SKINS_RELATIVE_PATH);
+        if (new File(skinsRoot, SKINS_MARKER).exists()) {
+            return;
+        }
+
+        try {
+            // Deleting graphics_skins also deletes the marker, so this both
+            // restores a cleared cache and installs a newer skin revision.
+            copyAssetTree(getAssets(), PAYLOAD_ROOT + "/" + SKINS_RELATIVE_PATH, outputRoot);
+            writeGraphicsSkinsMarker(outputRoot);
+            Log.i(TAG, "Re-extracted DuneCity graphics skins from the APK payload");
+        } catch (IOException e) {
+            // A missing presentation cache is recoverable: the engine falls
+            // back to its built-in artwork rather than failing to start.
+            Log.e(TAG, "Failed to stage DuneCity graphics skins", e);
+        }
+    }
+
+    private void writeGraphicsSkinsMarker(File outputRoot) throws IOException {
+        File skinsRoot = new File(outputRoot, SKINS_RELATIVE_PATH);
+        if (!skinsRoot.isDirectory()) {
+            return;
+        }
+        File[] existing = skinsRoot.listFiles();
+        if (existing != null) {
+            for (File candidate : existing) {
+                if (candidate.isFile() && candidate.getName().startsWith(SKINS_MARKER_PREFIX)) {
+                    candidate.delete();
+                }
+            }
+        }
+        new File(skinsRoot, SKINS_MARKER).createNewFile();
     }
 
     private void copyAssetTree(AssetManager assets, String assetPath, File outputRoot) throws IOException {
@@ -658,6 +739,7 @@ public class Dune2RActivity extends SDLActivity {
 }
 '@
 $activity = $activity.Replace("__PAYLOAD_VERSION__", $payloadVersion)
+$activity = $activity.Replace("__SKINS_VERSION__", $duneCitySkinsVersion)
 Set-Content -LiteralPath (Join-Path $activityDir "Dune2RActivity.java") -Value $activity -Encoding ASCII
 
 $stringsPath = Join-Path $stageDir "app\src\main\res\values\strings.xml"
@@ -763,6 +845,7 @@ if ($BuildApk) {
 Write-Host "APK project staged: $stageDir"
 Write-Host "APK version: $androidVersionName ($androidVersionCode)"
 Write-Host "DuneCity payload version: $projectVersion"
+Write-Host "DuneCity graphics skins version: $duneCitySkinsVersion"
 Write-Host "Data payload staged: $payloadDir"
 Write-Host "Native libs staged: $jniLibsArm64"
 Write-Host "Install APK: adb install -r `"$stageDir\app\build\outputs\apk\debug\DuneLegacy.apk`""

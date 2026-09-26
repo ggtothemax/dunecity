@@ -18,6 +18,61 @@ from pathlib import Path
 from PIL import Image
 
 
+def write_manifest(path: Path, text: str) -> None:
+    """Write an engine manifest as ASCII with LF endings on every platform.
+
+    Writing bytes keeps the exact same output as Path.write_text(newline="\\n")
+    while still running on the Python 3.9 that ships with macOS.
+    """
+    path.write_bytes((text.rstrip() + "\n").encode("ascii"))
+
+
+# Industrial smoke is authored as a fixed eight-phase chain. A partial chain is
+# not animated: the engine keeps the static Idle Compact through its fallback.
+INDUSTRIAL_ACTIVITY_PHASES = 8
+
+
+def industrial_activity_paths(states: dict, asset_root: Path, slot: str) -> list[Path]:
+    """Return the slot's eight smoke phases in authored phase order.
+
+    The chain is all-or-nothing. Phases are looked up by their declared phase
+    number rather than by the order they happen to appear in the metadata, so a
+    reordered source file still packages frame 0 as phase 1. A missing or
+    unreadable phase yields an empty list and no Active section is written.
+    """
+    ordered: list[Path] = []
+    for phase in range(1, INDUSTRIAL_ACTIVITY_PHASES + 1):
+        state = states.get(f"{slot}_phase_{phase}", {})
+        compact_value = state.get("assets", {}).get("processed", {}).get("file", "")
+        if not compact_value:
+            return []
+        phase_path = (asset_root / compact_value).resolve()
+        if not phase_path.is_relative_to(asset_root.resolve()) or not phase_path.is_file():
+            return []
+        ordered.append(phase_path)
+    return ordered
+
+
+def package_icon(metadata: dict, asset_root: Path, output: Path) -> bool:
+    """Install the accepted sidebar Compact, never the unapproved HQ image."""
+    icon_assets = (metadata.get("categories", {})
+                   .get("icon_sprite", {}).get("states", {})
+                   .get("default", {}).get("assets", {}))
+    compact_value = icon_assets.get("processed", {}).get("file", "")
+    if not compact_value:
+        return False
+    icon_path = (asset_root / compact_value).resolve()
+    if not icon_path.is_relative_to(asset_root.resolve()) or not icon_path.is_file():
+        return False
+    with Image.open(icon_path) as source:
+        icon = source.convert("RGBA")
+        if icon.width * 55 != icon.height * 91:
+            raise ValueError(f"Icon Compact must have 91:55 aspect ratio: {icon_path}")
+        output.mkdir(parents=True, exist_ok=True)
+        icon.save(output / "icon.png", optimize=True)
+    return True
+
+
 def package(source_unit: Path, output: Path, item_id: int, house_id: int) -> int:
     source_unit = source_unit.resolve()
     metadata = json.loads((source_unit / "unit.json").read_text(encoding="utf-8"))
@@ -47,6 +102,7 @@ def package(source_unit: Path, output: Path, item_id: int, house_id: int) -> int
         or 16
     )))
     asset_root = source_unit.parent.parent
+    asset_class = str(city.get("asset_class") or metadata.get("asset_class") or "").lower()
 
     manifest = configparser.ConfigParser()
     manifest.optionxform = str
@@ -105,11 +161,49 @@ def package(source_unit: Path, output: Path, item_id: int, house_id: int) -> int
             }
             packaged += 1
 
+            # Industrial's native renderer advances eight powered smoke phases
+            # for every developed density/value cell. Keep those authored
+            # frames separate from the static growth sprite so the engine can
+            # fall back to Idle until a complete, ordered phase chain exists.
+            if asset_class == "industrial" and density > 0:
+                activity_paths = industrial_activity_paths(states, asset_root, slot)
+                if activity_paths:
+                    activity_section = f"Cell.{density}.{value}.Active"
+                    manifest[activity_section] = {
+                        "Frames": str(INDUSTRIAL_ACTIVITY_PHASES),
+                        "FrameMs": "128",
+                        "FrameWidth": str(target_size[0]),
+                        "FrameHeight": str(target_size[1]),
+                        "AnchorX": str(target_size[0] // 2),
+                        "AnchorY": str(target_size[1]),
+                        "Loop": "true",
+                        "AtlasCount": str(INDUSTRIAL_ACTIVITY_PHASES),
+                        "Fallback": "idle-growth-cell",
+                    }
+                    for phase_index, activity_path in enumerate(activity_paths):
+                        frame_destination = Path("atlases") / "active" / slot / f"{phase_index:02d}.png"
+                        (output / frame_destination).parent.mkdir(parents=True, exist_ok=True)
+                        with Image.open(activity_path) as source:
+                            phase = source.convert("RGBA")
+                            if phase.size != target_size:
+                                # Smoke phases are authored pixel art; nearest
+                                # neighbour keeps the hard edges that the
+                                # accepted Compact was reviewed with.
+                                phase = phase.resize(target_size, Image.Resampling.NEAREST)
+                            phase.save(output / frame_destination, optimize=True)
+                        suffix = str(phase_index)
+                        manifest[activity_section][f"Atlas.{suffix}"] = frame_destination.as_posix()
+                        manifest[activity_section][f"FirstFrame.{suffix}"] = str(phase_index)
+                        manifest[activity_section][f"ChunkFrames.{suffix}"] = "1"
+                        manifest[activity_section][f"Columns.{suffix}"] = "1"
+                        manifest[activity_section][f"Rows.{suffix}"] = "1"
+
     if packaged == 0:
         raise SystemExit("No accepted Compact density/value cells were eligible for packaging")
     text = io.StringIO()
     manifest.write(text, space_around_delimiters=False)
-    (output / "zone.ini").write_text(text.getvalue().rstrip() + "\n", encoding="ascii", newline="\n")
+    write_manifest(output / "zone.ini", text.getvalue())
+    package_icon(metadata, asset_root, output)
     print(f"wrote {output / 'zone.ini'} with {packaged} accepted Compact cell(s)")
     return packaged
 
@@ -162,7 +256,8 @@ def package_building(source_unit: Path, output: Path, obj_pic: str, house_id: in
     manifest["Building"]["Frames"] = str(packaged)
     text = io.StringIO()
     manifest.write(text, space_around_delimiters=False)
-    (output / "building.ini").write_text(text.getvalue().rstrip() + "\n", encoding="ascii", newline="\n")
+    write_manifest(output / "building.ini", text.getvalue())
+    package_icon(metadata, asset_root, output)
     print(f"wrote {output / 'building.ini'} with {packaged} accepted Compact frame(s)")
     return packaged
 

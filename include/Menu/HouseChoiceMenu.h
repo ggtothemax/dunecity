@@ -44,6 +44,7 @@ public:
     static int getStartLevel() { return s_startLevel; }
     static int getSupportBotIndex() { return s_supportBotIndex; }
     static int getEnemyAIIndex() { return s_enemyAIIndex; }
+    static int getCampaignSkin() { return s_campaignSkin; }
     static const SettingsClass::GameOptionsClass& getGameOptions() { return s_currentGameOptions; }
 
 private:
@@ -77,6 +78,7 @@ private:
     PictureButton   houseRightButton;
 
     DropDownBox     startLevelDropDown;
+    DropDownBox     campaignSkinDropDown;
     DropDownBox     modDropDown;
     TextView        modDescription;
     std::vector<ModInfo> availableMods;
@@ -97,6 +99,7 @@ private:
     static int s_startLevel;
     static int s_supportBotIndex;
     static int s_enemyAIIndex;
+    static int s_campaignSkin;
     static SettingsClass::GameOptionsClass s_currentGameOptions;
 };
 
